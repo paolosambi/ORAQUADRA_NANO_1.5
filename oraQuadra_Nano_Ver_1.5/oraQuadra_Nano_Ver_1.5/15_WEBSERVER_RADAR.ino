@@ -1,0 +1,559 @@
+// ================== WEB SERVER PER RICEZIONE NOTIFICHE RADAR REMOTO ==================
+// Questo modulo gestisce le notifiche inviate dal RADAR SERVER (ESP32-C3 con LD2412)
+// Il radar server invia notifiche HTTP quando cambia lo stato di presenza o luminosità
+//
+// FUNZIONALITA':
+// 1. Registrazione automatica sul radar server all'avvio
+// 2. Ricezione notifiche presenza e luminosità
+// 3. Fallback su radar locale se radar server non disponibile
+//
+// Endpoint ricevuti dal radar server:
+// - GET /radar/presence?value=true/false  -> Cambia stato presenza
+// - GET /radar/brightness?value=XXX       -> Imposta luminosità display (0-255)
+// - GET /radar/test?value=ping            -> Test connessione
+
+// ================== VARIABILI RADAR REMOTO ==================
+// IP del radar server (default: 0.0.0.0 = disabilitato)
+uint8_t radarServerIP[4] = {0, 0, 0, 0};
+bool radarServerEnabled = false;           // Flag per abilitare radar server remoto
+bool radarServerConnected = false;         // Flag connessione radar server
+unsigned long lastRadarServerCheck = 0;    // Timestamp ultimo tentativo connessione
+unsigned long lastRadarRemoteUpdate = 0;   // Timestamp ultima ricezione dati
+#define RADAR_SERVER_CHECK_INTERVAL 15000  // Intervallo check connessione (15 sec)
+#define RADAR_SERVER_TIMEOUT 30000         // Timeout connessione (30 sec) - server sync ogni 10 sec
+
+// Stato ricevuto dal radar remoto
+bool radarRemotePresence = true;           // Stato presenza dal radar remoto
+uint8_t radarRemoteBrightness = 128;       // Luminosità dal radar remoto (0-255)
+float radarRemoteTemperature = 0.0;        // Temperatura dal radar server (BME280)
+float radarRemoteHumidity = 0.0;           // Umidità dal radar server (BME280)
+
+// ================== FUNZIONI EEPROM RADAR SERVER ==================
+
+// Carica IP radar server da EEPROM
+void loadRadarServerConfig() {
+  // Prima verifica il marker di validità
+  uint8_t validMarker = EEPROM.read(EEPROM_RADAR_SERVER_VALID);
+
+  Serial.printf("[RADAR REMOTE] EEPROM validMarker: 0x%02X (atteso 0x%02X)\n",
+                validMarker, EEPROM_RADAR_SERVER_VALID_VALUE);
+
+  if (validMarker != EEPROM_RADAR_SERVER_VALID_VALUE) {
+    // Config non valida o mai scritta - usa default
+    Serial.println("[RADAR REMOTE] Config EEPROM non valida, uso default");
+    radarServerIP[0] = 0;
+    radarServerIP[1] = 0;
+    radarServerIP[2] = 0;
+    radarServerIP[3] = 0;
+    radarServerEnabled = false;
+    return;
+  }
+
+  // Marker valido, leggi configurazione
+  radarServerIP[0] = EEPROM.read(EEPROM_RADAR_SERVER_IP_ADDR);
+  radarServerIP[1] = EEPROM.read(EEPROM_RADAR_SERVER_IP_ADDR + 1);
+  radarServerIP[2] = EEPROM.read(EEPROM_RADAR_SERVER_IP_ADDR + 2);
+  radarServerIP[3] = EEPROM.read(EEPROM_RADAR_SERVER_IP_ADDR + 3);
+  uint8_t enabledVal = EEPROM.read(EEPROM_RADAR_SERVER_ENABLED);
+  radarServerEnabled = (enabledVal == 1);
+
+  Serial.printf("[RADAR REMOTE] Config caricata - IP: %d.%d.%d.%d, Enabled: %s\n",
+                radarServerIP[0], radarServerIP[1], radarServerIP[2], radarServerIP[3],
+                radarServerEnabled ? "SI" : "NO");
+}
+
+// Salva IP radar server su EEPROM
+void saveRadarServerConfig() {
+  Serial.printf("[RADAR REMOTE] Salvataggio EEPROM - IP: %d.%d.%d.%d, Enabled: %d\n",
+                radarServerIP[0], radarServerIP[1], radarServerIP[2], radarServerIP[3],
+                radarServerEnabled ? 1 : 0);
+
+  // Scrivi IP
+  EEPROM.write(EEPROM_RADAR_SERVER_IP_ADDR, radarServerIP[0]);
+  EEPROM.write(EEPROM_RADAR_SERVER_IP_ADDR + 1, radarServerIP[1]);
+  EEPROM.write(EEPROM_RADAR_SERVER_IP_ADDR + 2, radarServerIP[2]);
+  EEPROM.write(EEPROM_RADAR_SERVER_IP_ADDR + 3, radarServerIP[3]);
+  // Scrivi enabled
+  EEPROM.write(EEPROM_RADAR_SERVER_ENABLED, radarServerEnabled ? 1 : 0);
+  // Scrivi marker di validità
+  EEPROM.write(EEPROM_RADAR_SERVER_VALID, EEPROM_RADAR_SERVER_VALID_VALUE);
+
+  bool ok = EEPROM.commit();
+  Serial.printf("[RADAR REMOTE] EEPROM.commit() = %s\n", ok ? "OK" : "ERRORE");
+
+  // Verifica lettura
+  uint8_t v0 = EEPROM.read(EEPROM_RADAR_SERVER_IP_ADDR);
+  uint8_t v1 = EEPROM.read(EEPROM_RADAR_SERVER_IP_ADDR + 1);
+  uint8_t v2 = EEPROM.read(EEPROM_RADAR_SERVER_IP_ADDR + 2);
+  uint8_t v3 = EEPROM.read(EEPROM_RADAR_SERVER_IP_ADDR + 3);
+  uint8_t marker = EEPROM.read(EEPROM_RADAR_SERVER_VALID);
+  Serial.printf("[RADAR REMOTE] Verifica EEPROM: %d.%d.%d.%d marker=0x%02X\n", v0, v1, v2, v3, marker);
+}
+
+// Converte IP array in stringa
+String radarServerIPString() {
+  return String(radarServerIP[0]) + "." + String(radarServerIP[1]) + "." +
+         String(radarServerIP[2]) + "." + String(radarServerIP[3]);
+}
+
+// ================== REGISTRAZIONE SUL RADAR SERVER ==================
+
+// Tenta di registrare questo client sul radar server
+bool registerOnRadarServer() {
+  if (!radarServerEnabled || WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  // Verifica IP valido
+  if (radarServerIP[0] == 0 && radarServerIP[1] == 0 &&
+      radarServerIP[2] == 0 && radarServerIP[3] == 0) {
+    Serial.println("[RADAR REMOTE] IP radar server non configurato");
+    return false;
+  }
+
+  HTTPClient http;
+  // Usa endpoint /api/devices/add del radar client
+  String url = "http://" + radarServerIPString() + "/api/devices/add";
+  url += "?ip=" + WiFi.localIP().toString();
+  url += "&port=8080";  // oraQuadraNano usa porta 8080
+  url += "&name=oraQuadraNano";
+
+  Serial.printf("[RADAR REMOTE] Registrazione su %s...\n", url.c_str());
+
+  http.begin(url);
+  http.setTimeout(5000);  // Timeout 5 secondi
+  Serial.println("[RADAR REMOTE] Invio richiesta registrazione...");
+  int httpCode = http.GET();
+  http.end();
+
+  if (httpCode != 200) {
+    Serial.printf("[RADAR REMOTE] Registrazione FALLITA (HTTP %d)\n", httpCode);
+    radarServerConnected = false;
+    return false;
+  }
+
+  Serial.println("[RADAR REMOTE] Registrazione OK, leggo stato...");
+
+  // Ora leggi lo stato corrente da /api/status
+  HTTPClient http2;
+  String statusUrl = "http://" + radarServerIPString() + "/api/status";
+  http2.begin(statusUrl);
+  http2.setTimeout(5000);  // Timeout 5 secondi
+  int statusCode = http2.GET();
+
+  if (statusCode == 200) {
+    String response = http2.getString();
+    Serial.printf("[RADAR REMOTE] Status ricevuto: %d bytes\n", response.length());
+
+    radarServerConnected = true;
+    lastRadarRemoteUpdate = millis();
+
+    // Estrai ambientLight (luminosita)
+    int briIdx = response.indexOf("\"ambientLight\":");
+    if (briIdx > 0) {
+      int briStart = briIdx + 15;
+      int briEnd = response.indexOf(",", briStart);
+      if (briEnd > briStart) {
+        String briStr = response.substring(briStart, briEnd);
+        int briVal = briStr.toInt();
+        radarRemoteBrightness = constrain(briVal, 0, 255);
+        Serial.printf("[RADAR REMOTE] Luminosita iniziale: %d\n", radarRemoteBrightness);
+
+        if (radarBrightnessControl && radarRemotePresence) {
+          uint8_t mappedBrightness = map(radarRemoteBrightness, 0, 255, radarBrightnessMin, radarBrightnessMax);
+          ledcWrite(PWM_CHANNEL, mappedBrightness);
+          lastAppliedBrightness = mappedBrightness;
+        }
+      }
+    }
+
+    // Estrai presence
+    int presIdx = response.indexOf("\"presence\":");
+    if (presIdx > 0) {
+      int presValStart = presIdx + 11;
+      String presVal = response.substring(presValStart, presValStart + 6);
+      radarRemotePresence = (presVal.indexOf("true") >= 0);
+      Serial.printf("[RADAR REMOTE] Presenza iniziale: %s\n", radarRemotePresence ? "SI" : "NO");
+    }
+
+    // Estrai temperatura
+    int tempIdx = response.indexOf("\"temperature\":");
+    if (tempIdx > 0) {
+      int tempStart = tempIdx + 14;
+      int tempEnd = response.indexOf(",", tempStart);
+      if (tempEnd > tempStart) {
+        radarRemoteTemperature = response.substring(tempStart, tempEnd).toFloat();
+        Serial.printf("[RADAR REMOTE] Temperatura: %.1f\n", radarRemoteTemperature);
+      }
+    }
+
+    // Estrai umidita
+    int humIdx = response.indexOf("\"humidity\":");
+    if (humIdx > 0) {
+      int humStart = humIdx + 11;
+      int humEnd = response.indexOf(",", humStart);
+      if (humEnd > humStart) {
+        radarRemoteHumidity = response.substring(humStart, humEnd).toFloat();
+        Serial.printf("[RADAR REMOTE] Umidita: %.1f\n", radarRemoteHumidity);
+      }
+    }
+
+    http2.end();
+    return true;
+  } else {
+    Serial.printf("[RADAR REMOTE] Status FALLITO (HTTP %d)\n", statusCode);
+    http2.end();
+    return false;
+  }
+}
+
+// Verifica connessione con radar server (ping)
+bool checkRadarServerConnection() {
+  if (!radarServerEnabled || WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  HTTPClient http;
+  String url = "http://" + radarServerIPString() + "/api/status";
+
+  http.begin(url);
+  http.setTimeout(2000);
+  int httpCode = http.GET();
+
+  if (httpCode == 200) {
+    radarServerConnected = true;
+    return true;
+  } else {
+    radarServerConnected = false;
+    return false;
+  }
+  http.end();
+}
+
+// ================== GESTIONE FALLBACK RADAR LOCALE ==================
+
+// Verifica se usare radar remoto o locale
+bool useRemoteRadar() {
+  // Usa radar remoto se abilitato, connesso e dati recenti
+  if (radarServerEnabled && radarServerConnected) {
+    if ((millis() - lastRadarRemoteUpdate) < RADAR_SERVER_TIMEOUT) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ================== HANDLER ENDPOINT RADAR ==================
+
+// GET /radar/presence?value=true/false
+void handleRadarPresence(AsyncWebServerRequest *request) {
+  if (request->hasParam("value")) {
+    String value = request->getParam("value")->value();
+    bool newPresence = (value == "true" || value == "1");
+
+    radarRemotePresence = newPresence;
+    radarServerConnected = true;
+    lastRadarRemoteUpdate = millis();
+
+    Serial.printf("[RADAR REMOTE] Presenza: %s\n", newPresence ? "SI" : "NO");
+
+    // Applica effetto sul display
+    if (newPresence) {
+      // Presenza rilevata - riaccendi display
+      if (radarBrightnessControl) {
+        uint8_t wakeupBrightness = map(radarRemoteBrightness, 0, 255, radarBrightnessMin, radarBrightnessMax);
+        ledcWrite(PWM_CHANNEL, wakeupBrightness);
+        lastAppliedBrightness = wakeupBrightness;
+        Serial.printf("[RADAR REMOTE] Display ON - Lum: %d\n", wakeupBrightness);
+      } else {
+        // Usa luminosità manuale giorno/notte
+        uint8_t wakeupBrightness = checkIsNightTime(currentHour, currentMinute) ? brightnessNight : brightnessDay;
+        ledcWrite(PWM_CHANNEL, wakeupBrightness);
+        lastAppliedBrightness = wakeupBrightness;
+        Serial.printf("[RADAR REMOTE] Display ON - Lum manuale: %d\n", wakeupBrightness);
+      }
+    } else {
+      // Nessuna presenza - spegni display (radar server ha priorità)
+      ledcWrite(PWM_CHANNEL, 0);
+      lastAppliedBrightness = 0;
+      Serial.println("[RADAR REMOTE] Display OFF - Nessuna presenza");
+    }
+
+    request->send(200, "application/json", "{\"status\":\"ok\"}");
+  } else {
+    request->send(400, "application/json", "{\"error\":\"missing value\"}");
+  }
+}
+
+// GET /radar/brightness?value=XXX
+void handleRadarBrightness(AsyncWebServerRequest *request) {
+  if (request->hasParam("value")) {
+    int value = request->getParam("value")->value().toInt();
+    value = constrain(value, 0, 255);
+
+    radarRemoteBrightness = value;
+    radarServerConnected = true;
+    lastRadarRemoteUpdate = millis();
+
+    // Applica luminosità SEMPRE se c'è presenza (più reattivo)
+    if (radarRemotePresence) {
+      // Mappa 0-255 -> radarBrightnessMin-radarBrightnessMax
+      uint8_t mappedBrightness = map(value, 0, 255, radarBrightnessMin, radarBrightnessMax);
+      ledcWrite(PWM_CHANNEL, mappedBrightness);
+      lastAppliedBrightness = mappedBrightness;
+      Serial.printf("[RADAR REMOTE] Luce RAW=%d -> PWM=%d\n", value, mappedBrightness);
+    }
+
+    request->send(200, "application/json", "{\"status\":\"ok\"}");
+  } else {
+    request->send(400, "application/json", "{\"error\":\"missing value\"}");
+  }
+}
+
+// GET /radar/test?value=ping
+void handleRadarTest(AsyncWebServerRequest *request) {
+  radarServerConnected = true;
+  lastRadarRemoteUpdate = millis();
+
+  String json = "{\"status\":\"ok\",\"device\":\"oraQuadraNano\"}";
+  request->send(200, "application/json", json);
+}
+
+// GET /radar/temperature?value=XX.X
+void handleRadarTemperature(AsyncWebServerRequest *request) {
+  if (request->hasParam("value")) {
+    String value = request->getParam("value")->value();
+    radarRemoteTemperature = value.toFloat();
+    radarServerConnected = true;
+    lastRadarRemoteUpdate = millis();
+    Serial.printf("[RADAR REMOTE] Temperatura: %.1f C\n", radarRemoteTemperature);
+    request->send(200, "application/json", "{\"status\":\"ok\"}");
+  } else {
+    request->send(400, "application/json", "{\"error\":\"missing value\"}");
+  }
+}
+
+// GET /radar/humidity?value=XX.X
+void handleRadarHumidity(AsyncWebServerRequest *request) {
+  if (request->hasParam("value")) {
+    String value = request->getParam("value")->value();
+    radarRemoteHumidity = value.toFloat();
+    radarServerConnected = true;
+    lastRadarRemoteUpdate = millis();
+    Serial.printf("[RADAR REMOTE] Umidita: %.1f%%\n", radarRemoteHumidity);
+    request->send(200, "application/json", "{\"status\":\"ok\"}");
+  } else {
+    request->send(400, "application/json", "{\"error\":\"missing value\"}");
+  }
+}
+
+// GET /api/status - Per discovery dal radar server
+void handleApiStatus(AsyncWebServerRequest *request) {
+  String json = "{";
+  json += "\"name\":\"OraQuadraNano\",";
+  json += "\"type\":\"clock\",";
+  json += "\"port\":8080,";
+  json += "\"radarConnected\":" + String(radarServerConnected ? "true" : "false") + ",";
+  json += "\"radarPresence\":" + String(radarRemotePresence ? "true" : "false") + ",";
+  json += "\"radarBrightness\":" + String(radarRemoteBrightness) + ",";
+  json += "\"temperature\":" + String(radarRemoteTemperature, 1) + ",";
+  json += "\"humidity\":" + String(radarRemoteHumidity, 1);
+  json += "}";
+  request->send(200, "application/json", json);
+}
+
+// GET /radar/status - Stato completo radar (locale + remoto)
+void handleRadarStatus(AsyncWebServerRequest *request) {
+  bool usingRemote = useRemoteRadar();
+  unsigned long timeSinceUpdate = millis() - lastRadarRemoteUpdate;
+
+  String json = "{";
+  // Stato radar remoto
+  json += "\"remote\":{";
+  json += "\"enabled\":" + String(radarServerEnabled ? "true" : "false") + ",";
+  json += "\"connected\":" + String(radarServerConnected ? "true" : "false") + ",";
+  json += "\"serverIP\":\"" + radarServerIPString() + "\",";
+  json += "\"presence\":" + String(radarRemotePresence ? "true" : "false") + ",";
+  json += "\"brightness\":" + String(radarRemoteBrightness) + ",";
+  json += "\"temperature\":" + String(radarRemoteTemperature, 1) + ",";
+  json += "\"humidity\":" + String(radarRemoteHumidity, 1) + ",";
+  json += "\"lastUpdate\":" + String(lastRadarRemoteUpdate) + ",";
+  json += "\"timeSinceUpdate\":" + String(timeSinceUpdate);
+  json += "},";
+  // Stato radar locale
+  json += "\"local\":{";
+  json += "\"available\":" + String(radarAvailable ? "true" : "false") + ",";
+  json += "\"presence\":" + String(presenceDetected ? "true" : "false") + ",";
+  json += "\"lightLevel\":" + String(lastRadarLightLevel);
+  json += "},";
+  // Stato attivo
+  json += "\"usingRemote\":" + String(usingRemote ? "true" : "false") + ",";
+  json += "\"radarBrightnessControl\":" + String(radarBrightnessControl ? "true" : "false") + ",";
+  json += "\"radarBrightnessMin\":" + String(radarBrightnessMin) + ",";
+  json += "\"radarBrightnessMax\":" + String(radarBrightnessMax) + ",";
+  json += "\"currentBrightness\":" + String(lastAppliedBrightness);
+  json += "}";
+
+  request->send(200, "application/json", json);
+}
+
+// GET /radar/config - Ottiene configurazione radar server
+void handleRadarConfigGet(AsyncWebServerRequest *request) {
+  // Se IP è 0.0.0.0, restituisci stringa vuota
+  bool hasIP = (radarServerIP[0] != 0 || radarServerIP[1] != 0 ||
+                radarServerIP[2] != 0 || radarServerIP[3] != 0);
+  String ipStr = hasIP ? radarServerIPString() : "";
+
+  String json = "{";
+  json += "\"enabled\":" + String(radarServerEnabled ? "true" : "false") + ",";
+  json += "\"serverIP\":\"" + ipStr + "\",";
+  json += "\"connected\":" + String(radarServerConnected ? "true" : "false");
+  json += "}";
+
+  Serial.printf("[RADAR REMOTE] Config richiesta - IP: %s, Enabled: %s\n",
+                ipStr.c_str(), radarServerEnabled ? "SI" : "NO");
+
+  request->send(200, "application/json", json);
+}
+
+// GET /radar/config/set?ip=X.X.X.X&enabled=1
+void handleRadarConfigSet(AsyncWebServerRequest *request) {
+  Serial.println("[RADAR REMOTE] === handleRadarConfigSet chiamato ===");
+
+  bool changed = false;
+
+  if (request->hasParam("ip")) {
+    String ipStr = request->getParam("ip")->value();
+    Serial.printf("[RADAR REMOTE] IP ricevuto: '%s'\n", ipStr.c_str());
+
+    // Parse IP string
+    int parts[4] = {0, 0, 0, 0};
+    int parsed = sscanf(ipStr.c_str(), "%d.%d.%d.%d", &parts[0], &parts[1], &parts[2], &parts[3]);
+    Serial.printf("[RADAR REMOTE] sscanf parsed %d parts: %d.%d.%d.%d\n", parsed, parts[0], parts[1], parts[2], parts[3]);
+
+    if (parsed == 4 && parts[0] > 0 && parts[0] < 255) {
+      radarServerIP[0] = parts[0];
+      radarServerIP[1] = parts[1];
+      radarServerIP[2] = parts[2];
+      radarServerIP[3] = parts[3];
+      changed = true;
+      Serial.printf("[RADAR REMOTE] IP impostato: %d.%d.%d.%d\n",
+                    radarServerIP[0], radarServerIP[1], radarServerIP[2], radarServerIP[3]);
+    } else {
+      Serial.println("[RADAR REMOTE] IP non valido!");
+    }
+  }
+
+  if (request->hasParam("enabled")) {
+    int enabledVal = request->getParam("enabled")->value().toInt();
+    radarServerEnabled = (enabledVal == 1);
+    changed = true;
+    Serial.printf("[RADAR REMOTE] Enabled ricevuto: %d -> %s\n", enabledVal, radarServerEnabled ? "SI" : "NO");
+  }
+
+  if (changed) {
+    Serial.println("[RADAR REMOTE] Salvataggio configurazione...");
+    saveRadarServerConfig();
+
+    // Se abilitato e IP valido, tenta registrazione
+    if (radarServerEnabled && radarServerIP[0] > 0) {
+      Serial.println("[RADAR REMOTE] Tentativo registrazione...");
+      bool regOk = registerOnRadarServer();
+      Serial.printf("[RADAR REMOTE] Registrazione: %s, radarServerConnected=%s\n",
+                    regOk ? "OK" : "FALLITA",
+                    radarServerConnected ? "true" : "false");
+    } else {
+      // Se disabilitato, resetta stato connessione
+      radarServerConnected = false;
+      Serial.println("[RADAR REMOTE] Radar server disabilitato, connessione reset");
+    }
+  }
+
+  Serial.printf("[RADAR REMOTE] Stato finale - enabled=%s, connected=%s\n",
+                radarServerEnabled ? "true" : "false",
+                radarServerConnected ? "true" : "false");
+
+  String json = "{";
+  json += "\"status\":\"ok\",";
+  json += "\"enabled\":" + String(radarServerEnabled ? "true" : "false") + ",";
+  json += "\"serverIP\":\"" + radarServerIPString() + "\",";
+  json += "\"connected\":" + String(radarServerConnected ? "true" : "false");
+  json += "}";
+
+  Serial.printf("[RADAR REMOTE] Risposta JSON: %s\n", json.c_str());
+  request->send(200, "application/json", json);
+}
+
+// ================== FUNZIONE UPDATE PERIODICA ==================
+
+// Chiamare nel loop principale per gestire riconnessione
+void updateRadarServer() {
+  if (!radarServerEnabled || WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+
+  unsigned long currentMillis = millis();
+
+  // Check periodico connessione
+  if (currentMillis - lastRadarServerCheck > RADAR_SERVER_CHECK_INTERVAL) {
+    lastRadarServerCheck = currentMillis;
+
+    // Se non connesso o timeout, tenta riconnessione
+    unsigned long timeSinceUpdate = currentMillis - lastRadarRemoteUpdate;
+    if (!radarServerConnected || timeSinceUpdate > RADAR_SERVER_TIMEOUT) {
+      Serial.println("[RADAR REMOTE] Tentativo riconnessione...");
+      if (registerOnRadarServer()) {
+        Serial.println("[RADAR REMOTE] Riconnesso con successo!");
+      } else {
+        Serial.println("[RADAR REMOTE] Riconnessione fallita, uso radar locale");
+      }
+    }
+  }
+}
+
+// ================== SETUP WEBSERVER RADAR ==================
+
+void setup_radar_webserver(AsyncWebServer* server) {
+  Serial.println("[RADAR REMOTE] Inizializzazione...");
+
+  // Carica configurazione da EEPROM
+  loadRadarServerConfig();
+
+  // Registra endpoint (IMPORTANTE: endpoint più specifici PRIMA di quelli generici!)
+  server->on("/radar/config/set", HTTP_GET, handleRadarConfigSet);  // Prima questo!
+  server->on("/radar/config", HTTP_GET, handleRadarConfigGet);       // Poi questo
+  server->on("/radar/presence", HTTP_GET, handleRadarPresence);
+  server->on("/radar/brightness", HTTP_GET, handleRadarBrightness);
+  server->on("/radar/temperature", HTTP_GET, handleRadarTemperature);
+  server->on("/radar/humidity", HTTP_GET, handleRadarHumidity);
+  server->on("/radar/test", HTTP_GET, handleRadarTest);
+  server->on("/radar/status", HTTP_GET, handleRadarStatus);
+  server->on("/api/status", HTTP_GET, handleApiStatus);  // Per discovery
+
+  Serial.println("[RADAR REMOTE] Endpoints registrati:");
+  Serial.println("[RADAR REMOTE]   GET /radar/presence?value=true/false");
+  Serial.println("[RADAR REMOTE]   GET /radar/brightness?value=XXX");
+  Serial.println("[RADAR REMOTE]   GET /radar/temperature?value=XX.X");
+  Serial.println("[RADAR REMOTE]   GET /radar/humidity?value=XX.X");
+  Serial.println("[RADAR REMOTE]   GET /radar/test");
+  Serial.println("[RADAR REMOTE]   GET /radar/status");
+  Serial.println("[RADAR REMOTE]   GET /radar/config");
+  Serial.println("[RADAR REMOTE]   GET /radar/config/set?ip=X.X.X.X&enabled=1");
+
+  // Tenta registrazione sul radar server (dopo un delay per stabilità WiFi)
+  if (radarServerEnabled) {
+    Serial.println("[RADAR REMOTE] Registrazione automatica programmata...");
+  }
+}
+
+// Chiamare dopo setup WiFi completato
+void initRadarServerConnection() {
+  if (radarServerEnabled && WiFi.status() == WL_CONNECTED) {
+    Serial.println("[RADAR REMOTE] Tentativo registrazione automatica...");
+    if (registerOnRadarServer()) {
+      Serial.println("[RADAR REMOTE] Registrato con successo sul radar server!");
+    } else {
+      Serial.println("[RADAR REMOTE] Radar server non raggiungibile, uso radar locale");
+    }
+  }
+}

@@ -1,0 +1,3899 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OraQuadra Nano - Emulatore Web</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #1a1a2e;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #00ffff;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px #00ffff;
+        }
+
+        .main-container {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .clock-container {
+            width: 480px;
+            height: 480px;
+            background: #000;
+            border-radius: 10px;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        /* Canvas per sprite e effetti */
+        #spriteCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        /* Canvas per stelle Galaga */
+        #starsCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .letter-grid {
+            display: grid;
+            grid-template-columns: repeat(16, 1fr);
+            grid-template-rows: repeat(16, 1fr);
+            width: 100%;
+            height: 100%;
+            padding: 5px;
+        }
+
+        .letter {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Courier New', monospace;
+            font-size: 18px;
+            font-weight: bold;
+            color: #1a1a1a;
+            transition: color 0.3s ease, text-shadow 0.3s ease;
+            user-select: none;
+        }
+
+        .letter.active {
+            color: var(--active-color, #00ffff);
+            text-shadow: 0 0 10px var(--active-color, #00ffff);
+        }
+
+        .letter.background {
+            color: #222;
+        }
+
+        .letter.rainbow {
+            animation: rainbowPulse 2s linear infinite;
+        }
+
+        @keyframes rainbowPulse {
+            0% { color: #ff0000; text-shadow: 0 0 10px #ff0000; }
+            17% { color: #ff8800; text-shadow: 0 0 10px #ff8800; }
+            33% { color: #ffff00; text-shadow: 0 0 10px #ffff00; }
+            50% { color: #00ff00; text-shadow: 0 0 10px #00ff00; }
+            67% { color: #00ffff; text-shadow: 0 0 10px #00ffff; }
+            83% { color: #ff00ff; text-shadow: 0 0 10px #ff00ff; }
+            100% { color: #ff0000; text-shadow: 0 0 10px #ff0000; }
+        }
+
+        /* Effetti animazioni */
+        .letter.matrix-drop { animation: matrixDrop 1s ease-out; }
+        @keyframes matrixDrop {
+            0% { opacity: 0; transform: translateY(-20px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+
+        .letter.fade-in { animation: fadeIn 2s ease-in-out; }
+        @keyframes fadeIn {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
+        }
+
+        .letter.snake-head { animation: snakePulse 0.3s ease-in-out; }
+        @keyframes snakePulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+
+        /* Effetto Mario - rimbalzo */
+        .letter.mario-bounce { animation: marioBounce 0.5s ease-in-out; }
+        @keyframes marioBounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+
+        /* Effetto Tron - glow pulsante */
+        .letter.tron-glow { animation: tronGlow 1.5s ease-in-out infinite; }
+        @keyframes tronGlow {
+            0%, 100% { text-shadow: 0 0 5px var(--active-color), 0 0 10px var(--active-color), 0 0 20px var(--active-color); }
+            50% { text-shadow: 0 0 10px var(--active-color), 0 0 20px var(--active-color), 0 0 40px var(--active-color), 0 0 60px var(--active-color); }
+        }
+
+        /* Effetto Galaga - sparatoria */
+        .letter.galaga-shoot { animation: galagaShoot 0.3s ease-out; }
+        @keyframes galagaShoot {
+            0% { transform: scale(0.5); opacity: 0; }
+            50% { transform: scale(1.3); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* Pannello impostazioni laterale */
+        .settings-panel {
+            background: rgba(0,0,0,0.8);
+            border-radius: 10px;
+            padding: 20px;
+            width: 320px;
+            max-height: 600px;
+            overflow-y: auto;
+            border: 1px solid #333;
+        }
+
+        .settings-panel h2 {
+            color: #ffff00;
+            font-size: 18px;
+            margin-bottom: 15px;
+            text-align: center;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+        }
+
+        .settings-section {
+            margin-bottom: 20px;
+        }
+
+        .settings-section h3 {
+            color: #00ffff;
+            font-size: 14px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .setting-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #222;
+        }
+
+        .setting-row label {
+            color: #fff;
+            font-size: 13px;
+        }
+
+        .setting-row select,
+        .setting-row input[type="number"],
+        .setting-row input[type="range"] {
+            background: #333;
+            border: none;
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 4px;
+            width: 120px;
+        }
+
+        .setting-row input[type="color"] {
+            width: 50px;
+            height: 30px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .setting-row input[type="range"] {
+            width: 100px;
+        }
+
+        /* Toggle switch */
+        .toggle-switch {
+            width: 50px;
+            height: 26px;
+            background: #555;
+            border-radius: 13px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .toggle-switch.on {
+            background: #00ff00;
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            background: #fff;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: left 0.3s;
+        }
+
+        .toggle-switch.on::after {
+            left: 26px;
+        }
+
+        /* Bottoni azione */
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 15px;
+        }
+
+        button {
+            background: linear-gradient(135deg, #00ffff, #0088ff);
+            border: none;
+            color: #000;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+        }
+
+        button.danger {
+            background: linear-gradient(135deg, #ff4444, #cc0000);
+            color: #fff;
+        }
+
+        button.success {
+            background: linear-gradient(135deg, #00ff00, #00aa00);
+        }
+
+        /* Touch zones overlay */
+        .touch-zones {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .clock-container:hover .touch-zones {
+            opacity: 0.3;
+        }
+
+        .touch-zone {
+            border: 1px dashed #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 10px;
+            text-transform: uppercase;
+        }
+
+        /* Info panel bottom */
+        .info-panel {
+            margin-top: 15px;
+            color: #888;
+            font-size: 12px;
+            text-align: center;
+            width: 100%;
+        }
+
+        .info-panel span {
+            color: #00ffff;
+            font-weight: bold;
+        }
+
+        /* Time manual input */
+        .time-input-group {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+
+        .time-input-group input {
+            width: 50px;
+            text-align: center;
+        }
+
+        /* Color cycle indicator */
+        .color-cycling {
+            animation: colorCycleIndicator 3s linear infinite;
+        }
+
+        @keyframes colorCycleIndicator {
+            0% { box-shadow: 0 0 10px #ff0000; }
+            33% { box-shadow: 0 0 10px #00ff00; }
+            66% { box-shadow: 0 0 10px #0000ff; }
+            100% { box-shadow: 0 0 10px #ff0000; }
+        }
+
+        /* Brightness overlay */
+        .brightness-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            pointer-events: none;
+            transition: opacity 0.5s;
+        }
+
+        /* Preset notification */
+        .notification {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            color: #fff;
+            padding: 20px 40px;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            z-index: 100;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        .notification.show {
+            opacity: 1;
+        }
+
+        .notification .title {
+            color: #888;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+
+        .notification .value {
+            color: var(--notif-color, #00ffff);
+            text-shadow: 0 0 10px var(--notif-color, #00ffff);
+        }
+
+        /* Macchinetta del caffè */
+        .coffee-machine {
+            width: 200px;
+            height: 320px;
+            position: relative;
+            margin-left: 20px;
+            flex-shrink: 0;
+        }
+
+        .machine-body {
+            width: 180px;
+            height: 200px;
+            background: linear-gradient(145deg, #8B0000, #5c0000);
+            border-radius: 15px 15px 5px 5px;
+            position: absolute;
+            top: 0;
+            left: 10px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.5), inset 0 2px 10px rgba(255,255,255,0.1);
+            border: 2px solid #3d0000;
+        }
+
+        .machine-top {
+            width: 160px;
+            height: 25px;
+            background: linear-gradient(145deg, #a00000, #6c0000);
+            border-radius: 10px 10px 0 0;
+            position: absolute;
+            top: -20px;
+            left: 20px;
+            box-shadow: 0 -3px 10px rgba(0,0,0,0.3);
+        }
+
+        .machine-display {
+            width: 80px;
+            height: 30px;
+            background: #001a00;
+            border-radius: 5px;
+            position: absolute;
+            top: 25px;
+            left: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #00ff00;
+            text-shadow: 0 0 5px #00ff00;
+            border: 2px solid #333;
+            box-shadow: inset 0 0 10px rgba(0,255,0,0.2);
+        }
+
+        .machine-buttons {
+            position: absolute;
+            top: 70px;
+            left: 50px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .machine-button {
+            width: 25px;
+            height: 25px;
+            background: radial-gradient(circle at 30% 30%, #666, #222);
+            border-radius: 50%;
+            border: 2px solid #444;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.4), inset 0 1px 2px rgba(255,255,255,0.2);
+        }
+
+        .machine-button.power {
+            background: radial-gradient(circle at 30% 30%, #00aa00, #004400);
+            box-shadow: 0 0 10px rgba(0,255,0,0.5), 0 3px 6px rgba(0,0,0,0.4);
+            animation: glow-green 2s ease-in-out infinite;
+        }
+
+        @keyframes glow-green {
+            0%, 100% { box-shadow: 0 0 5px rgba(0,255,0,0.5), 0 3px 6px rgba(0,0,0,0.4); }
+            50% { box-shadow: 0 0 15px rgba(0,255,0,0.8), 0 3px 6px rgba(0,0,0,0.4); }
+        }
+
+        .machine-spout-area {
+            width: 140px;
+            height: 70px;
+            background: linear-gradient(180deg, #1a1a1a, #0a0a0a);
+            border-radius: 0 0 10px 10px;
+            position: absolute;
+            top: 110px;
+            left: 30px;
+            box-shadow: inset 0 5px 15px rgba(0,0,0,0.8);
+        }
+
+        .spout {
+            width: 30px;
+            height: 25px;
+            background: linear-gradient(180deg, #444, #222);
+            position: absolute;
+            top: 5px;
+            left: 55px;
+            border-radius: 0 0 5px 5px;
+        }
+
+        .spout-holes {
+            display: flex;
+            justify-content: center;
+            gap: 4px;
+            padding-top: 15px;
+        }
+
+        .spout-hole {
+            width: 6px;
+            height: 6px;
+            background: #111;
+            border-radius: 50%;
+        }
+
+        .coffee-stream {
+            width: 4px;
+            height: 0;
+            background: linear-gradient(180deg, #4a2c00, #2d1a00);
+            position: absolute;
+            top: 30px;
+            left: 68px;
+            border-radius: 2px;
+            animation: pour-coffee 3s ease-in-out infinite;
+        }
+
+        @keyframes pour-coffee {
+            0%, 10% { height: 0; opacity: 0; }
+            20%, 80% { height: 45px; opacity: 1; }
+            90%, 100% { height: 0; opacity: 0; }
+        }
+
+        .drip-tray {
+            width: 160px;
+            height: 15px;
+            background: linear-gradient(180deg, #333, #1a1a1a);
+            position: absolute;
+            top: 185px;
+            left: 20px;
+            border-radius: 3px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+        }
+
+        .cup-area {
+            width: 200px;
+            height: 120px;
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+        }
+
+        .cup {
+            width: 70px;
+            height: 55px;
+            background: linear-gradient(145deg, #ffffff, #e0e0e0);
+            border-radius: 5px 5px 25px 25px;
+            position: relative;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3), inset 0 -10px 20px rgba(0,0,0,0.1);
+        }
+
+        .cup-handle {
+            width: 20px;
+            height: 30px;
+            border: 5px solid #e0e0e0;
+            border-left: none;
+            border-radius: 0 15px 15px 0;
+            position: absolute;
+            right: -20px;
+            top: 10px;
+            box-shadow: 3px 3px 5px rgba(0,0,0,0.2);
+        }
+
+        .cup-coffee {
+            width: 50px;
+            height: 0;
+            background: linear-gradient(180deg, #3d2314, #2d1a00);
+            border-radius: 0 0 20px 20px;
+            position: absolute;
+            bottom: 5px;
+            left: 10px;
+            animation: fill-cup 3s ease-in-out infinite;
+        }
+
+        @keyframes fill-cup {
+            0%, 15% { height: 0; }
+            25%, 100% { height: 35px; }
+        }
+
+        .cup-foam {
+            width: 50px;
+            height: 8px;
+            background: linear-gradient(180deg, #d4a574, #c4956a);
+            border-radius: 50%;
+            position: absolute;
+            bottom: 5px;
+            left: 10px;
+            opacity: 0;
+            animation: show-foam 3s ease-in-out infinite;
+        }
+
+        @keyframes show-foam {
+            0%, 30% { opacity: 0; bottom: 5px; }
+            40%, 100% { opacity: 1; bottom: 38px; }
+        }
+
+        .steam {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 8px;
+        }
+
+        .steam-line {
+            width: 3px;
+            height: 30px;
+            background: linear-gradient(180deg, transparent, rgba(255,255,255,0.4), transparent);
+            border-radius: 2px;
+            animation: steam-rise 2s ease-in-out infinite;
+            opacity: 0;
+        }
+
+        .steam-line:nth-child(1) { animation-delay: 0s; height: 25px; }
+        .steam-line:nth-child(2) { animation-delay: 0.3s; height: 35px; }
+        .steam-line:nth-child(3) { animation-delay: 0.6s; height: 28px; }
+
+        @keyframes steam-rise {
+            0% { opacity: 0; transform: translateY(0) scaleX(1); }
+            20% { opacity: 0.6; }
+            50% { opacity: 0.4; transform: translateY(-15px) scaleX(1.5); }
+            100% { opacity: 0; transform: translateY(-35px) scaleX(2); }
+        }
+
+        .machine-brand {
+            position: absolute;
+            top: 160px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            font-family: 'Georgia', serif;
+            font-size: 14px;
+            font-weight: bold;
+            color: #ffd700;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+            letter-spacing: 2px;
+        }
+
+        .machine-feet {
+            display: flex;
+            justify-content: space-between;
+            width: 160px;
+            position: absolute;
+            top: 200px;
+            left: 20px;
+        }
+
+        .foot {
+            width: 20px;
+            height: 8px;
+            background: linear-gradient(180deg, #333, #111);
+            border-radius: 0 0 5px 5px;
+        }
+
+        /* Orologio a Cucù */
+        .cuckoo-clock {
+            width: 160px;
+            height: 280px;
+            position: relative;
+            margin-left: 20px;
+            flex-shrink: 0;
+        }
+
+        .cuckoo-body {
+            width: 120px;
+            height: 140px;
+            background: linear-gradient(145deg, #8B4513, #5D2E0C);
+            position: absolute;
+            top: 60px;
+            left: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.5), inset 0 2px 10px rgba(255,255,255,0.1);
+            border: 3px solid #3D1F0C;
+        }
+
+        .cuckoo-roof {
+            width: 0;
+            height: 0;
+            border-left: 75px solid transparent;
+            border-right: 75px solid transparent;
+            border-bottom: 60px solid #5D2E0C;
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            filter: drop-shadow(0 -3px 5px rgba(0,0,0,0.3));
+        }
+
+        .cuckoo-roof-top {
+            width: 0;
+            height: 0;
+            border-left: 70px solid transparent;
+            border-right: 70px solid transparent;
+            border-bottom: 55px solid #8B4513;
+            position: absolute;
+            top: 8px;
+            left: 10px;
+        }
+
+        .cuckoo-roof-detail {
+            width: 30px;
+            height: 15px;
+            background: linear-gradient(180deg, #A0522D, #8B4513);
+            position: absolute;
+            top: 0;
+            left: 65px;
+            border-radius: 5px 5px 0 0;
+            box-shadow: 0 -2px 5px rgba(0,0,0,0.3);
+        }
+
+        .cuckoo-door-frame {
+            width: 40px;
+            height: 35px;
+            background: #3D1F0C;
+            position: absolute;
+            top: 75px;
+            left: 60px;
+            border-radius: 20px 20px 0 0;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        .cuckoo-door {
+            width: 34px;
+            height: 30px;
+            background: linear-gradient(145deg, #A0522D, #6B3D1F);
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            border-radius: 17px 17px 0 0;
+            transform-origin: bottom center;
+            transition: transform 0.3s ease-out;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        .cuckoo-door.open {
+            transform: rotateX(-120deg);
+        }
+
+        .cuckoo-bird {
+            width: 30px;
+            height: 25px;
+            position: absolute;
+            top: 80px;
+            left: 65px;
+            opacity: 0;
+            transform: translateX(-15px);
+            transition: all 0.3s ease-out;
+            z-index: 10;
+        }
+
+        .cuckoo-bird.out {
+            opacity: 1;
+            transform: translateX(25px);
+        }
+
+        .bird-body {
+            width: 25px;
+            height: 20px;
+            background: linear-gradient(145deg, #8B4513, #5D2E0C);
+            border-radius: 50% 50% 50% 50%;
+            position: absolute;
+            top: 5px;
+            left: 0;
+        }
+
+        .bird-head {
+            width: 15px;
+            height: 15px;
+            background: linear-gradient(145deg, #8B4513, #5D2E0C);
+            border-radius: 50%;
+            position: absolute;
+            top: 0;
+            left: 18px;
+        }
+
+        .bird-beak {
+            width: 12px;
+            height: 6px;
+            background: #FFD700;
+            position: absolute;
+            top: 5px;
+            left: 30px;
+            clip-path: polygon(0 50%, 100% 0, 100% 100%);
+            transform-origin: left center;
+            animation: none;
+        }
+
+        .bird-beak.pecking {
+            animation: peck 0.2s ease-in-out infinite;
+        }
+
+        @keyframes peck {
+            0%, 100% { transform: rotate(0deg); }
+            50% { transform: rotate(15deg); }
+        }
+
+        .bird-eye {
+            width: 4px;
+            height: 4px;
+            background: #000;
+            border-radius: 50%;
+            position: absolute;
+            top: 4px;
+            left: 26px;
+        }
+
+        .cuckoo-clock-face {
+            width: 50px;
+            height: 50px;
+            background: radial-gradient(circle, #FFF8DC, #F5DEB3);
+            border-radius: 50%;
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 3px solid #3D1F0C;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.2), 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        .clock-center {
+            width: 6px;
+            height: 6px;
+            background: #3D1F0C;
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 5;
+        }
+
+        .clock-hand-hour {
+            width: 3px;
+            height: 15px;
+            background: #3D1F0C;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform-origin: 50% 100%;
+            transform: translate(-50%, -100%) rotate(0deg);
+            border-radius: 2px;
+            z-index: 3;
+        }
+
+        .clock-hand-minute {
+            width: 2px;
+            height: 20px;
+            background: #5D2E0C;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform-origin: 50% 100%;
+            transform: translate(-50%, -100%) rotate(0deg);
+            border-radius: 2px;
+            z-index: 2;
+        }
+
+        .cuckoo-pendulum-box {
+            width: 50px;
+            height: 80px;
+            background: linear-gradient(145deg, #8B4513, #5D2E0C);
+            position: absolute;
+            top: 200px;
+            left: 55px;
+            border-radius: 0 0 25px 25px;
+            border: 3px solid #3D1F0C;
+            border-top: none;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.4);
+        }
+
+        .pendulum {
+            width: 4px;
+            height: 50px;
+            background: #3D1F0C;
+            position: absolute;
+            top: 5px;
+            left: 23px;
+            transform-origin: top center;
+            animation: swing 1s ease-in-out infinite;
+        }
+
+        .pendulum-weight {
+            width: 25px;
+            height: 25px;
+            background: radial-gradient(circle at 30% 30%, #DAA520, #B8860B);
+            border-radius: 50%;
+            position: absolute;
+            bottom: -12px;
+            left: -10.5px;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.4), inset 0 -3px 8px rgba(0,0,0,0.3);
+        }
+
+        @keyframes swing {
+            0%, 100% { transform: rotate(15deg); }
+            50% { transform: rotate(-15deg); }
+        }
+
+        .cuckoo-leaves {
+            position: absolute;
+            top: 50px;
+            left: 10px;
+            width: 140px;
+            height: 30px;
+        }
+
+        .leaf {
+            width: 20px;
+            height: 12px;
+            background: linear-gradient(145deg, #228B22, #006400);
+            border-radius: 0 50% 50% 50%;
+            position: absolute;
+            transform: rotate(-30deg);
+        }
+
+        .leaf:nth-child(1) { left: 5px; top: 15px; }
+        .leaf:nth-child(2) { left: 25px; top: 5px; transform: rotate(-45deg); }
+        .leaf:nth-child(3) { right: 25px; top: 5px; transform: rotate(45deg); }
+        .leaf:nth-child(4) { right: 5px; top: 15px; transform: rotate(30deg); }
+
+        .pine-cone {
+            width: 12px;
+            height: 18px;
+            background: linear-gradient(180deg, #8B4513, #5D2E0C);
+            border-radius: 50% 50% 50% 50%;
+            position: absolute;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        .pine-cone-chain {
+            width: 2px;
+            height: 30px;
+            background: linear-gradient(180deg, #3D1F0C, #2D1F0C);
+            position: absolute;
+        }
+
+        .pine-cone-left {
+            left: 25px;
+            top: 235px;
+        }
+
+        .pine-cone-left .pine-cone-chain {
+            left: 5px;
+            top: -30px;
+        }
+
+        .pine-cone-right {
+            right: 25px;
+            top: 235px;
+        }
+
+        .pine-cone-right .pine-cone-chain {
+            left: 5px;
+            top: -30px;
+        }
+    </style>
+</head>
+<body>
+    <h1>OraQuadra Nano - Emulatore</h1>
+
+    <div class="main-container">
+        <div class="clock-container" id="clockContainer">
+            <canvas id="starsCanvas" width="480" height="480"></canvas>
+            <div class="letter-grid" id="letterGrid"></div>
+            <canvas id="spriteCanvas" width="480" height="480"></canvas>
+            <div class="brightness-overlay" id="brightnessOverlay"></div>
+
+            <div class="touch-zones">
+                <div class="touch-zone">Cambia Modo</div>
+                <div class="touch-zone">Preset</div>
+                <div class="touch-zone">Cicla Colori</div>
+                <div class="touch-zone">E Blink ON/OFF</div>
+            </div>
+
+            <div class="notification" id="notification">
+                <div class="title">PRESET:</div>
+                <div class="value" id="notifValue">-</div>
+            </div>
+        </div>
+
+        <!-- Macchinetta del caffè -->
+        <div class="coffee-machine">
+            <div class="machine-body">
+                <div class="machine-top"></div>
+                <div class="machine-display" id="coffeeDisplay">READY</div>
+                <div class="machine-buttons">
+                    <div class="machine-button power"></div>
+                    <div class="machine-button"></div>
+                    <div class="machine-button"></div>
+                </div>
+                <div class="machine-spout-area">
+                    <div class="spout">
+                        <div class="spout-holes">
+                            <div class="spout-hole"></div>
+                            <div class="spout-hole"></div>
+                        </div>
+                    </div>
+                    <div class="coffee-stream"></div>
+                </div>
+                <div class="machine-brand">ESPRESSO</div>
+                <div class="drip-tray"></div>
+                <div class="machine-feet">
+                    <div class="foot"></div>
+                    <div class="foot"></div>
+                </div>
+            </div>
+            <div class="cup-area">
+                <div class="cup">
+                    <div class="cup-handle"></div>
+                    <div class="cup-coffee"></div>
+                    <div class="cup-foam"></div>
+                    <div class="steam">
+                        <div class="steam-line"></div>
+                        <div class="steam-line"></div>
+                        <div class="steam-line"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Orologio a Cucù -->
+        <div class="cuckoo-clock">
+            <div class="cuckoo-roof"></div>
+            <div class="cuckoo-roof-top"></div>
+            <div class="cuckoo-roof-detail"></div>
+            <div class="cuckoo-leaves">
+                <div class="leaf"></div>
+                <div class="leaf"></div>
+                <div class="leaf"></div>
+                <div class="leaf"></div>
+            </div>
+            <div class="cuckoo-body">
+                <div class="cuckoo-door-frame">
+                    <div class="cuckoo-door" id="cuckooDoor"></div>
+                </div>
+                <div class="cuckoo-bird" id="cuckooBird">
+                    <div class="bird-body"></div>
+                    <div class="bird-head"></div>
+                    <div class="bird-beak" id="birdBeak"></div>
+                    <div class="bird-eye"></div>
+                </div>
+                <div class="cuckoo-clock-face">
+                    <div class="clock-hand-hour" id="cuckooHour"></div>
+                    <div class="clock-hand-minute" id="cuckooMinute"></div>
+                    <div class="clock-center"></div>
+                </div>
+            </div>
+            <div class="cuckoo-pendulum-box">
+                <div class="pendulum">
+                    <div class="pendulum-weight"></div>
+                </div>
+            </div>
+            <div class="pine-cone pine-cone-left">
+                <div class="pine-cone-chain"></div>
+            </div>
+            <div class="pine-cone pine-cone-right">
+                <div class="pine-cone-chain"></div>
+            </div>
+        </div>
+
+        <div class="settings-panel">
+            <h2>IMPOSTAZIONI IN TEMPO REALE</h2>
+
+            <!-- MODALITÀ E COLORE -->
+            <div class="settings-section">
+                <h3>Display</h3>
+                <div class="setting-row">
+                    <label>Modalità</label>
+                    <select id="modeSelect">
+                        <option value="fast">FAST (Veloce)</option>
+                        <option value="slow">SLOW (Lento)</option>
+                        <option value="fade">FADE (Dissolvenza)</option>
+                        <option value="matrix">MATRIX</option>
+                        <option value="matrix2">MATRIX 2</option>
+                        <option value="snake">SNAKE</option>
+                        <option value="water">WATER (Goccia)</option>
+                        <option value="mario">MARIO</option>
+                        <option value="tron">TRON</option>
+                        <option value="galaga">GALAGA</option>
+                    </select>
+                </div>
+                <div class="setting-row">
+                    <label>Colore Principale</label>
+                    <input type="color" id="colorPicker" value="#00ffff">
+                </div>
+                <div class="setting-row">
+                    <label>Colore Sfondo</label>
+                    <input type="color" id="bgColorPicker" value="#1a1a1a">
+                </div>
+                <div class="setting-row">
+                    <label>Luminosità</label>
+                    <input type="range" id="brightnessSlider" min="0" max="255" value="250">
+                    <span id="brightnessValue">250</span>
+                </div>
+            </div>
+
+            <!-- PRESET -->
+            <div class="settings-section">
+                <h3>Preset</h3>
+                <div class="setting-row">
+                    <label>Seleziona Preset</label>
+                    <select id="presetSelect">
+                        <option value="0">Random</option>
+                        <option value="1">Veloce Acqua</option>
+                        <option value="2">Lento Viola</option>
+                        <option value="3">Lento Arancione</option>
+                        <option value="4">Fade Rosso</option>
+                        <option value="5">Fade Verde</option>
+                        <option value="6">Fade Blu</option>
+                        <option value="7">Matrix Giallo</option>
+                        <option value="8">Matrix Ciano</option>
+                        <option value="9">Matrix2 Verde</option>
+                        <option value="10">Matrix2 Bianco</option>
+                        <option value="11">Snake</option>
+                        <option value="12">Goccia Acqua</option>
+                        <option value="13">Come Piace a Me</option>
+                        <option value="14">Super Mario</option>
+                        <option value="15">Tron</option>
+                        <option value="16">Galaga</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- LETTERA E -->
+            <div class="settings-section">
+                <h3>Lettera "E" (separatore)</h3>
+                <div class="setting-row">
+                    <label>Stato E</label>
+                    <select id="eStateSelect">
+                        <option value="0">Blink OFF (Fissa)</option>
+                        <option value="1">Blink ON (Lampeggia)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- ORARIO MANUALE -->
+            <div class="settings-section">
+                <h3>Orario</h3>
+                <div class="setting-row">
+                    <label>Usa Ora PC</label>
+                    <div class="toggle-switch on" id="useSystemTime" onclick="toggleSystemTime()"></div>
+                </div>
+                <div class="setting-row">
+                    <label>Ora Manuale</label>
+                    <div class="time-input-group">
+                        <input type="number" id="manualHour" min="0" max="23" value="12" disabled>
+                        <span style="color:#fff">:</span>
+                        <input type="number" id="manualMinute" min="0" max="59" value="30" disabled>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SETUP OPTIONS (come sul device) -->
+            <div class="settings-section">
+                <h3>Setup (Menu Device)</h3>
+                <div class="setting-row">
+                    <label>Auto Night Mode</label>
+                    <div class="toggle-switch on" id="autoNightMode" onclick="toggleSetupOption('autoNightMode')"></div>
+                </div>
+                <div class="setting-row">
+                    <label>Touch Sounds</label>
+                    <div class="toggle-switch on" id="touchSounds" onclick="toggleSetupOption('touchSounds')"></div>
+                </div>
+                <div class="setting-row">
+                    <label>Voce Annuncio</label>
+                    <div class="toggle-switch on" id="voiceEnabled" onclick="toggleSetupOption('voiceEnabled')"></div>
+                </div>
+                <div class="setting-row">
+                    <label>Annuncio Ogni Ora</label>
+                    <div class="toggle-switch" id="hourlyAnnounce" onclick="toggleSetupOption('hourlyAnnounce')"></div>
+                </div>
+                <div class="setting-row">
+                    <label>Rainbow Seconds</label>
+                    <div class="toggle-switch on" id="rainbowSeconds" onclick="toggleSetupOption('rainbowSeconds')"></div>
+                </div>
+                <div class="setting-row">
+                    <label>Rainbow Effetti</label>
+                    <div class="toggle-switch on" id="rainbowEffects" onclick="toggleSetupOption('rainbowEffects')"></div>
+                </div>
+                <div class="setting-row">
+                    <label>Default Display Mode</label>
+                    <select id="defaultDisplayMode">
+                        <option value="fast">FAST</option>
+                        <option value="slow">SLOW</option>
+                        <option value="fade">FADE</option>
+                        <option value="matrix">MATRIX</option>
+                        <option value="matrix2">MATRIX2</option>
+                        <option value="snake">SNAKE</option>
+                        <option value="water">WATER</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- SIMULAZIONE NIGHT MODE -->
+            <div class="settings-section">
+                <h3>Controllo Luminosità</h3>
+                <div class="setting-row">
+                    <label>Auto Giorno/Notte</label>
+                    <div class="toggle-switch on" id="autoBrightnessControl" onclick="toggleAutoBrightness()"></div>
+                </div>
+                <div id="autoBrightnessSettings">
+                    <div class="setting-row">
+                        <label>Simula Notte (19-7)</label>
+                        <div class="toggle-switch" id="simulateNight" onclick="toggleNightSimulation()"></div>
+                    </div>
+                    <div class="setting-row">
+                        <label>Luminosità Giorno</label>
+                        <input type="number" id="dayBrightness" min="0" max="255" value="250">
+                    </div>
+                    <div class="setting-row">
+                        <label>Luminosità Notte</label>
+                        <input type="number" id="nightBrightness" min="0" max="255" value="90">
+                    </div>
+                </div>
+                <div id="manualBrightnessSettings" style="display: none;">
+                    <div class="setting-row">
+                        <label>Luminosità Manuale: <span id="manualBrightnessValue">200</span></label>
+                        <input type="range" id="manualBrightnessSlider" min="10" max="255" value="200"
+                               style="width: 100%;" oninput="updateManualBrightness(this.value)">
+                    </div>
+                </div>
+            </div>
+
+            <!-- DECORAZIONI -->
+            <div class="settings-section">
+                <h3>Decorazioni</h3>
+                <div class="setting-row">
+                    <label>Macchina Caffè</label>
+                    <div class="toggle-switch on" id="showCoffeeMachine" onclick="toggleDecoration('showCoffeeMachine')"></div>
+                </div>
+                <div class="setting-row">
+                    <label>Orologio Cucù</label>
+                    <div class="toggle-switch on" id="showCuckooClock" onclick="toggleDecoration('showCuckooClock')"></div>
+                </div>
+            </div>
+
+            <!-- VOCE -->
+            <div class="setting-group">
+                <label>Voce Annuncio:</label>
+                <select id="voiceSelect" onchange="setVoice(this.value)">
+                    <option value="">Caricamento voci...</option>
+                </select>
+            </div>
+
+            <!-- AZIONI -->
+            <div class="action-buttons">
+                <button onclick="cycleColors()">Cicla Colori</button>
+                <button onclick="forceUpdate()">Aggiorna Display</button>
+                <button onclick="announceTime()">Annuncia Ora</button>
+                <button onclick="saveSettings(); showNotification('IMPOSTAZIONI:', 'SALVATE', '#00ff00');">Salva</button>
+                <button class="danger" onclick="resetSettings()">Reset Default</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="info-panel">
+        <p>Ora: <span id="currentTime">--:--:--</span> | Modo: <span id="currentModeDisplay">FAST</span> |
+           E: <span id="eStateDisplay">FISSA</span> | Luminosità: <span id="brightnessDisplay">250</span></p>
+        <p style="margin-top: 5px;">Touch: Centro=Annuncia Ora | ↖=Modo | ↗=Preset | ↙=Colori | ↘=E Blink</p>
+    </div>
+
+    <script>
+        // ===============================================
+        // CONFIGURAZIONE LETTERE E PAROLE
+        // ===============================================
+        // Griglia lettere - modificabile per mezzanotte
+        const TFT_L_ORIGINAL = "SONOULEYOREXZEROVENTITREDICIOTTOECQUATTORDICISEINIUNDICIQUATTROOTNIJVENTUNODIECIIQNSEDICIASSETTEDUDODICIANNOVELFUEIHELPQUARANTAXERCKUVENTITRENTAGRINCINQUANTAUNOSEDICIDODICIOTTODIECIQUATTORDICIQUATTROQUINDICIOARTREDICIASSETTEUNDICIANNOVEOSEICINQUEDUEUMINUTI";
+        let TFT_L = TFT_L_ORIGINAL.split(''); // Array mutabile per modifiche dinamiche
+
+        // Funzione per aggiornare la griglia per mezzanotte (come nel codice Arduino)
+        function updateGridForMidnight(hour) {
+            const grid = document.getElementById('letterGrid');
+            if (!grid) return;
+
+            if (hour === 0) {
+                // A mezzanotte, sostituisci le posizioni 6-15 con "MEZZANOTTE"
+                const midnight = "MEZZANOTTE";
+                for (let i = 0; i < 10; i++) {
+                    TFT_L[6 + i] = midnight[i];
+                    const letterEl = grid.children[6 + i];
+                    if (letterEl) letterEl.textContent = midnight[i];
+                }
+            } else {
+                // Per le altre ore, ripristina le lettere originali
+                const original = "YORE XZERO"; // Posizioni 6-15 originali (con spazio per E/X)
+                for (let i = 0; i < 10; i++) {
+                    TFT_L[6 + i] = TFT_L_ORIGINAL[6 + i];
+                    const letterEl = grid.children[6 + i];
+                    if (letterEl) letterEl.textContent = TFT_L_ORIGINAL[6 + i];
+                }
+            }
+        }
+
+        // Mappature parole (indici dei caratteri nella griglia 16x16)
+        const WORDS = {
+            SONO_LE: [0,1,2,3,5,6,8,9,10],
+            E: [116],
+            MINUTI: [250,251,252,253,254,255],
+            MEZZANOTTE: [6,7,8,9,10,11,12,13,14,15],
+
+            // Ore
+            ZERO: [12,13,14,15],
+            UNA: [57,73,89],
+            DUE: [96,112,128],
+            TRE: [21,22,23],
+            QUATTRO: [56,57,58,59,60,61,62],
+            CINQUE: [33,49,65,81,97,113],
+            SEI: [45,46,47],
+            SETTE: [91,92,93,94,95],
+            OTTO: [28,29,30,31],
+            NOVE: [106,107,108,109],
+            DIECI: [75,76,77,78,79],
+            UNDICI: [50,51,52,53,54,55],
+            DODICI: [98,99,100,101,102,103],
+            TREDICI: [21,22,23,24,25,26,27],
+            QUATTORDICI: [34,35,36,37,38,39,40,41,42,43,44],
+            QUINDICI: [34,50,66,82,98,114,130,146],
+            SEDICI: [83,84,85,86,87,88],
+            DICIASSETTE: [85,86,87,88,89,90,91,92,93,94,95],
+            DICIOTTO: [24,25,26,27,28,29,30,31],
+            DICIANNOVE: [100,101,102,103,104,105,106,107,108,109],
+            VENTI: [16,32,48,64,80],
+            VENTUNO: [68,69,70,71,72,73,74],
+            VENTIDUE: [16,32,48,64,80,96,112,128],
+            VENTITRE: [16,17,18,19,20,21,22,23],
+
+            // Minuti
+            MUNO: [157,158,159],
+            MUN: [224,225],
+            MDUE: [246,247,248],
+            MTRE: [210,211,212],
+            MQUATTRO: [192,193,194,195,196,197,198],
+            MCINQUE: [240,241,242,243,244,245],
+            MSEI: [237,238,239],
+            MSETTE: [219,220,221,222,223],
+            MOTTO: [172,173,174,175],
+            MNOVE: [232,233,234,235],
+            MDIECI: [176,177,178,179,180],
+            MUNDICI: [224,225,226,227,228,229],
+            MDODICI: [166,167,168,169,170,171],
+            MTREDICI: [210,211,212,213,214,215,216],
+            MQUATTORDICI: [181,182,183,184,185,186,187,188,189,190,191],
+            MQUINDICI: [199,200,201,202,203,204,205,206],
+            MSEDICI: [160,161,162,163,164,165],
+            MDICIASSETTE: [213,214,215,216,217,218,219,220,221,222,223],
+            MDICIOTTO: [168,169,170,171,172,173,174,175],
+            MDICIANNOVE: [226,227,228,229,230,231,232,233,234,235],
+            MVENT: [133,134,135,136],
+            MVENTI: [133,134,135,136,137],
+            MTRENT: [138,139,140,141,142],
+            MTRENTA: [138,139,140,141,142,143],
+            MQUARANT: [119,120,121,122,123,124,125],
+            MQUARANTA: [119,120,121,122,123,124,125,126],
+            MCINQUANT: [148,149,150,151,152,153,154,155],
+            MCINQUANTA: [148,149,150,151,152,153,154,155,156]
+        };
+
+        const HOUR_WORDS = [
+            'ZERO', 'UNA', 'DUE', 'TRE', 'QUATTRO', 'CINQUE', 'SEI', 'SETTE', 'OTTO', 'NOVE',
+            'DIECI', 'UNDICI', 'DODICI', 'TREDICI', 'QUATTORDICI', 'QUINDICI', 'SEDICI',
+            'DICIASSETTE', 'DICIOTTO', 'DICIANNOVE', 'VENTI', 'VENTUNO', 'VENTIDUE', 'VENTITRE'
+        ];
+
+        const MINUTE_WORDS = [
+            null, 'MUNO', 'MDUE', 'MTRE', 'MQUATTRO', 'MCINQUE', 'MSEI', 'MSETTE', 'MOTTO', 'MNOVE',
+            'MDIECI', 'MUNDICI', 'MDODICI', 'MTREDICI', 'MQUATTORDICI', 'MQUINDICI', 'MSEDICI',
+            'MDICIASSETTE', 'MDICIOTTO', 'MDICIANNOVE'
+        ];
+
+        const MODE_NAMES = {
+            'fast': 'MODO VELOCE',
+            'slow': 'MODO LENTO',
+            'fade': 'MODO FADE',
+            'matrix': 'MODO MATRIX',
+            'matrix2': 'MODO MATRIX 2',
+            'snake': 'MODO SNAKE',
+            'water': 'MODO GOCCIA',
+            'mario': 'SUPER MARIO',
+            'tron': 'MODO TRON',
+            'galaga': 'MODO GALAGA'
+        };
+
+        const PRESET_NAMES = [
+            'RANDOM', 'VELOCE ACQUA', 'LENTO VIOLA', 'LENTO ARANCIONE',
+            'FADE ROSSO', 'FADE VERDE', 'FADE BLU', 'MATRIX GIALLO',
+            'MATRIX CIANO', 'MATRIX CONTINUO VERDE', 'MATRIX CONTINUO BIANCO',
+            'SNAKE', 'GOCCIA ACQUA', 'COME PIACE A ME!', 'SUPER MARIO', 'TRON', 'GALAGA'
+        ];
+
+        // ===============================================
+        // STATO DELL'APPLICAZIONE
+        // ===============================================
+        let state = {
+            currentMode: 'fast',
+            currentColor: '#00ffff',
+            userColor: '#00ffff',
+            bgColor: '#1a1a1a',
+            brightness: 250,
+            activePixels: new Set(),
+            lastHour: -1,
+            lastMinute: -1,
+            lastSecond: -1,
+            eState: 0, // 0 = blink off (fissa), 1 = blink on
+            eVisible: true,
+            useSystemTime: true,
+            manualHour: 12,
+            manualMinute: 30,
+            currentPreset: 1,
+            colorCycleActive: false,
+            colorCycleHue: 0,
+            setupOptions: {
+                autoNightMode: true,
+                touchSounds: true,
+                voiceEnabled: true,
+                hourlyAnnounce: false,
+                rainbowSeconds: true,
+                rainbowEffects: true,
+                defaultDisplayMode: 'fast'
+            },
+            simulateNight: false,
+            autoBrightnessControl: true,
+            manualBrightness: 200,
+            dayBrightness: 250,
+            nightBrightness: 90,
+            selectedVoice: null,
+            showCoffeeMachine: true,
+            showCuckooClock: true
+        };
+
+        // ===============================================
+        // SALVATAGGIO/CARICAMENTO IMPOSTAZIONI
+        // ===============================================
+        const STORAGE_KEY = 'oraQuadraNanoSettings';
+
+        function saveSettings() {
+            const settingsToSave = {
+                currentMode: state.currentMode,
+                currentColor: state.currentColor,
+                userColor: state.userColor,
+                bgColor: state.bgColor,
+                brightness: state.brightness,
+                eState: state.eState,
+                useSystemTime: state.useSystemTime,
+                manualHour: state.manualHour,
+                manualMinute: state.manualMinute,
+                currentPreset: state.currentPreset,
+                setupOptions: state.setupOptions,
+                simulateNight: state.simulateNight,
+                autoBrightnessControl: state.autoBrightnessControl,
+                manualBrightness: state.manualBrightness,
+                dayBrightness: state.dayBrightness,
+                nightBrightness: state.nightBrightness,
+                selectedVoiceName: state.selectedVoice ? state.selectedVoice.name : null,
+                showCoffeeMachine: state.showCoffeeMachine,
+                showCuckooClock: state.showCuckooClock
+            };
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(settingsToSave));
+            } catch(e) {
+                console.log('Impossibile salvare impostazioni:', e);
+            }
+        }
+
+        function loadSettings() {
+            try {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) {
+                    const settings = JSON.parse(saved);
+                    state.currentMode = settings.currentMode || 'fast';
+                    state.currentColor = settings.currentColor || '#00ffff';
+                    state.userColor = settings.userColor || '#00ffff';
+                    state.bgColor = settings.bgColor || '#1a1a1a';
+                    state.brightness = settings.brightness || 250;
+                    state.eState = settings.eState || 0;
+                    state.useSystemTime = settings.useSystemTime !== false;
+                    state.manualHour = settings.manualHour || 12;
+                    state.manualMinute = settings.manualMinute || 30;
+                    state.currentPreset = settings.currentPreset || 1;
+                    state.simulateNight = settings.simulateNight || false;
+                    state.autoBrightnessControl = settings.autoBrightnessControl !== false;
+                    state.manualBrightness = settings.manualBrightness || 200;
+                    state.dayBrightness = settings.dayBrightness || 250;
+                    state.nightBrightness = settings.nightBrightness || 90;
+                    state.showCoffeeMachine = settings.showCoffeeMachine !== false;
+                    state.showCuckooClock = settings.showCuckooClock !== false;
+
+                    if (settings.setupOptions) {
+                        state.setupOptions = { ...state.setupOptions, ...settings.setupOptions };
+                    }
+
+                    // Salva il nome della voce per ripristinarla dopo il caricamento delle voci
+                    state.savedVoiceName = settings.selectedVoiceName;
+
+                    return true;
+                }
+            } catch(e) {
+                console.log('Impossibile caricare impostazioni:', e);
+            }
+            return false;
+        }
+
+        function applyLoadedSettings() {
+            // Aggiorna tutti i controlli UI con i valori caricati
+            document.getElementById('modeSelect').value = state.currentMode;
+            document.getElementById('colorPicker').value = state.currentColor;
+            document.getElementById('bgColorPicker').value = state.bgColor;
+            document.getElementById('brightnessSlider').value = state.brightness;
+            document.getElementById('presetSelect').value = state.currentPreset;
+            document.getElementById('eStateSelect').value = state.eState;
+            document.getElementById('manualHour').value = state.manualHour;
+            document.getElementById('manualMinute').value = state.manualMinute;
+            document.getElementById('dayBrightness').value = state.dayBrightness;
+            document.getElementById('nightBrightness').value = state.nightBrightness;
+
+            // Toggle switches
+            const useSystemTimeEl = document.getElementById('useSystemTime');
+            if (state.useSystemTime) {
+                useSystemTimeEl.classList.add('on');
+            } else {
+                useSystemTimeEl.classList.remove('on');
+                document.getElementById('manualHour').disabled = false;
+                document.getElementById('manualMinute').disabled = false;
+            }
+
+            const simulateNightEl = document.getElementById('simulateNight');
+            if (state.simulateNight) {
+                simulateNightEl.classList.add('on');
+            } else {
+                simulateNightEl.classList.remove('on');
+            }
+
+            // Auto brightness control
+            const autoBrightnessEl = document.getElementById('autoBrightnessControl');
+            if (state.autoBrightnessControl) {
+                autoBrightnessEl.classList.add('on');
+                document.getElementById('autoBrightnessSettings').style.display = 'block';
+                document.getElementById('manualBrightnessSettings').style.display = 'none';
+            } else {
+                autoBrightnessEl.classList.remove('on');
+                document.getElementById('autoBrightnessSettings').style.display = 'none';
+                document.getElementById('manualBrightnessSettings').style.display = 'block';
+                document.getElementById('manualBrightnessSlider').value = state.manualBrightness;
+                document.getElementById('manualBrightnessValue').textContent = state.manualBrightness;
+            }
+
+            // Setup options toggles
+            Object.keys(state.setupOptions).forEach(key => {
+                const el = document.getElementById(key);
+                if (el && el.classList.contains('toggle-switch')) {
+                    if (state.setupOptions[key]) {
+                        el.classList.add('on');
+                    } else {
+                        el.classList.remove('on');
+                    }
+                }
+            });
+
+            // Decorazioni visibility
+            const coffeeMachine = document.querySelector('.coffee-machine');
+            const cuckooClock = document.querySelector('.cuckoo-clock');
+
+            if (coffeeMachine) {
+                coffeeMachine.style.display = state.showCoffeeMachine ? 'block' : 'none';
+            }
+            if (cuckooClock) {
+                cuckooClock.style.display = state.showCuckooClock ? 'block' : 'none';
+            }
+
+            // Update decoration toggle switches
+            const showCoffeeMachineEl = document.getElementById('showCoffeeMachine');
+            const showCuckooClockEl = document.getElementById('showCuckooClock');
+
+            if (showCoffeeMachineEl) {
+                if (state.showCoffeeMachine) {
+                    showCoffeeMachineEl.classList.add('on');
+                } else {
+                    showCoffeeMachineEl.classList.remove('on');
+                }
+            }
+            if (showCuckooClockEl) {
+                if (state.showCuckooClock) {
+                    showCuckooClockEl.classList.add('on');
+                } else {
+                    showCuckooClockEl.classList.remove('on');
+                }
+            }
+
+            // Aggiorna display
+            updateModeDisplay();
+            updateEStateDisplay();
+            updateBrightness();
+        }
+
+        // Variabili per effetti
+        let matrixDrops = [];
+        let snakePosition = [];
+        let waterRipple = { active: false, x: 0, y: 0, radius: 0 };
+        let animationId = null;
+        let colorCycleInterval = null;
+        let tronAnimationActive = false;
+        let globalRainbowId = null; // ID per animazione rainbow globale
+
+        // Stato sprite per Mario, Tron, Galaga
+        let marioState = { x: 0, y: 0, frame: 0, pathIndex: 0, active: false };
+        let galagaState = { x: 240, y: 400, frame: 0, active: false };
+        let tronBikes = [];
+        let galagaStars = [];
+
+        // ===============================================
+        // UTILITY FUNCTIONS
+        // ===============================================
+        function adjustColorBrightness(hex, percent) {
+            // Converte hex in RGB, applica luminosità, ritorna hex
+            if (!hex || hex.length < 7) return '#ffffff';
+            let r = parseInt(hex.slice(1, 3), 16);
+            let g = parseInt(hex.slice(3, 5), 16);
+            let b = parseInt(hex.slice(5, 7), 16);
+
+            // Applica luminosità (percent 0-1)
+            r = Math.min(255, Math.round(r * (0.3 + percent * 0.7)));
+            g = Math.min(255, Math.round(g * (0.3 + percent * 0.7)));
+            b = Math.min(255, Math.round(b * (0.3 + percent * 0.7)));
+
+            return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+        }
+
+        // ===============================================
+        // INIZIALIZZAZIONE GRIGLIA
+        // ===============================================
+        function initGrid() {
+            const grid = document.getElementById('letterGrid');
+            grid.innerHTML = '';
+
+            for (let i = 0; i < 256; i++) {
+                const letter = document.createElement('div');
+                letter.className = 'letter background';
+                letter.textContent = TFT_L[i] || '?';
+                letter.dataset.index = i;
+                grid.appendChild(letter);
+            }
+        }
+
+        // ===============================================
+        // FUNZIONI ORARIO
+        // ===============================================
+        function getTimeWords(hour, minute) {
+            const pixels = new Set();
+            const displayHour = hour % 24;
+
+            if (displayHour === 0 && minute === 0) {
+                WORDS.MEZZANOTTE.forEach(p => pixels.add(p));
+            } else if (displayHour === 0) {
+                WORDS.MEZZANOTTE.forEach(p => pixels.add(p));
+                WORDS.E.forEach(p => pixels.add(p));
+                addMinutePixels(minute, pixels);
+                WORDS.MINUTI.forEach(p => pixels.add(p));
+            } else {
+                WORDS.SONO_LE.forEach(p => pixels.add(p));
+                const hourWord = HOUR_WORDS[displayHour];
+                if (hourWord && WORDS[hourWord]) {
+                    WORDS[hourWord].forEach(p => pixels.add(p));
+                }
+                if (minute > 0) {
+                    WORDS.E.forEach(p => pixels.add(p));
+                    addMinutePixels(minute, pixels);
+                    WORDS.MINUTI.forEach(p => pixels.add(p));
+                }
+            }
+            return pixels;
+        }
+
+        function addMinutePixels(minute, pixels) {
+            if (minute <= 0) return;
+
+            if (minute <= 19) {
+                const word = MINUTE_WORDS[minute];
+                if (word && WORDS[word]) {
+                    WORDS[word].forEach(p => pixels.add(p));
+                }
+            } else {
+                const tens = Math.floor(minute / 10);
+                const ones = minute % 10;
+
+                let tensWord;
+                switch(tens) {
+                    case 2: tensWord = (ones === 1 || ones === 8) ? 'MVENT' : 'MVENTI'; break;
+                    case 3: tensWord = (ones === 1 || ones === 8) ? 'MTRENT' : 'MTRENTA'; break;
+                    case 4: tensWord = (ones === 1 || ones === 8) ? 'MQUARANT' : 'MQUARANTA'; break;
+                    case 5: tensWord = (ones === 1 || ones === 8) ? 'MCINQUANT' : 'MCINQUANTA'; break;
+                }
+
+                if (tensWord && WORDS[tensWord]) {
+                    WORDS[tensWord].forEach(p => pixels.add(p));
+                }
+
+                if (ones > 0) {
+                    if (ones === 1) {
+                        WORDS.MUN.forEach(p => pixels.add(p));
+                    } else {
+                        const onesWord = MINUTE_WORDS[ones];
+                        if (onesWord && WORDS[onesWord]) {
+                            WORDS[onesWord].forEach(p => pixels.add(p));
+                        }
+                    }
+                }
+            }
+        }
+
+        // ===============================================
+        // AGGIORNAMENTO DISPLAY
+        // ===============================================
+        function updateDisplay() {
+            let hour, minute, second;
+
+            if (state.useSystemTime) {
+                const now = new Date();
+                hour = now.getHours();
+                minute = now.getMinutes();
+                second = now.getSeconds();
+            } else {
+                hour = state.manualHour;
+                minute = state.manualMinute;
+                second = 0;
+            }
+
+            // Aggiorna info panel
+            document.getElementById('currentTime').textContent =
+                `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:${second.toString().padStart(2, '0')}`;
+
+            // Gestione luminosità
+            if (state.autoBrightnessControl) {
+                // Controllo automatico giorno/notte
+                if (state.setupOptions.autoNightMode || state.simulateNight) {
+                    const isNight = hour >= 19 || hour < 7;
+                    if (state.simulateNight || (state.setupOptions.autoNightMode && isNight)) {
+                        state.brightness = state.nightBrightness;
+                    } else {
+                        state.brightness = state.dayBrightness;
+                    }
+                    updateBrightness();
+                }
+            } else {
+                // Luminosità manuale
+                state.brightness = state.manualBrightness;
+            }
+
+            // Aggiorna solo se ora/minuto cambiano
+            if (hour !== state.lastHour || minute !== state.lastMinute) {
+                // Annuncio ogni ora (alle ore piene: minuto = 0)
+                if (state.setupOptions.hourlyAnnounce &&
+                    state.setupOptions.voiceEnabled &&
+                    minute === 0 &&
+                    state.lastMinute !== 0) {
+                    // Piccolo ritardo per non sovrapporre all'effetto
+                    setTimeout(() => {
+                        announceTime();
+                    }, 500);
+                }
+
+                state.lastHour = hour;
+                state.lastMinute = minute;
+                // Aggiorna griglia per mezzanotte (come nel codice Arduino)
+                updateGridForMidnight(hour);
+                state.activePixels = getTimeWords(hour, minute);
+                applyEffect();
+            }
+
+            // Rainbow seconds effect
+            if (state.setupOptions.rainbowSeconds && second !== state.lastSecond) {
+                state.lastSecond = second;
+                applyRainbowSeconds(second);
+            }
+
+            // Gestione lampeggio E (ogni secondo se blink on)
+            if (state.eState === 1) {
+                state.eVisible = second % 2 === 0;
+                renderGrid();
+            }
+        }
+
+        function applyRainbowSeconds(second) {
+            // Applica colore rainbow ai secondi (effetto sui pixel attivi)
+            const hue = (second * 6) % 360;
+            const rainbowColor = hslToHex(hue, 100, 50);
+            // Non modifichiamo il colore principale, solo un effetto visivo
+        }
+
+        function hslToHex(h, s, l) {
+            s /= 100;
+            l /= 100;
+            const a = s * Math.min(l, 1 - l);
+            const f = n => {
+                const k = (n + h / 30) % 12;
+                const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+                return Math.round(255 * color).toString(16).padStart(2, '0');
+            };
+            return `#${f(0)}${f(8)}${f(4)}`;
+        }
+
+        function applyEffect() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                clearTimeout(animationId);
+            }
+
+            // Ferma animazione rainbow globale
+            stopGlobalRainbow();
+
+            // Reset flag animazione TRON
+            tronAnimationActive = false;
+
+            // Ferma eventuali effetti sprite in corso
+            stopSpriteEffects();
+
+            switch(state.currentMode) {
+                case 'fast':
+                    renderGrid();
+                    break;
+                case 'mario':
+                    startMarioEffect();
+                    break;
+                case 'tron':
+                    startTronEffect();
+                    break;
+                case 'galaga':
+                    startGalagaEffect();
+                    break;
+                case 'slow':
+                case 'fade':
+                    fadeInPixels();
+                    break;
+                case 'matrix':
+                case 'matrix2':
+                    startMatrixEffect();
+                    break;
+                case 'snake':
+                    startSnakeEffect();
+                    break;
+                case 'water':
+                    startWaterEffect();
+                    break;
+            }
+        }
+
+        function renderGrid() {
+            // Non interferire con animazioni TRON in corso
+            if (tronAnimationActive) return;
+
+            const letters = document.querySelectorAll('.letter');
+            const brightnessPercent = state.brightness / 255;
+
+            letters.forEach((letter, index) => {
+                letter.classList.remove('active', 'matrix-drop', 'fade-in', 'snake-head', 'rainbow', 'mario-bounce', 'tron-glow', 'galaga-shoot');
+                letter.style.color = '';
+                letter.style.textShadow = '';
+                letter.style.filter = '';
+
+                if (state.activePixels.has(index)) {
+                    // Gestione E lampeggiante
+                    if (WORDS.E.includes(index) && state.eState === 1 && !state.eVisible) {
+                        letter.classList.add('background');
+                        letter.style.color = state.bgColor;
+                    } else {
+                        letter.classList.add('active');
+                        // Applica colore con luminosità (rainbow verrà applicato separatamente)
+                        if (!state.setupOptions.rainbowEffects) {
+                            const adjustedColor = adjustColorBrightness(state.currentColor, brightnessPercent);
+                            letter.style.setProperty('--active-color', adjustedColor);
+                            letter.style.color = adjustedColor;
+                            letter.style.textShadow = `0 0 ${5 + brightnessPercent * 15}px ${adjustedColor}`;
+                        }
+                    }
+                } else {
+                    letter.classList.add('background');
+                    letter.style.color = state.bgColor;
+                }
+            });
+
+            // Avvia rainbow animato se abilitato per modalità FAST
+            if (state.setupOptions.rainbowEffects && state.currentMode === 'fast') {
+                startGlobalRainbow();
+            }
+        }
+
+        // Funzione per animazione rainbow globale
+        function startGlobalRainbow() {
+            // Ferma eventuale animazione precedente
+            if (globalRainbowId) {
+                cancelAnimationFrame(globalRainbowId);
+            }
+
+            let hue = 0;
+            const letters = document.querySelectorAll('.letter');
+
+            function animateGlobalRainbow() {
+                const brightnessPercent = state.brightness / 255;
+                const baseLightness = 30 + (brightnessPercent * 40);
+                const activeIndices = Array.from(state.activePixels);
+
+                activeIndices.forEach((index, i) => {
+                    const letter = letters[index];
+                    // Salta la E lampeggiante quando è nascosta
+                    if (WORDS.E.includes(index) && state.eState === 1 && !state.eVisible) {
+                        return;
+                    }
+                    const letterHue = (hue + i * 15) % 360;
+                    const rainbowColor = `hsl(${letterHue}, 100%, ${baseLightness}%)`;
+                    letter.style.color = rainbowColor;
+                    letter.style.textShadow = `0 0 ${8 * brightnessPercent + 2}px ${rainbowColor}`;
+                });
+
+                hue = (hue + 2) % 360;
+                globalRainbowId = requestAnimationFrame(animateGlobalRainbow);
+            }
+
+            animateGlobalRainbow();
+        }
+
+        // Ferma animazione rainbow globale
+        function stopGlobalRainbow() {
+            if (globalRainbowId) {
+                cancelAnimationFrame(globalRainbowId);
+                globalRainbowId = null;
+            }
+        }
+
+        // ===============================================
+        // EFFETTI
+        // ===============================================
+        function fadeInPixels() {
+            const letters = document.querySelectorAll('.letter');
+            const brightnessPercent = state.brightness / 255;
+            const activeColor = adjustColorBrightness(state.currentColor, brightnessPercent);
+            let rainbowHue = 0;
+
+            // Prima tutte le lettere allo sfondo
+            letters.forEach(letter => {
+                letter.classList.remove('active', 'matrix-drop', 'snake-head', 'fade-in');
+                letter.classList.add('background');
+                letter.style.color = state.bgColor;
+                letter.style.textShadow = 'none';
+                letter.style.opacity = '1';
+            });
+
+            // Poi fade-in delle lettere attive una alla volta
+            const activeIndices = Array.from(state.activePixels).sort((a, b) => a - b);
+            let delay = 0;
+            const isSlow = state.currentMode === 'slow';
+            const delayStep = isSlow ? 150 : 80; // Slow è più lento
+            const totalDuration = activeIndices.length * delayStep;
+
+            activeIndices.forEach((index, i) => {
+                setTimeout(() => {
+                    const letter = letters[index];
+                    letter.classList.remove('background');
+                    letter.classList.add('active');
+
+                    // Animazione fade-in con opacity
+                    letter.style.transition = isSlow ? 'opacity 0.8s ease-in, color 0.8s ease-in' : 'opacity 0.4s ease-in, color 0.4s ease-in';
+                    letter.style.opacity = '0';
+
+                    if (state.setupOptions.rainbowEffects) {
+                        // Colore rainbow
+                        const baseLightness = 30 + (brightnessPercent * 40);
+                        const rainbowColor = `hsl(${rainbowHue}, 100%, ${baseLightness}%)`;
+                        letter.style.color = rainbowColor;
+                        letter.style.textShadow = `0 0 8px ${rainbowColor}`;
+                        rainbowHue = (rainbowHue + 25) % 360;
+                    } else {
+                        letter.style.color = activeColor;
+                        letter.style.textShadow = `0 0 8px ${activeColor}`;
+                    }
+
+                    // Trigger reflow e poi fade in
+                    requestAnimationFrame(() => {
+                        letter.style.opacity = '1';
+                    });
+                }, delay);
+                delay += delayStep;
+            });
+
+            // Avvia animazione rainbow dopo che tutte le lettere sono apparse
+            if (state.setupOptions.rainbowEffects) {
+                setTimeout(() => {
+                    startGlobalRainbow();
+                }, totalDuration + 500);
+            }
+        }
+
+        function startMatrixEffect() {
+            const letters = document.querySelectorAll('.letter');
+            const brightnessPercent = state.brightness / 255;
+            const isMatrix2 = state.currentMode === 'matrix2';
+
+            // Tutte le lettere iniziano spente
+            letters.forEach(l => {
+                l.classList.remove('active', 'fade-in', 'snake-head', 'matrix-drop');
+                l.classList.add('background');
+                l.style.color = state.bgColor;
+                l.style.textShadow = 'none';
+            });
+
+            const litLetters = new Set(); // Lettere già illuminate
+            let matrixRainbowHue = 0; // Contatore rainbow
+
+            matrixDrops = [];
+            for (let col = 0; col < 16; col++) {
+                matrixDrops.push({
+                    col: col,
+                    row: -Math.random() * 16,
+                    speed: 0.3 + Math.random() * 0.3
+                });
+            }
+
+            function animateMatrix() {
+                let allTargetsLit = litLetters.size >= state.activePixels.size;
+                let allDropsFinished = true;
+
+                matrixDrops.forEach(drop => {
+                    drop.row += drop.speed;
+
+                    // Controlla se la goccia è ancora sullo schermo
+                    if (drop.row < 20) {
+                        allDropsFinished = false;
+                    }
+
+                    for (let trail = 0; trail < 5; trail++) {
+                        const row = Math.floor(drop.row) - trail;
+                        if (row >= 0 && row < 16) {
+                            const index = row * 16 + drop.col;
+                            const letter = letters[index];
+
+                            // Se è una lettera target e non ancora illuminata
+                            if (state.activePixels.has(index) && !litLetters.has(index)) {
+                                litLetters.add(index);
+                                letter.classList.remove('background');
+                                letter.classList.add('active', 'matrix-drop');
+                                const glowSize = 5 + brightnessPercent * 15;
+
+                                if (state.setupOptions.rainbowEffects) {
+                                    const baseLightness = 30 + (brightnessPercent * 40);
+                                    const rainbowColor = `hsl(${matrixRainbowHue}, 100%, ${baseLightness}%)`;
+                                    letter.style.color = rainbowColor;
+                                    letter.style.setProperty('--active-color', rainbowColor);
+                                    letter.style.textShadow = `0 0 ${glowSize}px ${rainbowColor}`;
+                                    matrixRainbowHue = (matrixRainbowHue + 20) % 360;
+                                } else {
+                                    const adjustedColor = adjustColorBrightness(state.currentColor, brightnessPercent);
+                                    letter.style.color = adjustedColor;
+                                    letter.style.setProperty('--active-color', adjustedColor);
+                                    letter.style.textShadow = `0 0 ${glowSize}px ${adjustedColor}`;
+                                }
+                            } else if (!state.activePixels.has(index) && trail === 0) {
+                                // Effetto goccia su lettere non-target
+                                const dropColor = isMatrix2 ? '#00ff00' : '#0088ff';
+                                letter.style.color = dropColor;
+                                letter.style.textShadow = `0 0 10px ${dropColor}`;
+                                setTimeout(() => {
+                                    if (!state.activePixels.has(index)) {
+                                        letter.style.color = state.bgColor;
+                                        letter.style.textShadow = 'none';
+                                    }
+                                }, 200);
+                            }
+                        }
+                    }
+
+                    // MATRIX: Reset goccia quando esce, continua per sempre
+                    // MATRIX2: Goccia si ferma quando esce
+                    if (!isMatrix2 && drop.row >= 20) {
+                        drop.row = -Math.random() * 8;
+                        drop.speed = 0.3 + Math.random() * 0.3;
+                    }
+                });
+
+                // MATRIX: Continua sempre (gocce in loop)
+                // MATRIX2: Si ferma quando tutte le gocce sono finite
+                if (isMatrix2) {
+                    if (!allDropsFinished) {
+                        animationId = requestAnimationFrame(animateMatrix);
+                    }
+                    // Matrix2 si ferma, le lettere restano illuminate
+                } else {
+                    // Matrix continua per sempre
+                    animationId = requestAnimationFrame(animateMatrix);
+                }
+            }
+
+            animateMatrix();
+        }
+
+        function startSnakeEffect() {
+            const letters = document.querySelectorAll('.letter');
+            const brightnessPercent = state.brightness / 255;
+
+            // Tutte le lettere iniziano spente
+            letters.forEach(l => {
+                l.classList.remove('active', 'fade-in', 'matrix-drop', 'snake-head');
+                l.classList.add('background');
+                l.style.color = state.bgColor;
+                l.style.textShadow = 'none';
+            });
+
+            // Genera percorso zig-zag completo (256 celle)
+            function generateZigZagPath(startCorner) {
+                const path = [];
+                // startCorner: 0=top-left, 1=top-right, 2=bottom-left, 3=bottom-right
+
+                if (startCorner === 0) {
+                    // Top-left: vai a destra, poi giù, zig-zag
+                    for (let row = 0; row < 16; row++) {
+                        if (row % 2 === 0) {
+                            for (let col = 0; col < 16; col++) path.push(row * 16 + col);
+                        } else {
+                            for (let col = 15; col >= 0; col--) path.push(row * 16 + col);
+                        }
+                    }
+                } else if (startCorner === 1) {
+                    // Top-right: vai a sinistra, poi giù, zig-zag
+                    for (let row = 0; row < 16; row++) {
+                        if (row % 2 === 0) {
+                            for (let col = 15; col >= 0; col--) path.push(row * 16 + col);
+                        } else {
+                            for (let col = 0; col < 16; col++) path.push(row * 16 + col);
+                        }
+                    }
+                } else if (startCorner === 2) {
+                    // Bottom-left: vai a destra, poi su, zig-zag
+                    for (let row = 15; row >= 0; row--) {
+                        if ((15 - row) % 2 === 0) {
+                            for (let col = 0; col < 16; col++) path.push(row * 16 + col);
+                        } else {
+                            for (let col = 15; col >= 0; col--) path.push(row * 16 + col);
+                        }
+                    }
+                } else {
+                    // Bottom-right: vai a sinistra, poi su, zig-zag
+                    for (let row = 15; row >= 0; row--) {
+                        if ((15 - row) % 2 === 0) {
+                            for (let col = 15; col >= 0; col--) path.push(row * 16 + col);
+                        } else {
+                            for (let col = 0; col < 16; col++) path.push(row * 16 + col);
+                        }
+                    }
+                }
+                return path;
+            }
+
+            // Scegli angolo casuale
+            const startCorner = Math.floor(Math.random() * 4);
+            const zigzagPath = generateZigZagPath(startCorner);
+
+            const litLetters = new Set(); // Lettere già illuminate dal serpente
+            let pathIndex = 0;
+            const snakeLength = 10; // Lunghezza del serpente
+            let snakeBody = [];
+
+            function moveSnake() {
+                // Quando il serpente ha completato il percorso
+                if (pathIndex >= zigzagPath.length) {
+                    // Continua a muovere la coda fino a farla uscire
+                    if (snakeBody.length > 0) {
+                        const removed = snakeBody.shift();
+                        if (!litLetters.has(removed)) {
+                            letters[removed].classList.remove('active', 'snake-head');
+                            letters[removed].style.color = state.bgColor;
+                            letters[removed].style.textShadow = 'none';
+                        }
+
+                        // Aggiorna la testa
+                        if (snakeBody.length > 0) {
+                            snakeBody.forEach((pos, i) => {
+                                letters[pos].classList.toggle('snake-head', i === snakeBody.length - 1);
+                            });
+                        }
+
+                        animationId = setTimeout(moveSnake, 30);
+                        return;
+                    }
+
+                    // Effetto rainbow finale solo se abilitato
+                    if (state.setupOptions.rainbowEffects) {
+                        startRainbowEffect(litLetters);
+                    }
+                    return;
+                }
+
+                const currentPos = zigzagPath[pathIndex];
+                snakeBody.push(currentPos);
+
+                // Limita lunghezza serpente
+                if (snakeBody.length > snakeLength) {
+                    const removed = snakeBody.shift();
+                    if (!litLetters.has(removed)) {
+                        letters[removed].classList.remove('active', 'snake-head');
+                        letters[removed].style.color = state.bgColor;
+                        letters[removed].style.textShadow = 'none';
+                    }
+                }
+
+                // Illumina il serpente
+                // Luminosità coerente con il display: brightnessPercent va da 0 a 1 (basato su state.brightness 0-255)
+                const baseLightness = 30 + (brightnessPercent * 40); // Range 30%-70% basato su luminosità display
+
+                snakeBody.forEach((pos, i) => {
+                    const isHead = i === snakeBody.length - 1;
+                    letters[pos].classList.add('active');
+                    letters[pos].classList.toggle('snake-head', isHead);
+
+                    // Se è una lettera target che il serpente sta passando
+                    if (state.activePixels.has(pos) && !litLetters.has(pos)) {
+                        litLetters.add(pos);
+                    }
+
+                    if (state.setupOptions.rainbowEffects) {
+                        // Colore rainbow basato sulla posizione nel serpente e nel percorso
+                        const rainbowHue = (pathIndex * 3 + i * 30) % 360;
+                        const rainbowColor = `hsl(${rainbowHue}, 100%, ${baseLightness}%)`;
+
+                        if (litLetters.has(pos)) {
+                            // Lettere target - colore rainbow pieno
+                            letters[pos].style.color = rainbowColor;
+                            letters[pos].style.textShadow = `0 0 ${8 * brightnessPercent + 2}px ${rainbowColor}`;
+                        } else {
+                            // Corpo del serpente (non target) - rainbow con gradiente di luminosità
+                            const fadeAmount = 0.5 + (i / snakeBody.length) * 0.5;
+                            const fadedLightness = baseLightness * fadeAmount;
+                            const fadedRainbow = `hsl(${rainbowHue}, 100%, ${fadedLightness}%)`;
+                            letters[pos].style.color = fadedRainbow;
+                            letters[pos].style.textShadow = `0 0 ${5 * brightnessPercent + 1}px ${fadedRainbow}`;
+                        }
+                    } else {
+                        // Colore normale
+                        const adjustedColor = adjustColorBrightness(state.currentColor, brightnessPercent);
+                        if (litLetters.has(pos)) {
+                            letters[pos].style.color = adjustedColor;
+                            letters[pos].style.textShadow = `0 0 ${8 * brightnessPercent + 2}px ${adjustedColor}`;
+                        } else {
+                            // Corpo del serpente con gradiente
+                            const fadeAmount = 0.5 + (i / snakeBody.length) * 0.5;
+                            const fadedColor = adjustColorBrightness(state.currentColor, brightnessPercent * fadeAmount);
+                            letters[pos].style.color = fadedColor;
+                            letters[pos].style.textShadow = `0 0 ${5 * brightnessPercent + 1}px ${fadedColor}`;
+                        }
+                    }
+                });
+
+                pathIndex++;
+                animationId = setTimeout(moveSnake, 30);
+            }
+
+            // Funzione per effetto rainbow finale
+            function startRainbowEffect(litSet) {
+                let hue = 0;
+                const baseLightness = 30 + (brightnessPercent * 40); // Coerente con luminosità display
+
+                function animateRainbow() {
+                    const litArray = Array.from(litSet);
+                    litArray.forEach((pos, index) => {
+                        const letterHue = (hue + index * 25) % 360;
+                        const rainbowColor = `hsl(${letterHue}, 100%, ${baseLightness}%)`;
+                        letters[pos].style.color = rainbowColor;
+                        letters[pos].style.textShadow = `0 0 ${8 * brightnessPercent + 2}px ${rainbowColor}`;
+                    });
+
+                    hue = (hue + 2) % 360;
+                    animationId = requestAnimationFrame(animateRainbow);
+                }
+
+                animateRainbow();
+            }
+
+            moveSnake();
+        }
+
+        function startWaterEffect() {
+            const letters = document.querySelectorAll('.letter');
+            const brightnessPercent = state.brightness / 255;
+
+            // Tutte le lettere iniziano spente
+            letters.forEach(l => {
+                l.classList.remove('active', 'fade-in', 'matrix-drop', 'snake-head');
+                l.classList.add('background');
+                l.style.color = state.bgColor;
+                l.style.textShadow = 'none';
+            });
+
+            const litLetters = new Set(); // Lettere già illuminate dall'onda
+            let waterRainbowHue = 0; // Contatore rainbow
+            waterRipple = { active: true, x: 8, y: 8, radius: 0 };
+
+            function expandRipple() {
+                waterRipple.radius += 0.3;
+
+                const waveColor = adjustColorBrightness('#00aaff', brightnessPercent);
+                const activeColor = adjustColorBrightness(state.currentColor, brightnessPercent);
+                const glowSize = 5 + brightnessPercent * 15;
+                const baseLightness = 30 + (brightnessPercent * 40);
+
+                letters.forEach((letter, index) => {
+                    const row = Math.floor(index / 16);
+                    const col = index % 16;
+                    const dist = Math.sqrt(Math.pow(col - waterRipple.x, 2) + Math.pow(row - waterRipple.y, 2));
+
+                    // L'onda (anello che si espande)
+                    const isOnWave = dist >= waterRipple.radius - 1.5 && dist <= waterRipple.radius + 0.5;
+
+                    if (isOnWave) {
+                        // Se è una lettera target, illuminala permanentemente
+                        if (state.activePixels.has(index) && !litLetters.has(index)) {
+                            litLetters.add(index);
+                            if (state.setupOptions.rainbowEffects) {
+                                const rainbowColor = `hsl(${waterRainbowHue}, 100%, ${baseLightness}%)`;
+                                letter.style.color = rainbowColor;
+                                letter.style.textShadow = `0 0 ${glowSize}px ${rainbowColor}`;
+                                waterRainbowHue = (waterRainbowHue + 25) % 360;
+                            } else {
+                                letter.style.color = activeColor;
+                                letter.style.textShadow = `0 0 ${glowSize}px ${activeColor}`;
+                            }
+                        } else if (!litLetters.has(index)) {
+                            // Effetto onda temporaneo sulle lettere non-target
+                            letter.style.color = waveColor;
+                            letter.style.textShadow = `0 0 ${4 + brightnessPercent * 10}px ${waveColor}`;
+                        }
+                    } else if (!litLetters.has(index) && dist < waterRipple.radius - 1.5) {
+                        // Spegni le lettere non-target dopo che l'onda è passata
+                        letter.style.color = state.bgColor;
+                        letter.style.textShadow = 'none';
+                    }
+                });
+
+                if (waterRipple.radius < 20) {
+                    animationId = requestAnimationFrame(expandRipple);
+                } else if (state.setupOptions.rainbowEffects) {
+                    // Avvia rainbow animato alla fine
+                    startGlobalRainbow();
+                }
+            }
+            expandRipple();
+        }
+
+        // ===============================================
+        // SPRITE DEFINITIONS
+        // ===============================================
+
+        // Sprite Mario Bros (12x16, codici: 0=trasparente, 1=rosso, 2=pelle, 3=blu, 4=marrone, 5=nero, 6=bianco, 7=giallo)
+        // Sprite Mario 16x16 dettagliato stile NES/Super Mario Bros
+        const MARIO_SPRITES = {
+            stand: [
+                [0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,0,0,4,4,4,2,2,5,2,0,0,0,0,0],
+                [0,0,0,4,2,4,2,2,2,5,2,2,2,0,0,0],
+                [0,0,0,4,2,4,4,2,2,2,5,2,2,2,0,0],
+                [0,0,0,4,4,2,2,2,2,5,5,5,5,0,0,0],
+                [0,0,0,0,0,2,2,2,2,2,2,2,0,0,0,0],
+                [0,0,0,0,1,1,3,1,1,1,0,0,0,0,0,0],
+                [0,0,0,1,1,1,3,1,1,3,1,1,1,0,0,0],
+                [0,0,1,1,1,1,3,3,3,3,1,1,1,1,0,0],
+                [0,0,2,2,1,3,7,3,3,7,3,1,2,2,0,0],
+                [0,0,2,2,2,3,3,3,3,3,3,2,2,2,0,0],
+                [0,0,2,2,3,3,3,3,3,3,3,3,2,2,0,0],
+                [0,0,0,0,3,3,3,0,0,3,3,3,0,0,0,0],
+                [0,0,0,4,4,4,4,0,0,4,4,4,4,0,0,0],
+                [0,0,4,4,4,4,4,0,0,4,4,4,4,4,0,0]
+            ],
+            walk1: [
+                [0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,0,0,4,4,4,2,2,5,2,0,0,0,0,0],
+                [0,0,0,4,2,4,2,2,2,5,2,2,2,0,0,0],
+                [0,0,0,4,2,4,4,2,2,2,5,2,2,2,0,0],
+                [0,0,0,4,4,2,2,2,2,5,5,5,5,0,0,0],
+                [0,0,0,0,0,2,2,2,2,2,2,2,0,0,0,0],
+                [0,0,0,0,0,1,1,1,3,1,1,0,0,0,0,0],
+                [0,0,0,0,1,1,1,1,3,1,1,1,2,0,0,0],
+                [0,0,0,0,1,1,1,3,3,3,1,1,2,2,0,0],
+                [0,0,0,0,2,1,3,7,3,7,3,2,2,0,0,0],
+                [0,0,0,0,2,3,3,3,3,3,3,3,0,0,0,0],
+                [0,0,0,0,3,3,3,3,3,3,3,0,0,0,0,0],
+                [0,0,0,0,4,4,3,3,3,0,0,0,0,0,0,0],
+                [0,0,0,4,4,4,4,4,0,0,3,3,0,0,0,0],
+                [0,0,0,0,4,4,4,0,0,3,3,4,4,0,0,0]
+            ],
+            walk2: [
+                [0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,0,0,4,4,4,2,2,5,2,0,0,0,0,0],
+                [0,0,0,4,2,4,2,2,2,5,2,2,2,0,0,0],
+                [0,0,0,4,2,4,4,2,2,2,5,2,2,2,0,0],
+                [0,0,0,4,4,2,2,2,2,5,5,5,5,0,0,0],
+                [0,0,0,0,0,2,2,2,2,2,2,2,0,0,0,0],
+                [0,0,0,1,1,1,3,1,1,1,1,0,0,0,0,0],
+                [0,0,2,1,1,1,3,1,1,1,1,1,0,0,0,0],
+                [0,2,2,1,1,3,3,3,1,1,1,1,0,0,0,0],
+                [0,0,2,3,7,3,3,7,3,1,2,0,0,0,0,0],
+                [0,0,0,3,3,3,3,3,3,3,2,0,0,0,0,0],
+                [0,0,0,0,3,3,3,3,3,3,3,0,0,0,0,0],
+                [0,0,0,0,0,0,3,3,3,4,4,0,0,0,0,0],
+                [0,0,0,0,3,3,0,0,4,4,4,4,0,0,0,0],
+                [0,0,0,4,4,3,3,0,0,4,4,4,0,0,0,0]
+            ],
+            jump: [
+                [0,0,0,0,0,0,2,2,2,0,0,0,0,0,0,0],
+                [0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0],
+                [0,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0],
+                [0,0,0,0,4,4,4,2,2,5,2,0,0,0,0,0],
+                [0,0,0,4,2,4,2,2,2,5,2,2,2,0,0,0],
+                [0,0,0,4,2,4,4,2,2,2,5,2,2,2,0,0],
+                [0,0,0,4,4,2,2,2,2,5,5,5,5,0,0,0],
+                [0,0,0,0,0,2,2,2,2,2,2,2,0,0,0,0],
+                [0,0,2,2,1,1,1,3,1,1,1,0,0,0,0,0],
+                [0,2,2,2,2,1,1,3,1,1,1,3,3,4,4,0],
+                [0,0,2,2,1,1,3,3,3,1,3,3,4,4,4,0],
+                [0,0,0,1,1,3,3,3,3,3,3,4,4,4,0,0],
+                [0,0,0,3,3,3,3,3,3,3,4,4,0,0,0,0],
+                [0,0,0,3,3,3,3,3,3,3,0,0,0,0,0,0],
+                [0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,4,4,4,0,0,0,0,0,0,0,0,0,0]
+            ]
+        };
+
+        const MARIO_COLORS = {
+            0: 'transparent',
+            1: '#E52521',      // Rosso Mario (cappello/camicia)
+            2: '#FEB597',      // Pelle/carnagione
+            3: '#0039CB',      // Blu scuro (pantaloni)
+            4: '#6B4423',      // Marrone (scarpe/capelli)
+            5: '#000000',      // Nero (occhi/dettagli)
+            6: '#FFFFFF',      // Bianco (guanti/occhi)
+            7: '#FBD000'       // Giallo/oro (bottoni/fibbia)
+        };
+
+        // Sprite Galaga (10x12)
+        const GALAGA_SPRITES = {
+            frame1: [
+                [0,0,0,0,2,2,0,0,0,0],
+                [0,0,0,4,4,4,4,0,0,0],
+                [0,0,4,4,3,3,4,4,0,0],
+                [0,4,4,3,3,3,3,4,4,0],
+                [0,4,2,2,4,4,2,2,4,0],
+                [4,4,4,4,4,4,4,4,4,4],
+                [4,1,4,4,5,5,4,4,1,4],
+                [4,1,1,4,5,5,4,1,1,4],
+                [0,4,1,4,4,4,4,1,4,0],
+                [0,0,4,4,0,0,4,4,0,0],
+                [0,0,2,0,0,0,0,2,0,0],
+                [0,0,2,0,0,0,0,2,0,0]
+            ],
+            frame2: [
+                [0,0,0,0,2,2,0,0,0,0],
+                [0,0,0,4,4,4,4,0,0,0],
+                [0,0,4,4,3,3,4,4,0,0],
+                [0,4,4,3,3,3,3,4,4,0],
+                [0,4,2,2,4,4,2,2,4,0],
+                [4,4,4,4,4,4,4,4,4,4],
+                [4,1,4,4,5,5,4,4,1,4],
+                [4,1,1,4,5,5,4,1,1,4],
+                [0,4,1,4,4,4,4,1,4,0],
+                [0,0,4,4,0,0,4,4,0,0],
+                [0,3,3,0,0,0,0,3,3,0],
+                [0,3,3,0,0,0,0,3,3,0]
+            ]
+        };
+
+        const GALAGA_COLORS = {
+            0: 'transparent',
+            1: '#ff0000',      // Rosso
+            2: '#ffffff',      // Bianco
+            3: '#ffdc00',      // Giallo
+            4: '#0064ff',      // Blu
+            5: '#00ffff'       // Ciano
+        };
+
+
+        // Percorso zig-zag per Mario (come nello sketch originale)
+        const MARIO_ZIGZAG_PATH = [];
+        for (let row = 0; row < 16; row++) {
+            if (row % 2 === 0) {
+                for (let col = 0; col < 16; col++) MARIO_ZIGZAG_PATH.push(row * 16 + col);
+            } else {
+                for (let col = 15; col >= 0; col--) MARIO_ZIGZAG_PATH.push(row * 16 + col);
+            }
+        }
+
+        // ===============================================
+        // EFFETTO MARIO - Mario cammina e illumina le lettere
+        // ===============================================
+        function startMarioEffect() {
+            const letters = document.querySelectorAll('.letter');
+            // Tutte le lettere iniziano spente (sfondo)
+            letters.forEach(l => {
+                l.classList.remove('active', 'fade-in', 'matrix-drop', 'snake-head', 'tron-glow', 'galaga-shoot');
+                l.classList.add('background');
+                l.style.color = state.bgColor;
+                l.style.textShadow = 'none';
+            });
+
+            const canvas = document.getElementById('spriteCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, 480, 480);
+
+            const brightnessPercent = state.brightness / 255;
+            const litLetters = new Set(); // Tiene traccia delle lettere già illuminate
+            let marioRainbowHue = 0; // Contatore rainbow
+
+            // Mario si muove pixel per pixel
+            marioState = {
+                pixelX: 0,
+                pixelY: 0,
+                targetX: 0,
+                targetY: 0,
+                pathIndex: 0,
+                frame: 0,
+                active: true,
+                moving: false,
+                facingLeft: false
+            };
+
+            function drawMarioSprite(x, y, spriteData, facingLeft = false) {
+                const pixelSize = 3;
+                for (let row = 0; row < 16; row++) {
+                    for (let col = 0; col < 16; col++) {
+                        // Se guarda a sinistra, specchia orizzontalmente
+                        const srcCol = facingLeft ? (15 - col) : col;
+                        const colorCode = spriteData[row][srcCol];
+                        if (colorCode === 0) continue;
+                        ctx.fillStyle = MARIO_COLORS[colorCode];
+                        ctx.fillRect(x + col * pixelSize, y + row * pixelSize, pixelSize, pixelSize);
+                    }
+                }
+            }
+
+            function getNextTarget() {
+                if (marioState.pathIndex >= 256) return false;
+                const gridIndex = MARIO_ZIGZAG_PATH[marioState.pathIndex];
+                marioState.targetX = (gridIndex % 16) * 30 + 3;
+                marioState.targetY = Math.floor(gridIndex / 16) * 30 + 3;
+                return true;
+            }
+
+            function checkAndLightLetter() {
+                // Calcola su quale cella si trova Mario
+                const cellX = Math.floor((marioState.pixelX + 18) / 30);
+                const cellY = Math.floor((marioState.pixelY + 24) / 30);
+                const gridIndex = cellY * 16 + cellX;
+
+                // Se è una lettera target e non è già illuminata
+                if (state.activePixels.has(gridIndex) && !litLetters.has(gridIndex)) {
+                    litLetters.add(gridIndex);
+                    const letter = letters[gridIndex];
+                    letter.classList.remove('background');
+                    letter.classList.add('active');
+                    const glowSize = 5 + brightnessPercent * 15;
+
+                    if (state.setupOptions.rainbowEffects) {
+                        const baseLightness = 30 + (brightnessPercent * 40);
+                        const rainbowColor = `hsl(${marioRainbowHue}, 100%, ${baseLightness}%)`;
+                        letter.style.color = rainbowColor;
+                        letter.style.textShadow = `0 0 ${glowSize}px ${rainbowColor}`;
+                        marioRainbowHue = (marioRainbowHue + 25) % 360;
+                    } else {
+                        const adjustedColor = adjustColorBrightness(state.currentColor, brightnessPercent);
+                        letter.style.color = adjustedColor;
+                        letter.style.textShadow = `0 0 ${glowSize}px ${adjustedColor}`;
+                    }
+
+                    // Suono coin
+                    if (state.setupOptions.touchSounds) {
+                        try {
+                            const actx = new (window.AudioContext || window.webkitAudioContext)();
+                            const osc = actx.createOscillator();
+                            osc.frequency.value = 988;
+                            osc.type = 'square';
+                            const gain = actx.createGain();
+                            gain.gain.value = 0.05;
+                            osc.connect(gain);
+                            gain.connect(actx.destination);
+                            osc.start();
+                            osc.stop(actx.currentTime + 0.05);
+                        } catch(e) {}
+                    }
+                }
+            }
+
+            function animateMario() {
+                if (!marioState.active) return;
+
+                ctx.clearRect(0, 0, 480, 480);
+
+                // Muovi Mario verso il target
+                const dx = marioState.targetX - marioState.pixelX;
+                const dy = marioState.targetY - marioState.pixelY;
+                const speed = 4;
+
+                // Traccia la direzione orizzontale
+                if (dx < 0) {
+                    marioState.facingLeft = true;
+                } else if (dx > 0) {
+                    marioState.facingLeft = false;
+                }
+                // Se dx == 0 mantiene la direzione precedente
+
+                if (Math.abs(dx) > speed) {
+                    marioState.pixelX += dx > 0 ? speed : -speed;
+                } else {
+                    marioState.pixelX = marioState.targetX;
+                }
+
+                if (Math.abs(dy) > speed) {
+                    marioState.pixelY += dy > 0 ? speed : -speed;
+                } else {
+                    marioState.pixelY = marioState.targetY;
+                }
+
+                // Controlla se illuminare una lettera
+                checkAndLightLetter();
+
+                // Se raggiunto il target, passa al prossimo
+                if (marioState.pixelX === marioState.targetX && marioState.pixelY === marioState.targetY) {
+                    marioState.pathIndex++;
+                    if (!getNextTarget()) {
+                        // Fine animazione
+                        ctx.clearRect(0, 0, 480, 480);
+                        marioState.active = false;
+                        return;
+                    }
+                }
+
+                // Disegna Mario con la direzione corretta
+                const sprites = [MARIO_SPRITES.stand, MARIO_SPRITES.walk1, MARIO_SPRITES.walk2];
+                const currentSprite = sprites[Math.floor(marioState.frame / 4) % 3];
+                drawMarioSprite(marioState.pixelX, marioState.pixelY - 18, currentSprite, marioState.facingLeft);
+
+                marioState.frame++;
+                animationId = requestAnimationFrame(animateMario);
+            }
+
+            // Inizia
+            getNextTarget();
+            marioState.pixelX = marioState.targetX;
+            marioState.pixelY = marioState.targetY;
+            marioState.pathIndex++;
+            getNextTarget();
+            animateMario();
+        }
+
+        // ===============================================
+        // EFFETTO TRON - Light cycles che lasciano scie
+        // ===============================================
+        function startTronEffect() {
+            tronAnimationActive = true;
+
+            const letters = document.querySelectorAll('.letter');
+            // Tutte le lettere iniziano spente
+            letters.forEach(l => {
+                l.classList.remove('active', 'fade-in', 'matrix-drop', 'snake-head', 'mario-bounce', 'galaga-shoot', 'tron-glow');
+                l.classList.add('background');
+                l.style.color = state.bgColor;
+                l.style.textShadow = 'none';
+            });
+
+            const canvas = document.getElementById('spriteCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, 480, 480);
+
+            const brightnessPercent = state.brightness / 255;
+
+            // Inizializza 3 moto Tron
+            const bikeColors = ['#0096ff', '#ff6400', '#00ff00'];
+            tronBikes = bikeColors.map((color, i) => ({
+                x: Math.random() * 14 + 1,
+                y: Math.random() * 14 + 1,
+                direction: Math.floor(Math.random() * 4), // 0=su, 1=destra, 2=giu, 3=sinistra
+                color: color,
+                trail: [],
+                active: true
+            }));
+
+            const tronGrid = Array(16).fill(null).map(() => Array(16).fill(0));
+            const targets = Array.from(state.activePixels);
+            let litTargets = new Set();
+            let rainbowHue = 0; // Contatore per colore rainbow progressivo
+
+            function drawTronBike(x, y, color) {
+                const px = x * 30 + 15;
+                const py = y * 30 + 15;
+
+                // Disegna la moto come un quadrato luminoso
+                ctx.fillStyle = color;
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 15;
+                ctx.fillRect(px - 6, py - 6, 12, 12);
+                ctx.shadowBlur = 0;
+            }
+
+            function drawTrail(trail, color) {
+                if (trail.length < 2) return;
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 4;
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.moveTo(trail[0].x * 30 + 15, trail[0].y * 30 + 15);
+                for (let i = 1; i < trail.length; i++) {
+                    ctx.lineTo(trail[i].x * 30 + 15, trail[i].y * 30 + 15);
+                }
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
+
+            function animateTron() {
+                ctx.clearRect(0, 0, 480, 480);
+
+                tronBikes.forEach(bike => {
+                    if (!bike.active) return;
+
+                    // Aggiungi posizione alla scia
+                    bike.trail.push({ x: bike.x, y: bike.y });
+                    if (bike.trail.length > 50) bike.trail.shift();
+
+                    // Muovi la moto
+                    const dx = [0, 1, 0, -1];
+                    const dy = [-1, 0, 1, 0];
+
+                    // Cambia direzione casualmente o se bloccato
+                    if (Math.random() < 0.1) {
+                        bike.direction = (bike.direction + (Math.random() < 0.5 ? 1 : 3)) % 4;
+                    }
+
+                    let newX = bike.x + dx[bike.direction];
+                    let newY = bike.y + dy[bike.direction];
+
+                    // Controlla collisioni con bordi
+                    if (newX < 0 || newX >= 16 || newY < 0 || newY >= 16) {
+                        bike.direction = (bike.direction + 2) % 4;
+                        newX = bike.x + dx[bike.direction];
+                        newY = bike.y + dy[bike.direction];
+                    }
+
+                    // Controlla collisioni con le scie degli altri veicoli
+                    const newXInt = Math.floor(newX);
+                    const newYInt = Math.floor(newY);
+                    let collision = false;
+
+                    for (let otherBike of tronBikes) {
+                        if (otherBike === bike || !otherBike.active) continue;
+
+                        // Collisione con la moto stessa
+                        if (Math.floor(otherBike.x) === newXInt && Math.floor(otherBike.y) === newYInt) {
+                            collision = true;
+                            break;
+                        }
+
+                        // Collisione con la scia dell'altra moto
+                        for (let trailPoint of otherBike.trail) {
+                            if (Math.floor(trailPoint.x) === newXInt && Math.floor(trailPoint.y) === newYInt) {
+                                collision = true;
+                                break;
+                            }
+                        }
+                        if (collision) break;
+                    }
+
+                    // Controlla anche collisione con la propria scia
+                    if (!collision) {
+                        for (let trailPoint of bike.trail) {
+                            if (Math.floor(trailPoint.x) === newXInt && Math.floor(trailPoint.y) === newYInt) {
+                                collision = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Se c'è collisione, prova a cambiare direzione
+                    if (collision) {
+                        // Prova tutte le direzioni
+                        let foundSafe = false;
+                        for (let tryDir = 0; tryDir < 4; tryDir++) {
+                            const tryX = bike.x + dx[tryDir];
+                            const tryY = bike.y + dy[tryDir];
+                            const tryXInt = Math.floor(tryX);
+                            const tryYInt = Math.floor(tryY);
+
+                            if (tryX < 0 || tryX >= 16 || tryY < 0 || tryY >= 16) continue;
+
+                            let trySafe = true;
+                            for (let otherBike of tronBikes) {
+                                if (!otherBike.active) continue;
+                                if (otherBike !== bike && Math.floor(otherBike.x) === tryXInt && Math.floor(otherBike.y) === tryYInt) {
+                                    trySafe = false;
+                                    break;
+                                }
+                                for (let trailPoint of otherBike.trail) {
+                                    if (Math.floor(trailPoint.x) === tryXInt && Math.floor(trailPoint.y) === tryYInt) {
+                                        trySafe = false;
+                                        break;
+                                    }
+                                }
+                                if (!trySafe) break;
+                            }
+
+                            if (trySafe) {
+                                bike.direction = tryDir;
+                                newX = tryX;
+                                newY = tryY;
+                                foundSafe = true;
+                                break;
+                            }
+                        }
+
+                        // Se non trova via di fuga, rigenera la moto in una posizione sicura
+                        if (!foundSafe) {
+                            // Trova una posizione libera per rigenerare la moto
+                            let respawnFound = false;
+                            for (let attempt = 0; attempt < 50; attempt++) {
+                                const respawnX = Math.floor(Math.random() * 16);
+                                const respawnY = Math.floor(Math.random() * 16);
+                                let respawnSafe = true;
+
+                                // Controlla che la posizione non sia occupata da altre moto o scie
+                                for (let otherBike of tronBikes) {
+                                    if (!otherBike.active) continue;
+                                    if (Math.floor(otherBike.x) === respawnX && Math.floor(otherBike.y) === respawnY) {
+                                        respawnSafe = false;
+                                        break;
+                                    }
+                                    for (let trailPoint of otherBike.trail) {
+                                        if (Math.floor(trailPoint.x) === respawnX && Math.floor(trailPoint.y) === respawnY) {
+                                            respawnSafe = false;
+                                            break;
+                                        }
+                                    }
+                                    if (!respawnSafe) break;
+                                }
+
+                                if (respawnSafe) {
+                                    bike.x = respawnX;
+                                    bike.y = respawnY;
+                                    bike.trail = []; // Reset scia
+                                    bike.direction = Math.floor(Math.random() * 4);
+                                    respawnFound = true;
+                                    break;
+                                }
+                            }
+
+                            if (!respawnFound) {
+                                // Se non trova posizione, disattiva temporaneamente
+                                bike.active = false;
+                            }
+                            return;
+                        }
+                    }
+
+                    bike.x = Math.max(0, Math.min(15, newX));
+                    bike.y = Math.max(0, Math.min(15, newY));
+
+                    // Illumina lettera se è target
+                    const gridIndex = Math.floor(bike.y) * 16 + Math.floor(bike.x);
+                    if (state.activePixels.has(gridIndex) && !litTargets.has(gridIndex)) {
+                        litTargets.add(gridIndex);
+                        const letter = letters[gridIndex];
+                        letter.classList.remove('background');
+                        letter.classList.add('active', 'tron-glow');
+                        const glowSize = 5 + brightnessPercent * 15;
+
+                        if (state.setupOptions.rainbowEffects) {
+                            // Colore rainbow basato sull'ordine di illuminazione
+                            const rainbowColor = `hsl(${rainbowHue}, 100%, ${30 + brightnessPercent * 40}%)`;
+                            letter.style.color = rainbowColor;
+                            letter.style.textShadow = `0 0 ${glowSize}px ${rainbowColor}, 0 0 ${glowSize * 2}px ${rainbowColor}`;
+                            rainbowHue = (rainbowHue + 25) % 360;
+                        } else {
+                            // Colore normale
+                            const adjustedColor = adjustColorBrightness(state.currentColor, brightnessPercent);
+                            letter.style.color = adjustedColor;
+                            letter.style.textShadow = `0 0 ${glowSize}px ${adjustedColor}, 0 0 ${glowSize * 2}px ${adjustedColor}`;
+                        }
+                    }
+
+                    // Disegna scia e moto
+                    drawTrail(bike.trail, bike.color);
+                    drawTronBike(bike.x, bike.y, bike.color);
+                });
+
+                // Riattiva moto disattivate se ci sono ancora target da illuminare
+                const activeBikes = tronBikes.filter(b => b.active).length;
+                if (activeBikes === 0 && litTargets.size < targets.length) {
+                    // Tutte le moto sono crashate, rigenerale tutte
+                    tronBikes.forEach(bike => {
+                        bike.x = Math.floor(Math.random() * 16);
+                        bike.y = Math.floor(Math.random() * 16);
+                        bike.trail = [];
+                        bike.direction = Math.floor(Math.random() * 4);
+                        bike.active = true;
+                    });
+                }
+
+                // Continua finché non tutti i target sono illuminati
+                if (litTargets.size < targets.length) {
+                    animationId = setTimeout(animateTron, 60);
+                } else {
+                    // Fine animazione TRON - pulisci canvas
+                    ctx.clearRect(0, 0, 480, 480);
+                    // Avvia effetto rainbow animato solo se abilitato
+                    if (state.setupOptions.rainbowEffects) {
+                        startTronRainbow(litTargets);
+                    }
+                }
+            }
+
+            // Funzione rainbow per TRON (simile a snake)
+            function startTronRainbow(litSet) {
+                let hue = 0;
+
+                function animateRainbow() {
+                    const litArray = Array.from(litSet);
+                    litArray.forEach((pos, index) => {
+                        const letterHue = (hue + index * 25) % 360;
+                        const rainbowColor = `hsl(${letterHue}, 100%, ${30 + brightnessPercent * 40}%)`;
+                        letters[pos].style.color = rainbowColor;
+                        letters[pos].style.textShadow = `0 0 ${8 * brightnessPercent + 2}px ${rainbowColor}`;
+                    });
+
+                    hue = (hue + 2) % 360;
+                    animationId = requestAnimationFrame(animateRainbow);
+                }
+
+                animateRainbow();
+            }
+
+            animateTron();
+        }
+
+        // ===============================================
+        // EFFETTO GALAGA - Astronave con stelle
+        // ===============================================
+        function startGalagaEffect() {
+            const letters = document.querySelectorAll('.letter');
+            // Tutte le lettere iniziano spente
+            letters.forEach(l => {
+                l.classList.remove('active', 'fade-in', 'matrix-drop', 'snake-head', 'mario-bounce', 'tron-glow', 'galaga-shoot');
+                l.classList.add('background');
+                l.style.color = state.bgColor;
+                l.style.textShadow = 'none';
+            });
+
+            const spriteCanvas = document.getElementById('spriteCanvas');
+            const spriteCtx = spriteCanvas.getContext('2d');
+            const starsCanvas = document.getElementById('starsCanvas');
+            const starsCtx = starsCanvas.getContext('2d');
+
+            spriteCtx.clearRect(0, 0, 480, 480);
+            starsCtx.clearRect(0, 0, 480, 480);
+
+            const brightnessPercent = state.brightness / 255;
+            let galagaRainbowHue = 0; // Contatore per colore rainbow progressivo
+
+            // Inizializza stelle
+            galagaStars = [];
+            for (let i = 0; i < 50; i++) {
+                galagaStars.push({
+                    x: Math.random() * 480,
+                    y: Math.random() * 480,
+                    speed: 0.5 + Math.random() * 2,
+                    size: Math.random() < 0.7 ? 1 : 2,
+                    brightness: 100 + Math.random() * 155
+                });
+            }
+
+            galagaState = { x: -50, y: 220, frame: 0, active: true, targetIndex: 0 };
+            const targets = Array.from(state.activePixels).sort((a, b) => {
+                const rowA = Math.floor(a / 16);
+                const rowB = Math.floor(b / 16);
+                return rowA - rowB || (a % 16) - (b % 16);
+            });
+
+            function drawGalagaShip(x, y, frame) {
+                const sprite = frame % 2 === 0 ? GALAGA_SPRITES.frame1 : GALAGA_SPRITES.frame2;
+                const pixelSize = 3;
+
+                for (let row = 0; row < 12; row++) {
+                    for (let col = 0; col < 10; col++) {
+                        const colorCode = sprite[row][col];
+                        if (colorCode === 0) continue;
+                        spriteCtx.fillStyle = GALAGA_COLORS[colorCode];
+                        spriteCtx.fillRect(x + col * pixelSize, y + row * pixelSize, pixelSize, pixelSize);
+                    }
+                }
+            }
+
+            function drawStars() {
+                starsCtx.clearRect(0, 0, 480, 480);
+                galagaStars.forEach(star => {
+                    star.x -= star.speed;
+                    if (star.x < 0) {
+                        star.x = 480;
+                        star.y = Math.random() * 480;
+                    }
+                    const alpha = star.brightness / 255;
+                    starsCtx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                    starsCtx.fillRect(star.x, star.y, star.size, star.size);
+                });
+            }
+
+            function drawLaser(fromX, fromY, toX, toY) {
+                spriteCtx.strokeStyle = '#00ffff';
+                spriteCtx.lineWidth = 2;
+                spriteCtx.shadowColor = '#00ffff';
+                spriteCtx.shadowBlur = 10;
+                spriteCtx.beginPath();
+                spriteCtx.moveTo(fromX, fromY);
+                spriteCtx.lineTo(toX, toY);
+                spriteCtx.stroke();
+                spriteCtx.shadowBlur = 0;
+            }
+
+            function animateGalaga() {
+                if (!galagaState.active) return;
+
+                spriteCtx.clearRect(0, 0, 480, 480);
+                drawStars();
+
+                // Muovi l'astronave
+                if (galagaState.targetIndex < targets.length) {
+                    const targetIdx = targets[galagaState.targetIndex];
+                    const targetX = (targetIdx % 16) * 30 + 15;
+                    const targetY = Math.floor(targetIdx / 16) * 30 + 15;
+
+                    // Muovi verso il target
+                    const dx = targetX - galagaState.x;
+                    const dy = targetY - 50 - galagaState.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist > 5) {
+                        galagaState.x += (dx / dist) * 5;
+                        galagaState.y += (dy / dist) * 3;
+                    } else {
+                        // Spara laser e illumina lettera
+                        drawLaser(galagaState.x + 15, galagaState.y + 36, targetX, targetY);
+
+                        const letter = letters[targetIdx];
+                        letter.classList.remove('background');
+                        letter.classList.add('active', 'galaga-shoot');
+                        const glowSize = 5 + brightnessPercent * 15;
+
+                        if (state.setupOptions.rainbowEffects) {
+                            // Colore rainbow basato sull'ordine di illuminazione
+                            const rainbowColor = `hsl(${galagaRainbowHue}, 100%, ${30 + brightnessPercent * 40}%)`;
+                            letter.style.color = rainbowColor;
+                            letter.style.textShadow = `0 0 ${glowSize}px ${rainbowColor}, 0 0 ${glowSize * 2}px ${rainbowColor}`;
+                            galagaRainbowHue = (galagaRainbowHue + 25) % 360;
+                        } else {
+                            // Colore normale
+                            const adjustedColor = adjustColorBrightness(state.currentColor, brightnessPercent);
+                            letter.style.color = adjustedColor;
+                            letter.style.textShadow = `0 0 ${glowSize}px ${adjustedColor}`;
+                        }
+
+                        // Suono laser
+                        if (state.setupOptions.touchSounds) {
+                            try {
+                                const actx = new (window.AudioContext || window.webkitAudioContext)();
+                                const osc = actx.createOscillator();
+                                osc.frequency.value = 1200;
+                                osc.type = 'sawtooth';
+                                const gain = actx.createGain();
+                                gain.gain.setValueAtTime(0.05, actx.currentTime);
+                                gain.gain.exponentialRampToValueAtTime(0.01, actx.currentTime + 0.1);
+                                osc.connect(gain);
+                                gain.connect(actx.destination);
+                                osc.start();
+                                osc.stop(actx.currentTime + 0.1);
+                            } catch(e) {}
+                        }
+
+                        galagaState.targetIndex++;
+                    }
+                }
+
+                // Disegna astronave
+                drawGalagaShip(galagaState.x, galagaState.y, galagaState.frame);
+                galagaState.frame++;
+
+                if (galagaState.targetIndex < targets.length) {
+                    animationId = setTimeout(animateGalaga, 50);
+                } else {
+                    // Fine, vola via
+                    setTimeout(() => {
+                        spriteCtx.clearRect(0, 0, 480, 480);
+                        starsCtx.clearRect(0, 0, 480, 480);
+                        galagaState.active = false;
+                    }, 500);
+                }
+            }
+
+            animateGalaga();
+        }
+
+        // Funzione per fermare tutti gli effetti sprite
+        function stopSpriteEffects() {
+            marioState.active = false;
+            galagaState.active = false;
+            const spriteCanvas = document.getElementById('spriteCanvas');
+            const starsCanvas = document.getElementById('starsCanvas');
+            if (spriteCanvas) spriteCanvas.getContext('2d').clearRect(0, 0, 480, 480);
+            if (starsCanvas) starsCanvas.getContext('2d').clearRect(0, 0, 480, 480);
+        }
+
+        // ===============================================
+        // GESTIONE LUMINOSITÀ
+        // ===============================================
+        function updateBrightness() {
+            // Applica luminosità direttamente alle lettere attive
+            const brightnessPercent = state.brightness / 255;
+            const letters = document.querySelectorAll('.letter');
+
+            letters.forEach((letter, index) => {
+                if (state.activePixels.has(index)) {
+                    // Modifica l'intensità del colore in base alla luminosità
+                    const baseColor = state.currentColor;
+                    const adjustedColor = adjustColorBrightness(baseColor, brightnessPercent);
+                    letter.style.setProperty('--active-color', adjustedColor);
+                    letter.style.filter = `brightness(${0.3 + brightnessPercent * 0.7})`;
+                }
+            });
+
+            // L'overlay ora è solo per effetto notte estremo (sotto 50)
+            const overlay = document.getElementById('brightnessOverlay');
+            if (state.brightness < 50) {
+                overlay.style.opacity = (50 - state.brightness) / 100;
+            } else {
+                overlay.style.opacity = 0;
+            }
+
+            document.getElementById('brightnessValue').textContent = state.brightness;
+            document.getElementById('brightnessDisplay').textContent = state.brightness;
+            document.getElementById('brightnessSlider').value = state.brightness;
+        }
+
+        // ===============================================
+        // NOTIFICHE
+        // ===============================================
+        function showNotification(title, value, color = '#00ffff') {
+            const notif = document.getElementById('notification');
+            notif.querySelector('.title').textContent = title;
+            notif.querySelector('.value').textContent = value;
+            notif.style.setProperty('--notif-color', color);
+            notif.classList.add('show');
+
+            setTimeout(() => {
+                notif.classList.remove('show');
+            }, 1500);
+        }
+
+        // ===============================================
+        // GESTIONE INTERAZIONI TOUCH
+        // ===============================================
+        function handleClockClick(event) {
+            const rect = event.currentTarget.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+
+            // Calcola distanza dal centro
+            const centerX = rect.width / 2;
+            const centerY = rect.height / 2;
+            const distFromCenter = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+            const centerRadius = rect.width * 0.15; // 15% del display è considerato "centro"
+
+            const isLeft = x < rect.width / 2;
+            const isTop = y < rect.height / 2;
+
+            playTouchSound();
+
+            // CENTRO: Annuncia ora
+            if (distFromCenter < centerRadius) {
+                announceTime();
+                return;
+            }
+
+            if (isTop && isLeft) {
+                // QUADRANTE 1: Cambia modo
+                const modes = ['fast', 'slow', 'fade', 'matrix', 'matrix2', 'snake', 'water', 'mario', 'tron', 'galaga'];
+                const currentIndex = modes.indexOf(state.currentMode);
+                state.currentMode = modes[(currentIndex + 1) % modes.length];
+                document.getElementById('modeSelect').value = state.currentMode;
+                updateModeDisplay();
+                showNotification('MODE:', MODE_NAMES[state.currentMode], getColorForMode(state.currentMode));
+                applyEffect();
+            } else if (isTop && !isLeft) {
+                // QUADRANTE 2: Cambia preset
+                state.currentPreset = (state.currentPreset + 1) % 17;
+                document.getElementById('presetSelect').value = state.currentPreset;
+                applyPreset(state.currentPreset);
+            } else if (!isTop && isLeft) {
+                // QUADRANTE 3: Cicla colori (tenendo premuto)
+                cycleColors();
+            } else {
+                // QUADRANTE 4: Toggle E blink
+                state.eState = (state.eState + 1) % 2;
+                document.getElementById('eStateSelect').value = state.eState;
+                updateEStateDisplay();
+                showNotification('E:', state.eState === 1 ? 'BLINK ON' : 'BLINK OFF', state.eState === 1 ? '#00ff00' : '#ff0000');
+                renderGrid();
+            }
+        }
+
+        function getColorForMode(mode) {
+            const colors = {
+                'fast': '#00ffff', 'slow': '#ff00ff', 'fade': '#0000ff',
+                'matrix': '#00ff00', 'matrix2': '#00ff00', 'snake': '#ffff00',
+                'water': '#00ffff', 'mario': '#ff0000', 'tron': '#00ffff', 'galaga': '#ffff00'
+            };
+            return colors[mode] || '#ffffff';
+        }
+
+        // ===============================================
+        // PRESET
+        // ===============================================
+        function applyPreset(preset) {
+            const presets = {
+                0: { mode: ['fast', 'slow', 'fade', 'matrix'][Math.floor(Math.random() * 4)], color: `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}` },
+                1: { mode: 'fast', color: '#00ffff' },
+                2: { mode: 'slow', color: '#ff00ff' },
+                3: { mode: 'slow', color: '#ffa500' },
+                4: { mode: 'fade', color: '#ff0000' },
+                5: { mode: 'fade', color: '#00ff00' },
+                6: { mode: 'fade', color: '#0000ff' },
+                7: { mode: 'matrix', color: '#ffff00' },
+                8: { mode: 'matrix', color: '#00ffff' },
+                9: { mode: 'matrix2', color: '#00ff00' },
+                10: { mode: 'matrix2', color: '#ffffff' },
+                11: { mode: 'snake', color: '#ffff00' },
+                12: { mode: 'water', color: '#00bfff' },
+                13: { mode: state.currentMode, color: state.userColor },
+                14: { mode: 'mario', color: '#ffc800' },
+                15: { mode: 'tron', color: '#0096ff' },
+                16: { mode: 'galaga', color: '#00ffff' }
+            };
+
+            const p = presets[preset];
+            if (p) {
+                // Ferma animazioni in corso
+                if (animationId) {
+                    cancelAnimationFrame(animationId);
+                    clearTimeout(animationId);
+                    animationId = null;
+                }
+                stopSpriteEffects();
+
+                // Pulisci completamente il display
+                clearDisplay();
+
+                // Aggiorna stato
+                state.currentMode = p.mode;
+                state.currentColor = p.color;
+                state.currentPreset = preset;
+
+                // Aggiorna controlli UI
+                document.getElementById('modeSelect').value = state.currentMode;
+                document.getElementById('colorPicker').value = state.currentColor;
+                document.getElementById('presetSelect').value = preset;
+
+                // Aggiorna display info
+                updateModeDisplay();
+
+                // Mostra notifica
+                showNotification('PRESET:', PRESET_NAMES[preset], p.color);
+
+                // Ricalcola l'orario attuale
+                let hour, minute;
+                if (state.useSystemTime) {
+                    const now = new Date();
+                    hour = now.getHours();
+                    minute = now.getMinutes();
+                } else {
+                    hour = state.manualHour;
+                    minute = state.manualMinute;
+                }
+                state.activePixels = getTimeWords(hour, minute);
+
+                // Forza applicazione effetto
+                applyEffect();
+            }
+        }
+
+        function clearDisplay() {
+            const letters = document.querySelectorAll('.letter');
+            letters.forEach(letter => {
+                letter.classList.remove('active', 'matrix-drop', 'fade-in', 'snake-head', 'rainbow', 'mario-bounce', 'tron-glow', 'galaga-shoot', 'background');
+                letter.style.color = state.bgColor;
+                letter.style.textShadow = 'none';
+                letter.style.filter = '';
+            });
+
+            // Pulisci canvas sprite
+            const spriteCanvas = document.getElementById('spriteCanvas');
+            if (spriteCanvas) {
+                const ctx = spriteCanvas.getContext('2d');
+                ctx.clearRect(0, 0, spriteCanvas.width, spriteCanvas.height);
+            }
+
+            // Pulisci canvas stelle
+            const starsCanvas = document.getElementById('starsCanvas');
+            if (starsCanvas) {
+                const ctx = starsCanvas.getContext('2d');
+                ctx.clearRect(0, 0, starsCanvas.width, starsCanvas.height);
+            }
+        }
+
+        // ===============================================
+        // CICLO COLORI
+        // ===============================================
+        function cycleColors() {
+            if (state.colorCycleActive) {
+                stopColorCycle();
+                return;
+            }
+
+            state.colorCycleActive = true;
+            document.getElementById('clockContainer').classList.add('color-cycling');
+            showNotification('COLORE:', 'CICLANDO...', '#ffffff');
+
+            colorCycleInterval = setInterval(() => {
+                state.colorCycleHue = (state.colorCycleHue + 5) % 360;
+                state.currentColor = hslToHex(state.colorCycleHue, 100, 50);
+                document.getElementById('colorPicker').value = state.currentColor;
+                renderGrid();
+            }, 50);
+
+            // Auto-stop dopo 5 secondi
+            setTimeout(() => {
+                if (state.colorCycleActive) {
+                    stopColorCycle();
+                }
+            }, 5000);
+        }
+
+        function stopColorCycle() {
+            state.colorCycleActive = false;
+            state.userColor = state.currentColor;
+            document.getElementById('clockContainer').classList.remove('color-cycling');
+            if (colorCycleInterval) {
+                clearInterval(colorCycleInterval);
+                colorCycleInterval = null;
+            }
+            showNotification('COLORE:', 'SELEZIONATO', state.currentColor);
+        }
+
+        // ===============================================
+        // SETUP OPTIONS
+        // ===============================================
+        function toggleSetupOption(key) {
+            state.setupOptions[key] = !state.setupOptions[key];
+            document.getElementById(key).classList.toggle('on');
+
+            if (key === 'autoNightMode') {
+                updateDisplay();
+            }
+            if (key === 'rainbowSeconds') {
+                renderGrid();
+            }
+
+            playTouchSound();
+        }
+
+        function toggleSystemTime() {
+            state.useSystemTime = !state.useSystemTime;
+            document.getElementById('useSystemTime').classList.toggle('on');
+            document.getElementById('manualHour').disabled = state.useSystemTime;
+            document.getElementById('manualMinute').disabled = state.useSystemTime;
+
+            if (!state.useSystemTime) {
+                state.lastHour = -1;
+                state.lastMinute = -1;
+            }
+            updateDisplay();
+        }
+
+        function toggleNightSimulation() {
+            state.simulateNight = !state.simulateNight;
+            document.getElementById('simulateNight').classList.toggle('on');
+            updateDisplay();
+        }
+
+        function toggleAutoBrightness() {
+            state.autoBrightnessControl = !state.autoBrightnessControl;
+            document.getElementById('autoBrightnessControl').classList.toggle('on');
+
+            if (state.autoBrightnessControl) {
+                // Mostra impostazioni automatiche
+                document.getElementById('autoBrightnessSettings').style.display = 'block';
+                document.getElementById('manualBrightnessSettings').style.display = 'none';
+            } else {
+                // Mostra slider manuale
+                document.getElementById('autoBrightnessSettings').style.display = 'none';
+                document.getElementById('manualBrightnessSettings').style.display = 'block';
+                // Applica luminosità manuale
+                state.brightness = state.manualBrightness;
+                updateBrightness();
+            }
+            saveSettings();
+            updateDisplay();
+        }
+
+        function updateManualBrightness(value) {
+            state.manualBrightness = parseInt(value);
+            document.getElementById('manualBrightnessValue').textContent = value;
+            if (!state.autoBrightnessControl) {
+                state.brightness = state.manualBrightness;
+                updateBrightness();
+                renderGrid();
+            }
+            saveSettings();
+        }
+
+        function toggleDecoration(id) {
+            state[id] = !state[id];
+            document.getElementById(id).classList.toggle('on');
+
+            // Mostra/nascondi elemento
+            if (id === 'showCoffeeMachine') {
+                const coffeeMachine = document.querySelector('.coffee-machine');
+                if (coffeeMachine) {
+                    coffeeMachine.style.display = state.showCoffeeMachine ? 'block' : 'none';
+                }
+            } else if (id === 'showCuckooClock') {
+                const cuckooClock = document.querySelector('.cuckoo-clock');
+                if (cuckooClock) {
+                    cuckooClock.style.display = state.showCuckooClock ? 'block' : 'none';
+                }
+            }
+        }
+
+        // ===============================================
+        // AZIONI
+        // ===============================================
+        function forceUpdate() {
+            state.lastHour = -1;
+            state.lastMinute = -1;
+            updateDisplay();
+            showNotification('DISPLAY:', 'AGGIORNATO', '#00ff00');
+        }
+
+        function announceTime() {
+            const hour = state.useSystemTime ? new Date().getHours() : state.manualHour;
+            const minute = state.useSystemTime ? new Date().getMinutes() : state.manualMinute;
+
+            // Costruisci il testo in italiano corretto
+            const numeriOre = ['mezzanotte', 'una', 'due', 'tre', 'quattro', 'cinque', 'sei', 'sette',
+                               'otto', 'nove', 'dieci', 'undici', 'dodici', 'tredici', 'quattordici',
+                               'quindici', 'sedici', 'diciassette', 'diciotto', 'diciannove', 'venti',
+                               'ventuno', 'ventidue', 'ventitre', 'mezzanotte'];
+
+            const numeriMinuti = ['', 'uno', 'due', 'tre', 'quattro', 'cinque', 'sei', 'sette',
+                                  'otto', 'nove', 'dieci', 'undici', 'dodici', 'tredici', 'quattordici',
+                                  'quindici', 'sedici', 'diciassette', 'diciotto', 'diciannove', 'venti',
+                                  'ventuno', 'ventidue', 'ventitre', 'ventiquattro', 'venticinque',
+                                  'ventisei', 'ventisette', 'ventotto', 'ventinove', 'trenta',
+                                  'trentuno', 'trentadue', 'trentatre', 'trentaquattro', 'trentacinque',
+                                  'trentasei', 'trentasette', 'trentotto', 'trentanove', 'quaranta',
+                                  'quarantuno', 'quarantadue', 'quarantatre', 'quarantaquattro', 'quarantacinque',
+                                  'quarantasei', 'quarantasette', 'quarantotto', 'quarantanove', 'cinquanta',
+                                  'cinquantuno', 'cinquantadue', 'cinquantatre', 'cinquantaquattro', 'cinquantacinque',
+                                  'cinquantasei', 'cinquantasette', 'cinquantotto', 'cinquantanove'];
+
+            let timeText = '';
+            let spokenText = '';
+
+            const minutiWord = minute === 1 ? 'minuto' : 'minuti';
+
+            if (hour === 0 || hour === 24) {
+                if (minute === 0) {
+                    timeText = 'MEZZANOTTE';
+                    spokenText = 'È mezzanotte';
+                } else {
+                    timeText = `MEZZANOTTE E ${minute}`;
+                    spokenText = `È mezzanotte e ${numeriMinuti[minute]} ${minutiWord}`;
+                }
+            } else if (hour === 12 && minute === 0) {
+                timeText = 'MEZZOGIORNO';
+                spokenText = 'È mezzogiorno';
+            } else if (hour === 12) {
+                timeText = `MEZZOGIORNO E ${minute}`;
+                spokenText = `È mezzogiorno e ${numeriMinuti[minute]} ${minutiWord}`;
+            } else if (hour === 1 || hour === 13) {
+                if (minute === 0) {
+                    timeText = hour === 1 ? "È L'UNA" : 'SONO LE TREDICI';
+                    spokenText = hour === 1 ? "È l'una" : 'Sono le tredici';
+                } else {
+                    timeText = hour === 1 ? `È L'UNA E ${minute}` : `SONO LE TREDICI E ${minute}`;
+                    spokenText = hour === 1 ? `È l'una e ${numeriMinuti[minute]} ${minutiWord}` : `Sono le tredici e ${numeriMinuti[minute]} ${minutiWord}`;
+                }
+            } else {
+                if (minute === 0) {
+                    timeText = `SONO LE ${numeriOre[hour].toUpperCase()}`;
+                    spokenText = `Sono le ${numeriOre[hour]}`;
+                } else {
+                    timeText = `SONO LE ${numeriOre[hour].toUpperCase()} E ${minute}`;
+                    spokenText = `Sono le ${numeriOre[hour]} e ${numeriMinuti[minute]} ${minutiWord}`;
+                }
+            }
+
+            showNotification('ORA:', timeText, '#00ffff');
+
+            // Sintesi vocale in italiano con voce selezionata (se abilitata)
+            if (state.setupOptions.voiceEnabled && 'speechSynthesis' in window) {
+                // Cancella eventuali annunci precedenti
+                window.speechSynthesis.cancel();
+
+                const utterance = new SpeechSynthesisUtterance(spokenText);
+                utterance.lang = 'it-IT';
+                utterance.rate = 0.9;
+                utterance.pitch = 1.0;
+                utterance.volume = 1.0;
+
+                // Usa la voce selezionata dall'utente
+                if (state.selectedVoice) {
+                    utterance.voice = state.selectedVoice;
+                }
+
+                window.speechSynthesis.speak(utterance);
+            } else if (!state.setupOptions.voiceEnabled) {
+                // Voce disabilitata, fai solo beep
+                if (state.setupOptions.touchSounds) {
+                    try {
+                        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                        const osc = ctx.createOscillator();
+                        osc.frequency.value = 800;
+                        osc.connect(ctx.destination);
+                        osc.start();
+                        osc.stop(ctx.currentTime + 0.1);
+                    } catch(e) {}
+                }
+            } else {
+                // Fallback: beep se la sintesi vocale non è disponibile
+                if (state.setupOptions.touchSounds) {
+                    try {
+                        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                        const osc = ctx.createOscillator();
+                        osc.frequency.value = 800;
+                        osc.connect(ctx.destination);
+                        osc.start();
+                        osc.stop(ctx.currentTime + 0.1);
+                    } catch(e) {}
+                }
+            }
+        }
+
+        function resetSettings() {
+            // Cancella impostazioni salvate
+            try {
+                localStorage.removeItem(STORAGE_KEY);
+            } catch(e) {}
+
+            state = {
+                ...state,
+                currentMode: 'fast',
+                currentColor: '#00ffff',
+                userColor: '#00ffff',
+                bgColor: '#1a1a1a',
+                brightness: 250,
+                eState: 0,
+                currentPreset: 1,
+                simulateNight: false,
+                dayBrightness: 250,
+                nightBrightness: 90,
+                setupOptions: {
+                    autoNightMode: true,
+                    touchSounds: true,
+                    voiceEnabled: true,
+                    hourlyAnnounce: false,
+                    rainbowSeconds: true,
+                    rainbowEffects: true,
+                    defaultDisplayMode: 'fast'
+                }
+            };
+
+            // Reset UI
+            document.getElementById('modeSelect').value = 'fast';
+            document.getElementById('colorPicker').value = '#00ffff';
+            document.getElementById('bgColorPicker').value = '#1a1a1a';
+            document.getElementById('brightnessSlider').value = 250;
+            document.getElementById('eStateSelect').value = '0';
+            document.getElementById('presetSelect').value = '1';
+
+            ['autoNightMode', 'touchSounds', 'rainbowSeconds', 'rainbowEffects'].forEach(id => {
+                document.getElementById(id).classList.add('on');
+            });
+            document.getElementById('simulateNight').classList.remove('on');
+            document.getElementById('useSystemTime').classList.add('on');
+
+            updateModeDisplay();
+            updateEStateDisplay();
+            updateBrightness();
+            forceUpdate();
+
+            showNotification('RESET:', 'DEFAULT', '#ff0000');
+        }
+
+        function playTouchSound() {
+            if (!state.setupOptions.touchSounds) return;
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                osc.frequency.value = 1000;
+                osc.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.05);
+            } catch(e) {}
+        }
+
+        function updateModeDisplay() {
+            document.getElementById('currentModeDisplay').textContent = state.currentMode.toUpperCase();
+        }
+
+        function updateEStateDisplay() {
+            document.getElementById('eStateDisplay').textContent = state.eState === 1 ? 'BLINK' : 'FISSA';
+        }
+
+        // ===============================================
+        // EVENT LISTENERS
+        // ===============================================
+        document.getElementById('clockContainer').addEventListener('click', handleClockClick);
+
+        document.getElementById('modeSelect').addEventListener('change', (e) => {
+            state.currentMode = e.target.value;
+            updateModeDisplay();
+            applyEffect();
+        });
+
+        document.getElementById('colorPicker').addEventListener('input', (e) => {
+            state.currentColor = e.target.value;
+            state.userColor = e.target.value;
+            renderGrid();
+        });
+
+        document.getElementById('bgColorPicker').addEventListener('input', (e) => {
+            state.bgColor = e.target.value;
+            renderGrid();
+        });
+
+        document.getElementById('brightnessSlider').addEventListener('input', (e) => {
+            state.brightness = parseInt(e.target.value);
+            updateBrightness();
+        });
+
+        document.getElementById('presetSelect').addEventListener('change', (e) => {
+            state.currentPreset = parseInt(e.target.value);
+            applyPreset(state.currentPreset);
+        });
+
+        document.getElementById('eStateSelect').addEventListener('change', (e) => {
+            state.eState = parseInt(e.target.value);
+            updateEStateDisplay();
+            renderGrid();
+        });
+
+        document.getElementById('manualHour').addEventListener('change', (e) => {
+            state.manualHour = parseInt(e.target.value);
+            if (!state.useSystemTime) forceUpdate();
+        });
+
+        document.getElementById('manualMinute').addEventListener('change', (e) => {
+            state.manualMinute = parseInt(e.target.value);
+            if (!state.useSystemTime) forceUpdate();
+        });
+
+        document.getElementById('defaultDisplayMode').addEventListener('change', (e) => {
+            state.setupOptions.defaultDisplayMode = e.target.value;
+        });
+
+        document.getElementById('dayBrightness').addEventListener('change', (e) => {
+            state.dayBrightness = parseInt(e.target.value);
+        });
+
+        document.getElementById('nightBrightness').addEventListener('change', (e) => {
+            state.nightBrightness = parseInt(e.target.value);
+        });
+
+        // ===============================================
+        // INIZIALIZZAZIONE
+        // ===============================================
+
+        // Carica impostazioni salvate
+        loadSettings();
+
+        initGrid();
+
+        // Applica le impostazioni caricate ai controlli UI
+        applyLoadedSettings();
+
+        updateDisplay();
+        loadVoices();
+        updateCuckooClock();
+
+        // Loop principale (ogni secondo)
+        setInterval(updateDisplay, 1000);
+        setInterval(updateCuckooClock, 1000);
+
+        // Salva automaticamente le impostazioni ogni 5 secondi (se cambiate)
+        setInterval(saveSettings, 5000);
+
+        // Salva quando si chiude/ricarica la pagina
+        window.addEventListener('beforeunload', saveSettings);
+
+        // ===============================================
+        // OROLOGIO A CUCÙ
+        // ===============================================
+        let lastCuckooHour = -1;
+
+        function updateCuckooClock() {
+            const now = new Date();
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+            const seconds = now.getSeconds();
+
+            // Aggiorna lancette
+            const hourDeg = (hours % 12) * 30 + minutes * 0.5;
+            const minuteDeg = minutes * 6;
+
+            document.getElementById('cuckooHour').style.transform = `translate(-50%, -100%) rotate(${hourDeg}deg)`;
+            document.getElementById('cuckooMinute').style.transform = `translate(-50%, -100%) rotate(${minuteDeg}deg)`;
+
+            // Cucù alle ore piene
+            if (minutes === 0 && seconds === 0 && hours !== lastCuckooHour) {
+                lastCuckooHour = hours;
+                triggerCuckoo(hours === 0 ? 12 : (hours > 12 ? hours - 12 : hours));
+            }
+        }
+
+        function triggerCuckoo(times) {
+            const door = document.getElementById('cuckooDoor');
+            const bird = document.getElementById('cuckooBird');
+            const beak = document.getElementById('birdBeak');
+
+            let count = 0;
+
+            function doCuckoo() {
+                if (count >= times) {
+                    // Chiudi alla fine
+                    door.classList.remove('open');
+                    bird.classList.remove('out');
+                    beak.classList.remove('pecking');
+                    return;
+                }
+
+                // Apri porta e fai uscire uccellino
+                door.classList.add('open');
+                setTimeout(() => {
+                    bird.classList.add('out');
+                    beak.classList.add('pecking');
+                    playCuckooSound();
+                }, 300);
+
+                // Rientra
+                setTimeout(() => {
+                    bird.classList.remove('out');
+                    beak.classList.remove('pecking');
+                }, 800);
+
+                // Chiudi porta tra un cucù e l'altro
+                setTimeout(() => {
+                    if (count < times - 1) {
+                        door.classList.remove('open');
+                    }
+                }, 1000);
+
+                count++;
+                setTimeout(doCuckoo, 1200);
+            }
+
+            doCuckoo();
+        }
+
+        function playCuckooSound() {
+            if (!state.setupOptions.touchSounds) return;
+
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+                // Prima nota (Cu-)
+                const osc1 = ctx.createOscillator();
+                const gain1 = ctx.createGain();
+                osc1.type = 'sine';
+                osc1.frequency.setValueAtTime(880, ctx.currentTime); // A5
+                gain1.gain.setValueAtTime(0.3, ctx.currentTime);
+                gain1.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+                osc1.connect(gain1);
+                gain1.connect(ctx.destination);
+                osc1.start(ctx.currentTime);
+                osc1.stop(ctx.currentTime + 0.15);
+
+                // Seconda nota (-cù)
+                const osc2 = ctx.createOscillator();
+                const gain2 = ctx.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.setValueAtTime(659, ctx.currentTime + 0.15); // E5
+                gain2.gain.setValueAtTime(0.3, ctx.currentTime + 0.15);
+                gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+                osc2.connect(gain2);
+                gain2.connect(ctx.destination);
+                osc2.start(ctx.currentTime + 0.15);
+                osc2.stop(ctx.currentTime + 0.4);
+            } catch(e) {}
+        }
+
+        // Test cucù manuale (click sull'orologio)
+        document.querySelector('.cuckoo-clock').addEventListener('click', () => {
+            triggerCuckoo(1);
+        });
+
+        // Funzione per caricare le voci disponibili
+        function loadVoices() {
+            const voiceSelect = document.getElementById('voiceSelect');
+
+            function populateVoices() {
+                const voices = window.speechSynthesis.getVoices();
+                voiceSelect.innerHTML = '';
+
+                // Filtra voci italiane o mostra tutte se non ci sono italiane
+                let italianVoices = voices.filter(v => v.lang.startsWith('it'));
+                if (italianVoices.length === 0) {
+                    italianVoices = voices; // Mostra tutte se non ci sono italiane
+                }
+
+                italianVoices.forEach((voice, index) => {
+                    const option = document.createElement('option');
+                    option.value = index;
+                    option.textContent = `${voice.name} (${voice.lang})`;
+                    option.dataset.voiceName = voice.name;
+                    voiceSelect.appendChild(option);
+                });
+
+                // Prima prova a ripristinare la voce salvata
+                if (state.savedVoiceName) {
+                    const savedVoiceIndex = italianVoices.findIndex(v => v.name === state.savedVoiceName);
+                    if (savedVoiceIndex >= 0) {
+                        voiceSelect.selectedIndex = savedVoiceIndex;
+                        state.selectedVoice = italianVoices[savedVoiceIndex];
+                        return;
+                    }
+                }
+
+                // Altrimenti seleziona la prima voce femminile italiana come default
+                const femaleVoice = italianVoices.findIndex(v =>
+                    v.name.toLowerCase().includes('female') ||
+                    v.name.toLowerCase().includes('donna') ||
+                    v.name.toLowerCase().includes('alice') ||
+                    v.name.toLowerCase().includes('elsa') ||
+                    v.name.toLowerCase().includes('federica') ||
+                    v.name.toLowerCase().includes('cosimo') === false
+                );
+                if (femaleVoice >= 0) {
+                    voiceSelect.selectedIndex = femaleVoice;
+                    state.selectedVoice = italianVoices[femaleVoice];
+                } else if (italianVoices.length > 0) {
+                    state.selectedVoice = italianVoices[0];
+                }
+            }
+
+            // Le voci potrebbero caricarsi in modo asincrono
+            if (window.speechSynthesis.getVoices().length > 0) {
+                populateVoices();
+            }
+            window.speechSynthesis.onvoiceschanged = populateVoices;
+        }
+
+        function setVoice(index) {
+            const voices = window.speechSynthesis.getVoices();
+            let italianVoices = voices.filter(v => v.lang.startsWith('it'));
+            if (italianVoices.length === 0) {
+                italianVoices = voices;
+            }
+            if (italianVoices[index]) {
+                state.selectedVoice = italianVoices[index];
+                // Test della voce selezionata
+                const utterance = new SpeechSynthesisUtterance('Voce selezionata');
+                utterance.voice = state.selectedVoice;
+                utterance.lang = 'it-IT';
+                utterance.rate = 0.9;
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+    </script>
+</body>
+</html>

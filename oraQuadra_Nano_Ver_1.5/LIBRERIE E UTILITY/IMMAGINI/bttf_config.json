@@ -1,0 +1,22 @@
+{
+  "destination": {
+    "month": 6,
+    "day": 2,
+    "year": 1962,
+    "hour": 1,
+    "minute": 20,
+    "ampm": "AM",
+    "alarmEnabled": false,
+    "dailyRepeat": false
+  },
+  "lastDeparted": {
+    "month": 11,
+    "day": 5,
+    "year": 1955,
+    "hour": 6,
+    "minute": 0,
+    "ampm": "AM",
+    "alarmEnabled": false,
+    "dailyRepeat": false
+  }
+}

@@ -1,0 +1,302 @@
+============================================================================
+ RADAR SERVER - ESP32 con Display ILI9341 320x240 + Touch Screen
+ Server autonomo con sensore LD2410 locale + OTA Updates
+============================================================================
+ Autore: Sambinello Paolo
+============================================================================
+
+DESCRIZIONE
+-----------
+Server radar autonomo con display grafico ILI9341 320x240 e touch screen.
+Include sensore radar LD2410 locale, sensore ambientale BME280, LED di stato
+WS2812, sensore luce TEMT6000 per monitor e controllo rele.
+
+Funzionalita:
+- Sensore radar LD2410 integrato (presenza, movimento, distanza)
+- Display TFT ILI9341 320x240 con touch XPT2046
+- Sensore BME280 (temperatura, umidita, pressione)
+- LED di stato WS2812 (RGB)
+- Sensore luce TEMT6000 per rilevare stato monitor
+- Controllo rele per automazioni
+- Interfaccia web per configurazione
+- Aggiornamento OTA (Over-The-Air)
+- Sincronizzazione orario NTP
+
+
+HARDWARE RICHIESTO
+------------------
+- ESP32 (DevKit, WROOM, ecc.)
+- Display TFT ILI9341 2.4" 320x240 con touch XPT2046
+- Sensore radar LD2410 (collegamento seriale)
+- Sensore BME280 (I2C) - opzionale
+- LED WS2812 (1 LED per status) - opzionale
+- Sensore luce TEMT6000 - opzionale
+- Modulo rele - opzionale
+
+
+LIBRERIE ARDUINO RICHIESTE
+--------------------------
+Installa tramite Library Manager di Arduino IDE:
+
+  TFT_eSPI by Bodmer           (display + touch integrato)
+  MyLD2410                     (sensore radar)
+  Adafruit BME280 Library      (sensore ambientale)
+  Adafruit NeoPixel            (LED WS2812)
+  Adafruit Unified Sensor      (dipendenza BME280)
+
+
+CONFIGURAZIONE TFT_eSPI
+-----------------------
+IMPORTANTE: Dopo aver installato la libreria TFT_eSPI, devi configurarla:
+
+1. Trova la cartella della libreria:
+   Windows: C:\Users\[TuoNome]\Documents\Arduino\libraries\TFT_eSPI\
+   Mac/Linux: ~/Arduino/libraries/TFT_eSPI/
+
+2. Modifica User_Setup.h con questi parametri per ILI9341:
+
+   #define ILI9341_DRIVER
+   #define TFT_WIDTH  240
+   #define TFT_HEIGHT 320
+
+   // Pin SPI display
+   #define TFT_CS    15   // Chip Select
+   #define TFT_RST    4   // Reset
+   #define TFT_DC     2   // Data/Command
+   #define TFT_MOSI  23   // SPI MOSI
+   #define TFT_SCLK  18   // SPI Clock
+   #define TFT_MISO  19   // SPI MISO
+
+   // Pin Touch XPT2046
+   #define TOUCH_CS  21   // Touch Chip Select
+
+   #define SPI_FREQUENCY       40000000
+   #define SPI_READ_FREQUENCY  20000000
+   #define SPI_TOUCH_FREQUENCY  2500000
+
+
+SCHEMA COLLEGAMENTI
+-------------------
+
+=== DISPLAY ILI9341 ===
+
+Display ILI9341    ->   ESP32          Colore cavo (tipico)
+--------------------------------------------------------
+  VCC              ->   3.3V           Rosso
+  GND              ->   GND            Nero
+  CS               ->   GPIO 15        Arancione
+  RESET            ->   GPIO 4         Giallo
+  DC (RS)          ->   GPIO 2         Verde
+  SDI (MOSI)       ->   GPIO 23        Blu
+  SCK              ->   GPIO 18        Viola
+  LED              ->   GPIO 5 (PWM)   Bianco (luminosita controllata)
+  SDO (MISO)       ->   GPIO 19        Grigio
+
+=== TOUCH XPT2046 (condivide bus SPI) ===
+
+Touch XPT2046      ->   ESP32
+--------------------------------------------------------
+  T_CLK            ->   GPIO 18        (condiviso con SCK)
+  T_CS             ->   GPIO 21        Marrone
+  T_DIN            ->   GPIO 23        (condiviso con MOSI)
+  T_DO             ->   GPIO 19        (condiviso con MISO)
+  T_IRQ            ->   Non collegato  (opzionale)
+
+=== SENSORE RADAR LD2410 ===
+
+LD2410             ->   ESP32
+--------------------------------------------------------
+  VCC              ->   5V             Rosso
+  GND              ->   GND            Nero
+  TX               ->   GPIO 16 (RX2)  Verde
+  RX               ->   GPIO 17 (TX2)  Giallo
+  OUT              ->   Non collegato  (opzionale)
+
+Nota: Comunicazione a 256000 baud
+
+=== SENSORE BME280 (I2C) ===
+
+BME280             ->   ESP32
+--------------------------------------------------------
+  VCC              ->   3.3V           Rosso
+  GND              ->   GND            Nero
+  SDA              ->   GPIO 21        Blu
+  SCL              ->   GPIO 22        Giallo
+
+Indirizzo I2C: 0x76 (o 0x77 su alcuni moduli)
+
+=== LED WS2812 ===
+
+WS2812             ->   ESP32
+--------------------------------------------------------
+  VCC              ->   5V             Rosso
+  GND              ->   GND            Nero
+  DIN              ->   GPIO 27        Verde
+
+=== SENSORE LUCE TEMT6000 (monitor) ===
+
+TEMT6000           ->   ESP32
+--------------------------------------------------------
+  VCC              ->   3.3V           Rosso
+  GND              ->   GND            Nero
+  OUT              ->   GPIO 34 (ADC)  Giallo
+
+=== RELE ===
+
+Modulo Rele        ->   ESP32
+--------------------------------------------------------
+  VCC              ->   5V             Rosso
+  GND              ->   GND            Nero
+  IN               ->   GPIO 26        Giallo
+
+=== LED STATUS (PWM) - opzionale ===
+
+LED                ->   ESP32
+--------------------------------------------------------
+  Anodo (+)        ->   GPIO 25        (tramite resistenza)
+  Catodo (-)       ->   GND
+
+
+CONFIGURAZIONE WIFI
+-------------------
+Modifica queste righe nello sketch:
+
+  const char* ssid = "IL_TUO_SSID";
+  const char* password = "LA_TUA_PASSWORD";
+
+Configurazione IP statico (opzionale):
+  IPAddress staticIP(192, 168, 1, 99);
+  IPAddress gateway(192, 168, 1, 1);
+  IPAddress subnet(255, 255, 255, 0);
+  IPAddress dns(192, 168, 1, 1);
+
+
+CONFIGURAZIONE RADAR LD2410
+---------------------------
+Parametri di sensibilita nel codice:
+
+  RADAR_MAX_MOVING_GATE 8       // Gate massimo movimento (8 = 600cm)
+  RADAR_MAX_STATIONARY_GATE 8   // Gate massimo stazionario
+  RADAR_SENS_CLOSE_DEFAULT 40   // Sensibilita vicino (0-225cm)
+  RADAR_SENS_MID_DEFAULT 60     // Sensibilita medio (225-450cm)
+  RADAR_SENS_FAR_DEFAULT 80     // Sensibilita lontano (450-675cm)
+
+Ogni gate copre circa 75cm. Valori piu alti = maggiore sensibilita.
+
+
+COLORI LED STATO WS2812
+-----------------------
+  Viola     - Avvio sistema
+  Blu       - Connessione WiFi in corso
+  Verde     - Pronto/Idle (nessuna presenza)
+  Giallo    - Presenza rilevata
+  Ciano     - Lettura radar in corso
+  Magenta   - Aggiornamento OTA
+  Rosso     - Errore
+  Arancione - Rele attivo
+  Bianco    - Richiesta web in corso
+
+
+FUNZIONAMENTO
+-------------
+1. All'avvio mostra splash screen
+2. Inizializza sensori (radar, BME280, ecc.)
+3. Si connette al WiFi (IP statico o DHCP)
+4. Avvia server web e mDNS (radar-display.local)
+5. Sincronizza orario via NTP
+6. Mostra la schermata principale con:
+   - Ora e data corrente
+   - Temperatura e umidita (se BME280 presente)
+   - Stato presenza rilevata
+   - Distanza in cm
+   - Stato movimento/fermo
+   - Luminosita ambiente
+
+Pulsanti touch:
+- ACCENDI/SPEGNI: Comando manuale dispositivi
+- RADAR: Mostra vista radar dettagliata
+- RELE: Attiva impulso rele (2 secondi)
+- INDIETRO: Torna alla schermata principale
+
+
+INTERFACCIA WEB
+---------------
+Accedi tramite browser a:
+  http://radar-display.local
+  oppure http://[IP_ESP32]
+
+Funzioni disponibili via web:
+- Visualizzazione stato sensori
+- Configurazione sensibilita radar
+- Controllo rele
+- Aggiornamento OTA
+
+
+CALIBRAZIONE TOUCH
+------------------
+Se il touch non risponde correttamente:
+
+1. Carica l'esempio di calibrazione:
+   File > Examples > TFT_eSPI > Generic > Touch_calibrate
+
+2. Tocca i 4 angoli come indicato sul display
+
+3. Copia i valori calData mostrati sul Serial Monitor
+
+4. I dati vengono salvati automaticamente nelle Preferences
+   oppure modifica nel codice:
+   uint16_t touchCalData[5] = {xxx, xxx, xxx, xxx, x};
+
+
+RISOLUZIONE PROBLEMI
+--------------------
+1. Display bianco/nero:
+   - Verifica collegamenti SPI
+   - Controlla che User_Setup.h sia configurato correttamente
+   - Verifica alimentazione 3.3V
+
+2. Touch non funziona:
+   - Verifica GPIO 21 (T_CS)
+   - Esegui la calibrazione touch
+   - Controlla SPI_TOUCH_FREQUENCY in User_Setup.h
+
+3. Radar non risponde:
+   - Verifica collegamenti seriali (TX/RX incrociati)
+   - Controlla baud rate (256000)
+   - Verifica alimentazione 5V del LD2410
+
+4. BME280 non rilevato:
+   - Verifica collegamenti I2C (SDA=21, SCL=22)
+   - Prova indirizzo alternativo 0x77
+   - Controlla alimentazione 3.3V
+
+5. Non si connette al WiFi:
+   - Verifica SSID e password
+   - ESP32 supporta solo WiFi 2.4GHz
+   - Controlla IP statico se configurato
+
+6. LED WS2812 non funziona:
+   - Verifica alimentazione 5V
+   - Controlla GPIO 27
+
+
+RIEPILOGO PIN ESP32
+-------------------
+GPIO  2  - Display DC (Data/Command)
+GPIO  4  - Display RESET
+GPIO  5  - Display LED (PWM luminosita)
+GPIO 15  - Display CS (Chip Select)
+GPIO 16  - Radar LD2410 RX (collegare a TX radar)
+GPIO 17  - Radar LD2410 TX (collegare a RX radar)
+GPIO 18  - SPI Clock (display + touch)
+GPIO 19  - SPI MISO (display + touch)
+GPIO 21  - Touch CS / BME280 SDA
+GPIO 22  - BME280 SCL
+GPIO 23  - SPI MOSI (display + touch)
+GPIO 25  - LED status PWM (opzionale)
+GPIO 26  - Rele
+GPIO 27  - LED WS2812
+GPIO 34  - Sensore luce TEMT6000 (ADC)
+
+
+============================================================================

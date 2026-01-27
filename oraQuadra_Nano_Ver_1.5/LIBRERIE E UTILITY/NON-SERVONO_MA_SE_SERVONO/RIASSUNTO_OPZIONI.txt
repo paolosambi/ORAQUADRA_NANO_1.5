@@ -1,0 +1,136 @@
+● OraQuadra Nano V1.4 - Riepilogo Completo
+
+  Hardware Supportato
+
+  - Display: ESP32-4848S040 (480x480 touch capacitivo GT911)
+  - MCU principale: ESP32-S3 con PSRAM
+  - Audio esterno: ESP32-C3 via I2C (indirizzo 0x08)
+  - Sensori I2C:
+    - BME280 (0x76) - Temperatura, umidità, pressione interna
+    - MPU6050 (0x68) - Accelerometro/giroscopio
+    - QMC5883P (0x2C) - Magnetometro/bussola
+    - LD2410 - Radar presenza 24GHz
+
+  Modalità Orologio (15 effetti)
+
+  | #   | Modalità        | Descrizione                                |
+  |-----|-----------------|--------------------------------------------|
+  | 1   | FADE            | Dissolvenza graduale tra i cambi           |
+  | 2   | SLOW            | Transizione lenta                          |
+  | 3   | FAST            | Visualizzazione diretta veloce             |
+  | 4   | MATRIX          | Pioggia stile Matrix                       |
+  | 5   | MATRIX2         | Variante Matrix                            |
+  | 6   | SNAKE           | Serpente animato                           |
+  | 7   | WATER           | Effetto goccia d'acqua                     |
+  | 8   | MARIO           | Tema Mario Bros                            |
+  | 9   | TRON            | Moto stile Tron                            |
+  | 10  | GALAGA          | Astronave che spara alle lettere           |
+  | 11  | GALAGA2         | Astronave volante                          |
+  | 12  | ANALOG_CLOCK    | Orologio analogico con skin da SD card     |
+  | 13  | FLIP_CLOCK      | Palette flip vintage anni '70              |
+  | 14  | BTTF            | DeLorean - Ritorno al Futuro (con sveglie) |
+  | 15  | LED_RING        | Orologio circolare LED                     |
+  | 16  | WEATHER_STATION | Stazione meteo completa                    |
+  | 17  | CLOCK           | Orologio analogico con subdial meteo       |
+  | 18  | ESP32CAM        | Streaming video da ESP32-CAM               |
+
+  Stazione Meteo (Weather Station)
+
+  - Dati interni: Temperatura, umidità (BME280)
+  - Dati esterni: Via OpenWeatherMap API
+    - Temperatura esterna e percepita
+    - Umidità, pressione, nuvolosità
+    - Vento (velocità e direzione con bussola grafica)
+    - Visibilità
+    - Alba/tramonto
+    - Previsioni domani
+  - Bussola magnetica: Triangolo rosso indica il Nord (QMC5883P)
+  - Pulsante CAL: Calibrazione magnetometro via touch
+
+  Sistema Audio (ESP32-C3 I2C)
+
+  - Annuncio orario vocale (tocco centrale)
+  - Suoni touch feedback
+  - Volume configurabile via web
+  - Comandi I2C: play, stop, volume, beep
+
+  Controllo Touch (4 zone)
+
+  | Zona     | Azione                           |
+  |----------|----------------------------------|
+  | Alto-SX  | Cambia modalità orologio         |
+  | Alto-DX  | Cambia preset colore (14 preset) |
+  | Basso-SX | Cicla colori (tenere premuto)    |
+  | Basso-DX | Toggle lampeggio "E" separatore  |
+  | Centro   | Annuncia ora vocale              |
+  | 4 angoli | Reset WiFi (tenere 5 sec)        |
+
+  Funzionalità Web
+
+  - Configurazione WiFi: WiFiManager con QR code
+  - Pagine web:
+    - / - Homepage
+    - /clock - Configurazione orologio analogico
+    - /espcam - Configurazione ESP32-CAM
+    - /weather - Impostazioni meteo
+  - OTA: Aggiornamento firmware via WiFi
+  - mDNS: Accesso tramite hostname
+
+  Integrazione Alexa
+
+  - Nome dispositivo: "ORAQUADRANANO"
+  - Comandi: accendi, spegni, cambia colore
+
+  ESP32-CAM Streaming
+
+  - Streaming MJPEG da ESP32-CAM Freenove
+  - Double buffering per fluidità
+  - Overlay info: FPS, risoluzione, IP camera, WiFi, PSRAM
+  - Scaling automatico a 480x480
+  - Riconnessione automatica
+
+  Calibrazione Magnetometro
+
+  - Salvataggio parametri in NVS (non serve ricalibrare al riavvio)
+  - Calibrazione guidata su display (15 sec, fare "8" nell'aria)
+  - Compensazione hard-iron e soft-iron
+  - Declinazione magnetica Italia: ~3°
+
+  Memoria e Storage
+
+  - EEPROM: Salvataggio preset, colori, modalità
+  - NVS/Preferences: Calibrazione magnetometro
+  - SPIFFS: File di configurazione
+  - SD Card: Skin orologio analogico (JPG 480x480)
+  - PSRAM: Buffer video streaming (~460KB frame buffer)
+
+  Configurazione Compilazione
+
+  Board: ESP32S3 Dev Module
+  PSRAM: OPI PSRAM
+  Partition: HUGE APP (3MB APP)
+  Flash: 16MB
+  Core ESP32: v2.0.17
+  GFX Library: v1.6.0
+
+  File Principali del Progetto
+
+  | File                        | Contenuto                      |
+  |-----------------------------|--------------------------------|
+  | oraQuadraNano_V1_4_I2C1.ino | Setup principale, definizioni  |
+  | 0_SETUP.ino                 | Inizializzazione hardware      |
+  | 1_TOUCH.ino                 | Gestione touch screen          |
+  | 2_CHANGE_MODE.ino           | Cambio modalità                |
+  | 3_EFFETTI.ino               | Effetti visuali                |
+  | 4_MENU.ino                  | Menu setup                     |
+  | 4_WEBSERVER_CLOCK.ino       | Web server configurazione      |
+  | 7_AUDIO_WIFI.ino            | Audio I2C con ESP32-C3         |
+  | 8_CLOCK.ino                 | Orologio con subdial           |
+  | 10_FLIP_CLOCK.ino           | Orologio flip                  |
+  | 12_BTTF.ino                 | Modalità Ritorno al Futuro     |
+  | 19_WEATHER.ino              | Fetch dati meteo               |
+  | 20_WEATHER_STATION.ino      | Visualizzazione stazione meteo |
+  | 23_ESP32CAM_STREAM.ino      | Streaming ESP32-CAM            |
+  | 25_MAGNETOMETER.ino         | Driver magnetometro QMC5883P   |
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
