@@ -277,7 +277,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     </div>
 
     <div class="footer">
-      <p>OraQuadra Nano v1.5 &bull; <a href="https://github.com/paolosambi/ORAQUADRA_NANO_1.5/tree/main/oraQuadra_Nano_Ver_1.5" target="_blank">GitHub</a></p>
+      <p>OraQuadra Nano v1.5 &bull; <a href="https://github.com/paolosambi" target="_blank">GitHub</a></p>
       <p style="margin-top:8px"><span id="ipAddr">--</span> &bull; Port 8080 &bull; Uptime: <span id="uptime">--</span></p>
     </div>
   </div>
