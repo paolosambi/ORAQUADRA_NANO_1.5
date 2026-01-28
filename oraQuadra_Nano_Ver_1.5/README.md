@@ -131,8 +131,8 @@ Flash Size:       16MB
 Partition:        HUGE APP
 PSRAM:            OPI PSRAM
 ESP32 Core:       2.0.17 (obbligatorio)
-GFX Library:      1.6.0 (obbligatorio)
-ESP32-audioI2s    QUELLO IN LIBRERIE (OBBLIGATORIO)
+GFX Library:      1.6.0  (obbligatorio)
+ESP32-audioI2s    2.0.0  QUELLO IN LIBRERIE (OBBLIGATORIO)
 EEPROM Size:      1024 byte
 ```
 
