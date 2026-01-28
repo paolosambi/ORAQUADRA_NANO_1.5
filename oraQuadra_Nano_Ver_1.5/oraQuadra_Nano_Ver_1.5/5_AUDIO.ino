@@ -313,14 +313,11 @@ void checkTimeAndAnnounce() {
 
 // Funzione per annunciare l'ora corrente tramite sintesi vocale (TTS)
 bool announceTime() {
-  #ifdef AUDIO // Blocco di codice compilato solo se la macro AUDIO è definita
-
-  // Pulisce le risorse audio utilizzate in precedenza per eventuali riproduzioni in corso.
+  #ifdef AUDIO
   cleanupAudio();
+  delay(10);
 
-  delay(10);                          // Breve ritardo.
-
-  // Costruisce il messaggio vocale dell'ora in base all'ora e ai minuti correnti.
+  // Costruisce il messaggio vocale dell'ora
   String timeMessage;
 
   if (currentHour == 0 || currentHour == 24) {
@@ -337,48 +334,25 @@ bool announceTime() {
     timeMessage += currentMinute == 1 ? " e un minuto" : " e " + String(currentMinute) + " minuti";
   }
 
-  // Stampa il messaggio che verrà annunciato sulla seriale per debug.
   Serial.println("Annuncio ora: " + timeMessage);
 
-  // Verifica se l'oggetto per l'output audio I2S è stato inizializzato correttamente.
-  if (output == nullptr) {
-    Serial.println("Output audio non inizializzato, reinizializzo...");
-    output = new AudioOutputI2S();                 // Crea una nuova istanza dell'output audio I2S.
-    output->SetPinout(I2S_BCLK, I2S_LRC, I2S_DOUT); // Imposta i pin per la comunicazione I2S.
-    output->SetGain(VOLUME_LEVEL);                 // Imposta il livello del volume.
-    output->SetChannels(1);                      // Imposta il numero di canali audio (mono).
-    delay(100);                                   // Attende un breve periodo per l'inizializzazione.
-  }
-
-  // Tenta di riprodurre il messaggio TTS con una gestione dei tentativi in caso di fallimento iniziale.
+  // Tenta di riprodurre il messaggio TTS (playTTS ora usa Audio.h internamente)
   bool result = false;
-
   for (int retry = 0; retry < 2; retry++) {
-    result = playTTS(timeMessage, "it"); // Chiama la funzione per riprodurre il testo tramite TTS in italiano.
+    result = playTTS(timeMessage, "it");
     if (result) {
-      Serial.println("TTS avviato con successo, attendo completamento...");
-      delay(300); // Attende un breve periodo per assicurarsi che la riproduzione sia iniziata.
-
-      // Attende che la riproduzione finisca, con un timeout massimo di 10 secondi per evitare blocchi.
-      unsigned long startTime = millis();
-      while (mp3 && mp3->isRunning() && millis() - startTime < 10000) {
-        if (!mp3->loop()) break; // Interrompe il loop se la riproduzione è finita o in errore.
-        delay(10);
-      }
-
-      Serial.println("Riproduzione terminata");
-      cleanupAudio(); // Pulisce le risorse audio dopo la riproduzione.
-      return true;   // Indica che l'annuncio è avvenuto con successo.
+      Serial.println("TTS completato con successo");
+      return true;
     } else if (retry == 0) {
       Serial.println("Primo tentativo TTS fallito, riprovo...");
-      cleanupAudio(); // Pulisce le risorse audio prima di riprovare.
-      delay(500);    // Breve ritardo prima del secondo tentativo.
+      cleanupAudio();
+      delay(500);
     }
   }
 
-  Serial.println("Errore avvio TTS dopo tentativi"); // Se entrambi i tentativi falliscono.
-  return false;                                   // Indica che l'annuncio non è avvenuto.
-   #endif // Chiusura del blocco #ifdef AUDIO
+  Serial.println("Errore avvio TTS dopo tentativi");
+  return false;
+  #endif
 }
 
 bool announceTimeFixed() {
@@ -391,11 +365,11 @@ bool announceTimeFixed() {
 
   unsigned long currentTime = millis();
   if (currentTime - lastAnnounceTime < 10000) return false;
-  lastAnnounceTime = currentTime; 
+  lastAnnounceTime = currentTime;
 
   #ifdef AUDIO
   // ========== AUDIO I2S LOCALE ==========
-  Serial.println("Annuncio ora migliorato (Sequenza I2S)");
+  Serial.println("Annuncio ora (Audio unificato)");
 
   isAnnouncing = true;
   announceStartTime = currentTime;
@@ -403,25 +377,17 @@ bool announceTimeFixed() {
   // Abilita VU meter per l'annuncio orario
   vuMeterEnabled = true;
 
-  // Pulizia profonda una volta sola prima di iniziare
-  cleanupAudio();
-  delay(50);
-
   bool result = announceTimeLocal();
 
   // Disabilita VU meter dopo l'annuncio
   vuMeterEnabled = false;
 
   if (result) {
-    // Aspettiamo che l'ultima parola esca completamente dalle casse
-    delay(500);
-    cleanupAudio();
-
     // Imposta timestamp fine annuncio per bloccare suoni flip
     extern unsigned long announceEndTime;
     announceEndTime = millis();
 
-    // Forza ridisegno orologio (il loop principale aggiornerà il display)
+    // Forza ridisegno orologio
     forceClockRedraw();
     Serial.println("Ridisegno orologio forzato");
 
@@ -429,13 +395,7 @@ bool announceTimeFixed() {
     return true;
   }
 
-  // Fallback toni
-  int hourTones = (currentHour == 0 || currentHour == 12) ? 12 : currentHour % 12;
-  for (int i = 0; i < hourTones; i++) {
-    playTone(880, 150);
-    delay(150);
-    yield();
-  }
+  // Fallback: nessun tono (la gestione web radio è in playLocalMP3)
   forceClockRedraw();
   isAnnouncing = false;
   return false;
@@ -451,179 +411,89 @@ bool announceTimeFixed() {
   #endif
 }
 
-// Genera un'onda sinusoidale a una frequenza specifica per il buffer audio.
-void generateSineWave() {
-  #ifdef AUDIO // Blocco di codice compilato solo se la macro AUDIO è definita
-  const float frequency = 440.0;  // Frequenza del tono (La4 a 440 Hz).
-  const float amplitude = 10000.0; // Ampiezza dell'onda (valore massimo: +/- 32767 per int16_t).
+// generateSineWave() rimossa - non piu' necessaria con Audio.h
 
-  // Popola il buffer sineBuffer con i campioni dell'onda sinusoidale.
-  for (int i = 0; i < bufferLen; i++) {
-    // Calcola l'angolo per ogni campione basato sull'indice, la frequenza e la frequenza di campionamento.
-    float angle = i * 2.0 * PI * frequency / sampleRate;
-    // Calcola il valore del campione usando la funzione seno e l'ampiezza, convertendolo a un intero a 16 bit.
-    sineBuffer[i] = (int16_t)(sin(angle) * amplitude);
-  }
-  #endif // Chiusura del blocco #ifdef AUDIO
-}
-
-// Riproduce un tono a una data frequenza per una data durata.
+// Riproduce un tono (usa beep.mp3 invece di generare onda sinusoidale)
 void playTone(int frequency, int duration_ms) {
-  #ifdef AUDIO // Blocco di codice compilato solo se la macro AUDIO è definita
-  // Calcola il numero totale di campioni necessari per la durata specificata (stereo).
-  const int samples = sampleRate * duration_ms / 1000;
-
-  // Alloca memoria per il buffer audio (stereo) nella PSRAM invece che in SRAM.
-  int16_t *buffer = (int16_t*)heap_caps_malloc(samples * sizeof(int16_t) * 2, MALLOC_CAP_SPIRAM);
-
-  // Verifica se l'allocazione di memoria ha avuto successo.
-  if (!buffer) {
-    Serial.println("Errore allocazione buffer in PSRAM - provo in SRAM");
-    // Fallback: prova ad allocare in SRAM interna se PSRAM non disponibile
-    buffer = (int16_t*)malloc(samples * sizeof(int16_t) * 2);
-    if (!buffer) {
-      Serial.println("Errore allocazione buffer anche in SRAM");
-      return; // Esce dalla funzione.
-    }
-  }
-
-  // Genera l'onda sinusoidale per la frequenza specificata e la popola nel buffer (stereo).
-  for (int i = 0; i < samples; i++) {
-    float angle = i * 2.0 * PI * frequency / sampleRate;
-    int16_t sample = (int16_t)(sin(angle) * 10000); // Calcola il campione.
-    buffer[i * 2] = sample;     // Scrive il campione per il canale sinistro.
-    buffer[i * 2 + 1] = sample; // Scrive lo stesso campione per il canale destro (tono mono riprodotto su entrambi i canali).
-  }
-
-  // Riproduce il buffer audio tramite l'output I2S.
-  int16_t samplePair[2]; // Buffer temporaneo per contenere una coppia di campioni (sinistro e destro).
-
-  for (int i = 0; i < samples; i++) {
-    // Copia una coppia di campioni dal buffer principale al buffer temporaneo.
-    samplePair[0] = buffer[i * 2];     // Canale sinistro.
-    samplePair[1] = buffer[i * 2 + 1]; // Canale destro.
-
-    // Invia la coppia di campioni al DAC I2S tramite l'oggetto output.
-    if (output) {
-      output->ConsumeSample(samplePair); // Invia un frame stereo (due campioni).
-    }
-
-    // Permette al watchdog timer di resettarsi periodicamente durante la riproduzione lunga.
-    if (i % 1000 == 0) {
-      yield();
-    }
-  }
-
-  // Libera la memoria allocata per il buffer audio (PSRAM o SRAM).
-  heap_caps_free(buffer);
-
-  // Attende un breve periodo per assicurarsi che l'audio abbia terminato di essere riprodotto.
-  delay(100);
-  #endif // Chiusura del blocco #ifdef AUDIO
+  #ifdef AUDIO
+  playLocalMP3("beep.mp3");
+  #endif
 }
 
 // Riproduce un testo tramite sintesi vocale (TTS) utilizzando il servizio di Google Translate.
 bool playTTS(const String& text, const String& language) {
-   #ifdef AUDIO // Blocco di codice compilato solo se la macro AUDIO è definita
-  // Pulisce le risorse audio utilizzate in precedenza.
+  #ifdef AUDIO
   cleanupAudio();
 
-  // Definisce il nome del file temporaneo dove verrà salvato l'audio MP3.
   String tempFile = "/tts_temp.mp3";
-  // Se il file temporaneo esiste già, lo elimina.
   if (LittleFS.exists(tempFile)) {
     LittleFS.remove(tempFile);
   }
 
-  // Costruisce l'URL per richiedere il TTS da Google Translate.
+  // Costruisce URL per Google TTS
   String url = "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&q=";
-  // CORREZIONE: Utilizza la funzione myUrlEncode per codificare correttamente il testo nell'URL.
   url += myUrlEncode(text);
-  url += "&tl=" + language;                     // Specifica la lingua del testo.
-  url += "&textlen=" + String(text.length()); // Indica la lunghezza del testo.
+  url += "&tl=" + language;
+  url += "&textlen=" + String(text.length());
 
-  // Stampa l'URL di download sulla seriale per debug.
   Serial.println("Download TTS: " + text);
 
-  // Inizializza un oggetto HTTPClient per effettuare la richiesta GET.
   HTTPClient http;
-  http.setTimeout(15000);           // Imposta un timeout per la connessione HTTP.
-  http.setUserAgent("Mozilla/5.0"); // Imposta l'user agent per simulare un browser.
+  http.setTimeout(15000);
+  http.setUserAgent("Mozilla/5.0");
 
-  // Inizia la connessione HTTP con l'URL specificato.
   if (!http.begin(url)) {
-    Serial.println("HTTP begin fallito"); // Stampa un errore se la connessione non può essere stabilita.
-    return false;                         // Indica un fallimento.
+    Serial.println("HTTP begin fallito");
+    return false;
   }
 
-  // Effettua la richiesta GET e ottiene il codice di risposta HTTP.
   int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK) {
-    Serial.printf("HTTP error: %d\n", httpCode); // Stampa l'errore HTTP.
-    http.end();                                  // Termina la connessione HTTP.
-    return false;                                // Indica un fallimento.
+    Serial.printf("HTTP error: %d\n", httpCode);
+    http.end();
+    return false;
   }
 
-  // Apre il file temporaneo in modalità scrittura per salvare l'audio scaricato.
   File fileOut = LittleFS.open(tempFile, FILE_WRITE);
   if (!fileOut) {
-    Serial.println("Errore creazione file"); // Stampa un errore se il file non può essere creato.
-    http.end();                              // Termina la connessione HTTP.
-    return false;                            // Indica un fallimento.
+    Serial.println("Errore creazione file");
+    http.end();
+    return false;
   }
 
-  // Inizia il download del flusso audio dal server HTTP e lo scrive nel file.
   uint32_t startTime = millis();
-  WiFiClient* stream = http.getStreamPtr(); // Ottiene un puntatore al flusso di dati.
-  uint8_t buffer[2048];                     // Buffer per leggere i dati dal flusso.
+  WiFiClient* stream = http.getStreamPtr();
+  uint8_t buffer[2048];
   size_t written = 0;
 
-  // Continua a leggere dal flusso finché la connessione HTTP è attiva.
   while (http.connected()) {
-    size_t size = stream->available(); // Ottiene il numero di byte disponibili nel flusso.
+    size_t size = stream->available();
     if (size) {
-      // Legge i byte disponibili nel buffer.
       int c = stream->readBytes(buffer, min((size_t)sizeof(buffer), size));
-      fileOut.write(buffer, c); // Scrive i byte letti nel file.
-      written += c;             // Aggiorna il numero di byte scritti.
+      fileOut.write(buffer, c);
+      written += c;
     } else if (written > 0 && millis() - startTime > 1500) {
-      break; // Interrompe se non ci sono dati e il download iniziale è avvenuto.
+      break;
     }
-    yield(); // Permette al watchdog di resettarsi.
+    yield();
   }
 
-  fileOut.close(); // Chiude il file dopo il download.
-  http.end();      // Termina la connessione HTTP.
+  fileOut.close();
+  http.end();
 
-  // Stampa informazioni sul download (dimensione e tempo).
   Serial.printf("Download completato: %d bytes in %d ms\n", written, millis() - startTime);
 
-  // Verifica se il file scaricato è troppo piccolo (potrebbe indicare un errore).
   if (written < 1000) {
     Serial.println("File troppo piccolo");
-    LittleFS.remove(tempFile); // Elimina il file incompleto.
-    return false;            // Indica un fallimento.
+    LittleFS.remove(tempFile);
+    return false;
   }
 
-  // Attende un breve periodo dopo il download.
   delay(100);
 
-  // Prepara gli oggetti per la riproduzione dell'audio MP3 dal file scaricato.
-  file = new AudioFileSourceLittleFS(tempFile.c_str()); // Sorgente audio dal file LittleFS.
-  buff = new AudioFileSourceBuffer(file, 256);       // Buffer per la sorgente audio.
-  mp3 = new AudioGeneratorMP3();                    // Decodificatore MP3.
-
-  // Inizia la riproduzione dell'audio MP3.
-  if (mp3->begin(buff, output)) {
-    isPlaying = true;                      // Imposta il flag di riproduzione a true.
-    Serial.println("Riproduzione avviata con successo"); // Indica che la riproduzione è iniziata.
-    return true;                           // Indica successo.
-  } else {
-    Serial.println("Errore avvio riproduzione"); // Indica un errore nell'avvio della riproduzione.
-    cleanupAudio();                          // Pulisce le risorse audio.
-    return false;                            // Indica fallimento.
-  }
- #endif // Chiusura del blocco #ifdef AUDIO
+  // Riproduzione: usa playLocalMP3 (stessa libreria Audio.h della web radio)
+  return playLocalMP3("tts_temp.mp3");
+  #endif
 }
 
 // Genera uno sweep di frequenze audio, utile per scopi diagnostici.
@@ -667,10 +537,8 @@ String myUrlEncode(const String& msg) {
 
 void cleanupAudio() {
   #ifdef AUDIO
-  if (mp3) { mp3->stop(); delete mp3; mp3 = nullptr; }
-  if (buff) { delete buff; buff = nullptr; }
-  if (file) { delete file; file = nullptr; }
-  // NON eliminiamo l'output qui per evitare conflitti di registro
+  extern Audio audio;
+  audio.stopSong();
   isPlaying = false;
   #endif
 }
@@ -678,18 +546,31 @@ void cleanupAudio() {
 // Imposta volume audio locale (0-100)
 void setVolumeLocal(uint8_t volume) {
   #ifdef AUDIO
+  extern Audio audio;
   if (volume > 100) volume = 100;
-  float gain = (float)volume / 100.0;
-  if (output) {
-    output->SetGain(gain);
-  }
-  Serial.printf("[AUDIO] Volume locale impostato: %d%% (gain=%.2f)\n", volume, gain);
+  // Audio.h usa range 0-21
+  uint8_t vol21 = map(volume, 0, 100, 0, 21);
+  audio.setVolume(vol21);
+  Serial.printf("[AUDIO] Volume locale impostato: %d%% (vol21=%d)\n", volume, vol21);
   #endif
 }
 
 bool playMP3Sequence(const String files[], int count) {
   #ifdef AUDIO
+  extern Audio audio;
+  extern bool webRadioEnabled;
+  extern String webRadioUrl;
+
   bool success = true;
+  bool radioWasPlaying = webRadioEnabled;
+
+  // Ferma web radio all'inizio della sequenza
+  if (radioWasPlaying) {
+    Serial.println("[AUDIO SEQ] Pausa web radio per sequenza...");
+    audio.stopSong();
+    delay(50);
+  }
+
   inSequence = true;  // Inizia sequenza - non nascondere VU tra file
 
   for (int i = 0; i < count; i++) {
@@ -702,8 +583,16 @@ bool playMP3Sequence(const String files[], int count) {
   inSequence = false;  // Fine sequenza
   hideVUMeter();       // Nascondi VU meter alla fine della sequenza
 
+  // Riprendi web radio alla fine della sequenza
+  if (radioWasPlaying) {
+    Serial.println("[AUDIO SEQ] Riprendo web radio...");
+    delay(100);
+    audio.connecttohost(webRadioUrl.c_str());
+  }
+
   return success;
   #endif
+  return false;
 }
 
 bool concatenateMP3Files(const String files[], int count, const char* outputFile) {
@@ -899,71 +788,74 @@ bool announceBootLocal() {
 
 bool playLocalMP3(const char* filename) {
   #ifdef AUDIO
+  // Usa la stessa libreria Audio della web radio (nessun conflitto I2S)
+  extern Audio audio;
+  extern bool webRadioEnabled;
+  extern bool inSequence;
+  extern String webRadioUrl;
+  static bool radioWasPlayingForLocal = false;
+
   String filePath = "/" + String(filename);
-  if (!LittleFS.exists(filePath)) return false;
 
-  // 1. Pulizia chirurgica: non resettiamo l'output I2S tra le parole
-  if (mp3) { if (mp3->isRunning()) mp3->stop(); delete mp3; mp3 = nullptr; }
-  if (buff) { delete buff; buff = nullptr; }
-  if (file) { delete file; file = nullptr; }
-
-  // 2. Assicuriamoci che l'output sia pronto
-  if (output == nullptr) {
-    output = new AudioOutputI2S();
-    output->SetPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
-    output->SetGain(VOLUME_LEVEL);
-    output->SetChannels(1);
-    delay(100); 
+  // Verifica che il file esista
+  if (!LittleFS.exists(filePath)) {
+    Serial.printf("[AUDIO] File non trovato: %s\n", filePath.c_str());
+    return false;
   }
 
-  file = new AudioFileSourceLittleFS(filePath.c_str());
-  // Alziamo il buffer a 4096 per dare stabilità al display RGB
-  buff = new AudioFileSourceBuffer(file, 4096); 
-  mp3 = new AudioGeneratorMP3();
-
-  if (mp3->begin(buff, output)) {
-    isPlaying = true;
-
-    // Piccolo ritardo iniziale per evitare il "clic" o il taglio della prima sillaba
-    delay(30);
-
-    // Timeout di sicurezza per evitare loop infiniti (max 30 secondi per file)
-    unsigned long playStart = millis();
-    const unsigned long MAX_PLAY_TIME = 30000;
-
-    while (mp3->isRunning()) {
-      // Timeout di sicurezza
-      if (millis() - playStart > MAX_PLAY_TIME) {
-        Serial.println("[AUDIO] Timeout riproduzione!");
-        mp3->stop();
-        break;
-      }
-
-      if (!mp3->loop()) {
-        // Il file è finito nel decoder, ma NON fermiamo subito.
-        // Aspettiamo che l'I2S svuoti l'audio fisico (quello che senti)
-        unsigned long drainStart = millis();
-        while (millis() - drainStart < 100) {
-          if (vuMeterEnabled) updateVUMeter();
-          yield();
-        }
-        mp3->stop();
-        break;  // Esci dal loop dopo stop
-      }
-
-      // Aggiorna VU meter durante riproduzione (solo se abilitato)
-      if (vuMeterEnabled) updateVUMeter();
-      yield();
-    }
-
-    // Nascondi VU meter solo se NON siamo in una sequenza e se era abilitato
-    if (!inSequence && vuMeterEnabled) {
-      hideVUMeter();
-    }
-
-    isPlaying = false;
-    return true;
+  // Ferma web radio se attiva - solo se non siamo già in sequenza
+  if (!inSequence && webRadioEnabled) {
+    Serial.println("[AUDIO] Pausa web radio per audio locale...");
+    audio.stopSong();
+    radioWasPlayingForLocal = true;
+    delay(50);
   }
-  return false;
+
+  Serial.printf("[AUDIO] Play: %s\n", filename);
+
+  // Usa audio.connecttoFS per riprodurre da LittleFS
+  if (!audio.connecttoFS(LittleFS, filePath.c_str())) {
+    Serial.println("[AUDIO] Errore connessione file!");
+    return false;
+  }
+
+  isPlaying = true;
+
+  // Timeout di sicurezza (max 30 secondi per file)
+  unsigned long playStart = millis();
+  const unsigned long MAX_PLAY_TIME = 30000;
+
+  // Attendi fine riproduzione (audio.loop() è chiamato da audioTask)
+  while (audio.isRunning()) {
+    if (millis() - playStart > MAX_PLAY_TIME) {
+      Serial.println("[AUDIO] Timeout riproduzione!");
+      audio.stopSong();
+      break;
+    }
+
+    // Aggiorna VU meter durante riproduzione
+    if (vuMeterEnabled) updateVUMeter();
+
+    delay(10);  // Breve pausa per non saturare CPU
+  }
+
+  // Nascondi VU meter solo se NON siamo in una sequenza
+  if (!inSequence && vuMeterEnabled) {
+    hideVUMeter();
+  }
+
+  isPlaying = false;
+
+  // Riprendi web radio se era attiva e non siamo in sequenza
+  if (!inSequence && radioWasPlayingForLocal) {
+    Serial.println("[AUDIO] Riprendo web radio...");
+    delay(100);
+    audio.connecttohost(webRadioUrl.c_str());
+    radioWasPlayingForLocal = false;
+  }
+
+  return true;
+  #else
+  return false; // AUDIO non abilitato
   #endif
 }

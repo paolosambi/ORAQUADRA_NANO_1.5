@@ -372,6 +372,14 @@ void checkButtons() {
   }
   #endif
 
+  // ====================== SKIP TOUCH SE IN MODALITA' WEB RADIO ======================
+  // La Web Radio gestisce i propri tocchi internamente
+  #ifdef EFFECT_WEB_RADIO
+  if (currentMode == MODE_WEB_RADIO) {
+    return;  // Il touch viene gestito da updateWebRadioUI()
+  }
+  #endif
+
   // ====================== ZONA NASCOSTA: MOSTRA URL SETTINGS (angolo basso-destra) ======================
   // Piccola area 50x50 pixel nell'angolo in basso a destra per mostrare l'URL della pagina settings
   if (touch_last_x >= 430 && touch_last_x <= 480 &&

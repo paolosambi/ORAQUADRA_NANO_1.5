@@ -1268,8 +1268,9 @@ const MODES = [
   { id: 20, name: 'FLUX', icon: '⚡', desc: 'Flux Capacitor' },
   { id: 21, name: 'CHRISTMAS', icon: '🎄', desc: 'Natale' },
   { id: 22, name: 'FIRE', icon: '🔥', desc: 'Fuoco Camino' },
-  { id: 23, name: 'FIRE TEXT', icon: '🔥', desc: 'Lettere di Fuoco' }
-  // { id: 24, name: 'MP3 PLAYER', icon: '🎵', desc: 'Lettore MP3' }  // DISABILITATO - conflitto DMA
+  { id: 23, name: 'FIRE TEXT', icon: '🔥', desc: 'Lettere di Fuoco' },
+  { id: 24, name: 'MP3 PLAYER', icon: '🎵', desc: 'Lettore MP3' },
+  { id: 25, name: 'WEB RADIO', icon: '📻', desc: 'Web Radio' }
 ];
 
 let currentMode = 2;
@@ -1440,6 +1441,227 @@ function toggleRandomMode(enabled) {
       setTimeout(() => setStatus('online', 'Connesso'), 1500);
     })
     .catch(() => setStatus('offline', 'Errore'));
+}
+
+// Toggle Web Radio on/off
+function toggleWebRadio(enabled) {
+  setStatus('saving', enabled ? 'Avvio radio...' : 'Stop radio...');
+  const action = enabled ? 'start' : 'stop';
+  fetch('/settings/webradio?action=' + action)
+    .then(r => r.json())
+    .then(data => {
+      updateWebRadioFullUI(data);
+      setStatus('online', data.enabled ? 'Radio ON!' : 'Radio OFF');
+      setTimeout(() => setStatus('online', 'Connesso'), 1500);
+    })
+    .catch(() => setStatus('offline', 'Errore radio'));
+}
+
+// Imposta volume Web Radio
+function setWebRadioVolume(vol) {
+  document.getElementById('webRadioVolumeVal').textContent = vol;
+  fetch('/settings/webradio?action=volume&value=' + vol)
+    .then(r => r.json())
+    .catch(() => {});
+}
+
+// Aggiorna UI Web Radio dallo stato (versione semplice per polling)
+function updateWebRadioUI(data) {
+  if (data.webRadioEnabled !== undefined) {
+    const box = document.getElementById('webRadioBox');
+    const toggle = document.getElementById('webRadioToggle');
+    if (toggle) toggle.checked = data.webRadioEnabled;
+    if (box) {
+      if (data.webRadioEnabled) {
+        box.style.borderColor = '#00aaff';
+        box.style.background = 'rgba(0, 170, 255, 0.15)';
+      } else {
+        box.style.borderColor = 'var(--border)';
+        box.style.background = 'var(--bg)';
+      }
+    }
+    if (data.webRadioVolume !== undefined) {
+      const volSlider = document.getElementById('webRadioVolume');
+      const volVal = document.getElementById('webRadioVolumeVal');
+      if (volSlider) volSlider.value = data.webRadioVolume;
+      if (volVal) volVal.textContent = data.webRadioVolume;
+    }
+  }
+}
+
+// Aggiorna UI Web Radio completa (con lista stazioni)
+function updateWebRadioFullUI(data) {
+  const box = document.getElementById('webRadioBox');
+  const toggle = document.getElementById('webRadioToggle');
+  const currentName = document.getElementById('webRadioCurrentName');
+  const volSlider = document.getElementById('webRadioVolume');
+  const volVal = document.getElementById('webRadioVolumeVal');
+  const stationSelect = document.getElementById('webRadioStationSelect');
+
+  // Aggiorna toggle e stile box
+  if (toggle) toggle.checked = data.enabled;
+  if (box) {
+    if (data.enabled) {
+      box.style.borderColor = '#00aaff';
+      box.style.background = 'rgba(0, 170, 255, 0.15)';
+    } else {
+      box.style.borderColor = 'var(--border)';
+      box.style.background = 'var(--bg)';
+    }
+  }
+
+  // Aggiorna nome stazione corrente
+  if (currentName) {
+    currentName.textContent = data.enabled ? data.currentName : 'Radio spenta';
+    currentName.style.color = data.enabled ? '#00aaff' : '#666';
+  }
+
+  // Aggiorna volume
+  if (volSlider) volSlider.value = data.volume;
+  if (volVal) volVal.textContent = data.volume;
+
+  // Aggiorna lista stazioni
+  if (stationSelect && data.stations) {
+    stationSelect.innerHTML = '';
+    data.stations.forEach((station, index) => {
+      const option = document.createElement('option');
+      option.value = index;
+      option.textContent = station.name;
+      if (index === data.currentIndex) option.selected = true;
+      stationSelect.appendChild(option);
+    });
+  }
+}
+
+// Seleziona stazione radio
+function selectWebRadioStation(index) {
+  setStatus('saving', 'Cambio stazione...');
+  fetch('/settings/webradio?action=select&index=' + index)
+    .then(r => r.json())
+    .then(data => {
+      updateWebRadioFullUI(data);
+      setStatus('online', 'Stazione: ' + data.currentName);
+      setTimeout(() => setStatus('online', 'Connesso'), 2000);
+    })
+    .catch(() => setStatus('offline', 'Errore selezione'));
+}
+
+// Aggiungi nuova stazione radio
+function addNewRadioStation() {
+  const name = document.getElementById('newRadioName').value.trim();
+  const url = document.getElementById('newRadioUrl').value.trim();
+
+  if (!name || !url) {
+    alert('Inserisci nome e URL della radio');
+    return;
+  }
+
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    alert('URL non valido. Deve iniziare con http:// o https://');
+    return;
+  }
+
+  setStatus('saving', 'Aggiunta radio...');
+  fetch('/settings/webradio?action=add&name=' + encodeURIComponent(name) + '&url=' + encodeURIComponent(url))
+    .then(r => r.json())
+    .then(data => {
+      updateWebRadioFullUI(data);
+      document.getElementById('newRadioName').value = '';
+      document.getElementById('newRadioUrl').value = '';
+      setStatus('online', 'Radio aggiunta!');
+      setTimeout(() => setStatus('online', 'Connesso'), 2000);
+    })
+    .catch(() => setStatus('offline', 'Errore aggiunta'));
+}
+
+// Rimuovi stazione radio selezionata
+function removeSelectedRadioStation() {
+  const select = document.getElementById('webRadioStationSelect');
+  if (!select || select.options.length <= 1) {
+    alert('Devi avere almeno una radio nella lista');
+    return;
+  }
+
+  const index = select.value;
+  const name = select.options[select.selectedIndex].textContent;
+
+  if (!confirm('Rimuovere "' + name + '" dalla lista?')) {
+    return;
+  }
+
+  setStatus('saving', 'Rimozione radio...');
+  fetch('/settings/webradio?action=remove&index=' + index)
+    .then(r => r.json())
+    .then(data => {
+      updateWebRadioFullUI(data);
+      setStatus('online', 'Radio rimossa!');
+      setTimeout(() => setStatus('online', 'Connesso'), 2000);
+    })
+    .catch(() => setStatus('offline', 'Errore rimozione'));
+}
+
+// Carica lista radio all'avvio
+function loadWebRadioStations() {
+  fetch('/settings/webradio')
+    .then(r => r.json())
+    .then(data => {
+      updateWebRadioFullUI(data);
+    })
+    .catch(() => {});
+}
+
+// Attiva modalità MP3 Player sul display
+function activateMP3Player() {
+  setStatus('saving', 'Attivazione MP3 Player...');
+  fetch('/mp3player/activate')
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        // Evidenzia il box MP3 Player
+        const box = document.getElementById('mp3PlayerBox');
+        if (box) {
+          box.style.borderColor = '#9c27b0';
+          box.style.background = 'rgba(156, 39, 176, 0.15)';
+        }
+        setStatus('online', 'MP3 Player attivato!');
+        setTimeout(() => {
+          setStatus('online', 'Connesso');
+          // Reset stile dopo 2 secondi
+          if (box) {
+            box.style.borderColor = 'var(--border)';
+            box.style.background = 'var(--bg)';
+          }
+        }, 2000);
+      }
+    })
+    .catch(() => setStatus('offline', 'Errore attivazione'));
+}
+
+// Attiva modalità Web Radio sul display
+function activateWebRadio() {
+  setStatus('saving', 'Attivazione Web Radio...');
+  fetch('/webradio/activate')
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        // Evidenzia il box Web Radio
+        const box = document.getElementById('webRadioBox');
+        if (box) {
+          box.style.borderColor = '#0088ff';
+          box.style.background = 'rgba(0, 136, 255, 0.15)';
+        }
+        setStatus('online', 'Web Radio attivata!');
+        setTimeout(() => {
+          setStatus('online', 'Connesso');
+          // Reset stile dopo 2 secondi
+          if (box) {
+            box.style.borderColor = 'var(--border)';
+            box.style.background = 'var(--bg)';
+          }
+        }, 2000);
+      }
+    })
+    .catch(() => setStatus('offline', 'Errore attivazione'));
 }
 
 // Aggiorna stile box random mode
@@ -1625,8 +1847,8 @@ const MODE_DEFAULT_COLORS = {
 const TEXT_MODES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 17];
 
 // Modalità che NON supportano preset colori (grafiche/speciali)
-const NO_COLOR_MODES = [10, 11, 12, 13, 14, 19, 20, 21, 22, 23];
-// 10=ANALOG, 11=FLIP, 12=BTTF, 13=LED RING, 14=WEATHER, 19=ESP-CAM, 20=FLUX, 21=CHRISTMAS, 22=FIRE, 23=FIRE TEXT
+const NO_COLOR_MODES = [10, 11, 12, 13, 14, 19, 20, 21, 22, 23, 24, 25];
+// 10=ANALOG, 11=FLIP, 12=BTTF, 13=LED RING, 14=WEATHER, 19=ESP-CAM, 20=FLUX, 21=CHRISTMAS, 22=FIRE, 23=FIRE TEXT, 24=MP3 PLAYER
 
 // Verifica se la modalità corrente supporta il colore personalizzato
 function isTextMode(modeId) {
@@ -1873,7 +2095,8 @@ const MODE_NAMES = {
   0: 'FADE', 1: 'SLOW', 2: 'FAST', 3: 'MATRIX', 4: 'MATRIX2',
   5: 'SNAKE', 6: 'WATER', 7: 'MARIO', 8: 'TRON', 9: 'GALAGA',
   10: 'ANALOG', 11: 'FLIP', 12: 'BTTF', 13: 'LED RING', 14: 'WEATHER',
-  15: 'CLOCK', 17: 'GALAGA2', 19: 'ESP-CAM', 20: 'FLUX', 21: 'CHRISTMAS', 22: 'FIRE', 23: 'FIRE TEXT'
+  15: 'CLOCK', 17: 'GALAGA2', 19: 'ESP-CAM', 20: 'FLUX', 21: 'CHRISTMAS', 22: 'FIRE', 23: 'FIRE TEXT',
+  24: 'MP3 PLAYER', 25: 'WEB RADIO'
 };
 
 // Nomi preset per il riassunto
@@ -2662,6 +2885,9 @@ function loadSettings() {
       document.getElementById('randomModeToggle').checked = data.randomModeEnabled === true;
       document.getElementById('randomIntervalDisplay').textContent = data.randomModeInterval || 5;
       updateRandomModeBoxStyle(data.randomModeEnabled === true);
+
+      // Web Radio toggle e stato
+      updateWebRadioUI(data);
 
       // Modalità
       currentMode = data.displayMode || 2;
@@ -3456,6 +3682,7 @@ function resetBME280Calibration() {
 document.addEventListener('DOMContentLoaded', () => {
   loadSettings();
   loadApiKeys();
+  loadWebRadioStations();  // Carica lista stazioni radio
   setupAutoSave();
   setupApiKeysAutoSave();
   startAutoRefresh();

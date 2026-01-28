@@ -97,6 +97,30 @@ extern bool slowInitialized;
 extern bool fadeInitialized;
 extern volatile bool webForceDisplayUpdate;
 
+// Dichiarazioni extern per Web Radio (definite nel file principale)
+extern bool webRadioEnabled;
+extern String webRadioUrl;
+extern String webRadioName;
+extern uint8_t webRadioVolume;
+extern int webRadioCurrentIndex;
+extern int webRadioStationCount;
+// Nota: WebRadioStation è definita nel file principale
+extern WebRadioStation webRadioStations[];
+extern void startWebRadio();
+extern void stopWebRadio();
+extern void setWebRadioVolume(uint8_t vol);
+extern void selectWebRadioStation(int index);
+extern bool addWebRadioStation(const String& name, const String& url);
+extern bool removeWebRadioStation(int index);
+extern void saveWebRadioStationsToSD();
+
+// Dichiarazioni extern per MP3 Player (definite in 31_MP3_PLAYER.ino)
+#ifdef EFFECT_MP3_PLAYER
+extern bool mp3PlayerInitialized;
+extern void stopMP3Track();
+extern bool isMP3Playing();  // Funzione helper per controllare se MP3 sta riproducendo
+#endif
+
 // Dichiarazione extern per flag scena Christmas (definita in 28_CHRISTMAS.ino)
 #ifdef EFFECT_CHRISTMAS
 extern bool xmasSceneDrawn;
@@ -537,12 +561,16 @@ void handleSettingsConfig(AsyncWebServerRequest *request) {
   json += "  \"letterE\": " + String(word_E_state) + ",\n";
   json += "  \"randomModeEnabled\": " + String(randomModeEnabled ? "true" : "false") + ",\n";
   json += "  \"randomModeInterval\": " + String(randomModeInterval) + ",\n";
+  json += "  \"webRadioEnabled\": " + String(webRadioEnabled ? "true" : "false") + ",\n";
+  json += "  \"webRadioVolume\": " + String(webRadioVolume) + ",\n";
+  json += "  \"webRadioUrl\": \"" + webRadioUrl + "\",\n";
 
   // Array delle modalità abilitate (solo quelle che esistono realmente)
   json += "  \"enabledModes\": [";
   bool first = true;
-  // Lista delle modalità valide (esclude 16=GEMINI, 18=MJPEG e 24=MP3 che sono disabilitate)
-  const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23};
+  // Lista delle modalità valide (esclude solo 16=GEMINI e 18=MJPEG)
+  // 24=MP3_PLAYER e 25=WEB_RADIO sono modalità valide!
+  const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 24, 25};
   const int numValidModes = sizeof(validModes) / sizeof(validModes[0]);
   for (int i = 0; i < numValidModes; i++) {
     int modeId = validModes[i];
@@ -723,7 +751,11 @@ void handleSettingsStatus(AsyncWebServerRequest *request) {
 
   // Random Mode (per status summary)
   json += "  \"randomModeEnabled\": " + String(randomModeEnabled ? "true" : "false") + ",\n";
-  json += "  \"randomModeInterval\": " + String(randomModeInterval) + "\n";
+  json += "  \"randomModeInterval\": " + String(randomModeInterval) + ",\n";
+
+  // Web Radio status
+  json += "  \"webRadioEnabled\": " + String(webRadioEnabled ? "true" : "false") + ",\n";
+  json += "  \"webRadioVolume\": " + String(webRadioVolume) + "\n";
 
   json += "}";
 
@@ -1350,6 +1382,32 @@ void handleSettingsSaveModes(AsyncWebServerRequest *request) {
     // Salva in EEPROM
     saveEnabledModes();
 
+    // Se la modalità corrente è stata disabilitata, passa a FADE
+    if (!isModeEnabled((uint8_t)currentMode)) {
+      Serial.printf("[SETTINGS] Modalità corrente %d disabilitata, passo a FADE\n", currentMode);
+      currentMode = MODE_FADE;
+      userMode = MODE_FADE;
+      EEPROM.write(EEPROM_MODE_ADDR, (uint8_t)MODE_FADE);
+      EEPROM.commit();
+      forceDisplayUpdate();
+    }
+
+    // Se Web Radio è stata disabilitata, ferma lo streaming
+    #ifdef EFFECT_WEB_RADIO
+    if (!isModeEnabled(MODE_WEB_RADIO) && webRadioEnabled) {
+      Serial.println("[SETTINGS] Web Radio disabilitata, fermo streaming");
+      stopWebRadio();
+    }
+    #endif
+
+    // Se MP3 Player è stato disabilitato, ferma la riproduzione
+    #ifdef EFFECT_MP3_PLAYER
+    if (!isModeEnabled(MODE_MP3_PLAYER) && isMP3Playing()) {
+      Serial.println("[SETTINGS] MP3 Player disabilitato, fermo riproduzione");
+      stopMP3Track();
+    }
+    #endif
+
     Serial.printf("[SETTINGS] Modalità abilitate aggiornate: %s\n", enabledList.c_str());
     request->send(200, "text/plain", "OK");
   } else {
@@ -1581,6 +1639,54 @@ void setup_settings_webserver(AsyncWebServer* server) {
 
   server->on("/settings/resetbmecalib", HTTP_GET, handleResetBME280Calibration);
   Serial.println("[SETTINGS WEB] ✓ GET /settings/resetbmecalib");
+
+  // Web Radio Control
+  server->on("/settings/webradio", HTTP_GET, [](AsyncWebServerRequest *request){
+    String action = "";
+    if (request->hasParam("action")) {
+      action = request->getParam("action")->value();
+    }
+
+    if (action == "start") {
+      startWebRadio();
+    } else if (action == "stop") {
+      stopWebRadio();
+    } else if (action == "volume" && request->hasParam("value")) {
+      uint8_t vol = request->getParam("value")->value().toInt();
+      setWebRadioVolume(vol);
+    } else if (action == "select" && request->hasParam("index")) {
+      int idx = request->getParam("index")->value().toInt();
+      selectWebRadioStation(idx);
+    } else if (action == "add" && request->hasParam("name") && request->hasParam("url")) {
+      String name = request->getParam("name")->value();
+      String url = request->getParam("url")->value();
+      if (addWebRadioStation(name, url)) {
+        saveWebRadioStationsToSD();
+      }
+    } else if (action == "remove" && request->hasParam("index")) {
+      int idx = request->getParam("index")->value().toInt();
+      if (removeWebRadioStation(idx)) {
+        saveWebRadioStationsToSD();
+      }
+    }
+
+    // Restituisci stato attuale e lista stazioni
+    String json = "{";
+    json += "\"enabled\":" + String(webRadioEnabled ? "true" : "false") + ",";
+    json += "\"volume\":" + String(webRadioVolume) + ",";
+    json += "\"currentIndex\":" + String(webRadioCurrentIndex) + ",";
+    json += "\"currentName\":\"" + webRadioName + "\",";
+    json += "\"currentUrl\":\"" + webRadioUrl + "\",";
+    json += "\"stations\":[";
+    for (int i = 0; i < webRadioStationCount; i++) {
+      if (i > 0) json += ",";
+      json += "{\"name\":\"" + webRadioStations[i].name + "\",";
+      json += "\"url\":\"" + webRadioStations[i].url + "\"}";
+    }
+    json += "]}";
+    request->send(200, "application/json", json);
+  });
+  Serial.println("[SETTINGS WEB] ✓ GET /settings/webradio");
 
   // Carica API keys da LittleFS all'avvio
   loadApiKeysFromLittleFS();

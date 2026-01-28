@@ -131,6 +131,13 @@ void forceDisplayUpdate() {
       initMP3Player();                    // Chiama la funzione per inizializzare il lettore MP3.
       break;
 #endif
+#ifdef EFFECT_WEB_RADIO
+    case MODE_WEB_RADIO:
+      webRadioInitialized = false;        // Forza la reinizializzazione della Web Radio.
+      webRadioNeedsRedraw = true;         // Forza il ridisegno.
+      initWebRadioUI();                   // Chiama la funzione per inizializzare la Web Radio.
+      break;
+#endif
     case MODE_FADE:
       fadeInitialized = false;   // Forza la reinizializzazione della modalità dissolvenza.
       updateFadeMode();          // Chiama la funzione per aggiornare la modalità dissolvenza.
@@ -363,6 +370,9 @@ bool isValidMode(DisplayMode mode) {
 #ifdef EFFECT_MP3_PLAYER
     case MODE_MP3_PLAYER:
 #endif
+#ifdef EFFECT_WEB_RADIO
+    case MODE_WEB_RADIO:
+#endif
       return true;
     default:
       return false;
@@ -584,6 +594,12 @@ void handleModeChange() {
     case MODE_MP3_PLAYER:
       modeName = "LETTORE MP3";
       modeColor = CYAN;  // Ciano per il player
+      break;
+#endif
+#ifdef EFFECT_WEB_RADIO
+    case MODE_WEB_RADIO:
+      modeName = "WEB RADIO";
+      modeColor = GREEN;  // Verde per la radio
       break;
 #endif
     default:

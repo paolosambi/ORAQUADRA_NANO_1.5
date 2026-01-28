@@ -273,6 +273,11 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
           <h3>Bluetooth Audio</h3>
           <p>Audio output settings</p>
         </a>
+        <a href="/mp3player" class="nav-card audio" id="card-mp3player" style="display:none">
+          <span class="icon">&#127911;</span>
+          <h3>MP3 Player</h3>
+          <p>Play music from SD card</p>
+        </a>
       </div>
     </div>
 
@@ -605,7 +610,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     }
 
     async function checkPages(){
-      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio'];
+      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player'];
       for(const p of pages){
         try{
           const r = await fetch('/'+p,{method:'HEAD'});

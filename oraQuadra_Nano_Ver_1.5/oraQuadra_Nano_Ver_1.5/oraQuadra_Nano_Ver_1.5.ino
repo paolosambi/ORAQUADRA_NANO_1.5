@@ -66,7 +66,7 @@
 // Un grande ringraziamento a Paolo e Alessandro per il grandissimo lavoro di porting e conversione
 
 //#define MENU_SCROLL //ATTIVA MENU SCROLL COMMENTA QUESTA RIGA PER DISATTIVARE
-#define AUDIO  //ATTIVA AUDIO I2S LOCALE - DISABILITATO (si usa audio WiFi esterno ESP32C3)
+#define AUDIO  //ATTIVA AUDIO I2S LOCALE
 
 // ================== ABILITA/DISABILITA EFFETTI ==================
 #define EFFECT_FADE       // Effetto dissolvenza
@@ -93,7 +93,8 @@
 #define EFFECT_CHRISTMAS      // Tema natalizio con albero di Natale e neve che si accumula
 #define EFFECT_FIRE           // Effetto fuoco camino a schermo intero (Fire2012)
 #define EFFECT_FIRE_TEXT      // Effetto lettere fiammeggianti (orario che brucia)
-// #define EFFECT_MP3_PLAYER     // Lettore MP3/WAV da SD card - DISABILITATO (conflitto DMA display/audio)
+#define EFFECT_MP3_PLAYER     // Lettore MP3/WAV da SD card - ABILITATO (conflitto DMA risolto)
+#define EFFECT_WEB_RADIO      // Interfaccia Web Radio a display con controlli touch
 
 // ================== INCLUSIONE LIBRERIE ==================
 #include <Arduino.h>             // Libreria base per la programmazione di schede Arduino (ESP32).
@@ -116,6 +117,43 @@
 #include <ESPAsyncWebServer.h>   // Libreria per web server asincrono ad alte prestazioni.
 #include <AsyncTCP.h>            // Libreria per comunicazioni TCP asincrone (richiesta da ESPAsyncWebServer).
 #include "home_web_html.h"       // HTML per homepage con link a tutte le pagine
+
+/////////////////TEST NUOVO I2S AUDIO////////////////////////////////////////////////////
+#include <Audio.h>
+
+Audio audio; // 'Audio' è la classe della libreria, 'audio' è il nome che usi nel codice
+
+// ================== WEB RADIO CONTROL ==================
+bool webRadioEnabled = false;  // Stato attuale della web radio (on/off)
+String webRadioUrl = "http://icestreaming.rai.it/1.mp3";  // URL stream radio corrente
+String webRadioName = "Rai Radio 1";  // Nome radio corrente
+uint8_t webRadioVolume = 21;   // Volume radio (0-21)
+int webRadioCurrentIndex = 0; // Indice radio corrente nella lista
+
+// Struttura per una stazione radio
+struct WebRadioStation {
+  String name;
+  String url;
+};
+
+// Lista radio (caricata da SD, max 50 stazioni)
+#define MAX_RADIO_STATIONS 50
+WebRadioStation webRadioStations[MAX_RADIO_STATIONS];
+int webRadioStationCount = 0;
+
+// Prototipi funzioni Web Radio (implementate più avanti nel file)
+void startWebRadio();
+void stopWebRadio();
+void setWebRadioVolume(uint8_t vol);
+void loadWebRadioSettings();
+void saveWebRadioSettings();
+void loadWebRadioStationsFromSD();
+void saveWebRadioStationsToSD();
+void initDefaultRadioStations();
+bool addWebRadioStation(const String& name, const String& url);
+bool removeWebRadioStation(int index);
+void selectWebRadioStation(int index);
+/////////////////////////////////////////////////////////////////////////////////////////
 
 // ================== SISTEMA MULTILINGUA ==================
 #include "language_config.h"     // Configurazione sistema multilingua (IT/EN)
@@ -173,13 +211,7 @@ public:
 #include "bttf_types.h"          // Definizioni struct per modalità BTTF (Back to the Future)
 #endif
 
-#ifdef AUDIO
-#include <driver/i2s.h>           // Driver di basso livello per l'interfaccia I2S (Integrated Interchip Sound) dell'ESP32, utilizzata per la trasmissione e ricezione di dati audio digitali.
-#include <AudioFileSourceLittleFS.h>
-#include <AudioFileSourceBuffer.h>  // Libreria per utilizzare buffer di memoria come sorgente per la riproduzione audio.
-#include <AudioGeneratorMP3.h>    // Libreria per decodificare file audio in formato MP3.
-#include <AudioOutputI2S.h>       // Libreria per inviare l'audio decodificato all'interfaccia I2S per la riproduzione (tramite un amplificatore e altoparlante collegati).
-#endif
+// ESP32-audioI2S (Audio.h) gestisce tutto l'audio I2S - nessun include ESP8266Audio necessario
 
 // ================== CONFIGURAZIONE ==================
 // Definizione dei pin
@@ -194,7 +226,14 @@ public:
 #define I2S_LRC       2     // Definisce il pin 2 dell'ESP32 come il pin LRC (Left/Right Clock o Word Select) per l'interfaccia I2S.
 #define I2S_DOUT      40    // Definisce il pin 40 dell'ESP32 come il pin DOUT (Data Out) per l'interfaccia I2S.
 #define I2S_PIN_ENABLE -1    // Definisce un pin per abilitare/disabilitare l'alimentazione o l'amplificatore audio collegato all'I2S. Un valore di -1 indica che non è utilizzato.
-#define VOLUME_LEVEL  1   // Definisce il livello di volume iniziale per la riproduzione audio (1.0 è il volume massimo).
+#define VOLUME_LEVEL  1   // Definisce il livello di volume iniziale per la riproduzione AUDIOaudio (1.0 è il volume massimo).
+#endif
+
+// Digital I/O used (I2S pins definiti sopra in #ifdef AUDIO)
+#ifndef I2S_DOUT
+#define I2S_DOUT      40
+#define I2S_BCLK      1
+#define I2S_LRC       2
 #endif
 
 // Configurazione annunci orari automatici (per audio WiFi esterno ESP32C3)
@@ -324,8 +363,17 @@ public:
 #define EEPROM_RADAR_SERVER_VALID 225     // Marker validità config radar server (0xAA = valido)
 #define EEPROM_RADAR_SERVER_VALID_VALUE 0xAA
 
+// Indirizzi EEPROM per Web Radio
+#define EEPROM_WEBRADIO_ENABLED_ADDR 216  // Web radio enabled (1=on, 0=off)
+#define EEPROM_WEBRADIO_VOLUME_ADDR 217   // Volume web radio (0-21)
+#define EEPROM_WEBRADIO_STATION_ADDR 218  // Indice stazione radio selezionata (0-49)
+
 // Indirizzi EEPROM per calibrazione BME280 (offset temperatura e umidità)
 // Gli offset sono salvati come int16 * 10 per mantenere un decimale (-100 = -10.0, +55 = +5.5)
+#define EEPROM_MP3PLAYER_TRACK_ADDR 226    // Traccia corrente MP3 player (1 byte)
+#define EEPROM_MP3PLAYER_PLAYING_ADDR 227  // Stato riproduzione MP3 (1 byte)
+#define EEPROM_MP3PLAYER_VOLUME_ADDR 228   // Volume MP3 player (1 byte, 0-21)
+
 #define EEPROM_BME280_TEMP_OFFSET_ADDR 355  // Offset temperatura (2 byte, int16)
 #define EEPROM_BME280_HUM_OFFSET_ADDR 357   // Offset umidità (2 byte, int16)
 #define EEPROM_BME280_CALIB_VALID_ADDR 359  // Marker validità calibrazione (1 byte, 0xBB = valido)
@@ -392,7 +440,10 @@ enum DisplayMode {
 #ifdef EFFECT_MP3_PLAYER
   MODE_MP3_PLAYER = 24,     // Lettore MP3/WAV da SD card.
 #endif
-  NUM_MODES = 25    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
+#ifdef EFFECT_WEB_RADIO
+  MODE_WEB_RADIO = 25,      // Interfaccia Web Radio con controlli touch.
+#endif
+  NUM_MODES = 26    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
 };
 
 // ================== STRUTTURE DATI ==================
@@ -662,6 +713,19 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y);
 extern bool mp3PlayerInitialized;
 #endif
 
+#ifdef EFFECT_WEB_RADIO
+void initWebRadioUI();
+void updateWebRadioUI();
+bool handleWebRadioTouch(int16_t x, int16_t y);
+void setup_webradio_webserver(AsyncWebServer* server);
+extern bool webRadioInitialized;
+extern bool webRadioNeedsRedraw;
+#endif
+
+#ifdef EFFECT_MP3_PLAYER
+void setup_mp3player_webserver(AsyncWebServer* server);
+#endif
+
 // Struttura dati per le moto Tron
 struct TronBike {
   uint8_t x;                     // Posizione X corrente della moto (coordinate matrice).
@@ -828,35 +892,25 @@ DisplayMode savedMode = MODE_FADE;      // Modalità salvata prima dell'attivazi
 bool capodannoTriggeredThisYear = false; // Flag per evitare riattivazioni multiple nello stesso anno
 uint16_t capodannoLastYear = 0;         // Anno dell'ultimo trigger
 #ifdef AUDIO
-AudioOutputI2S *output = nullptr; // Puntatore all'oggetto per l'output audio I2S, inizializzato a null.
-AudioGeneratorMP3 *mp3 = nullptr;   // Puntatore all'oggetto per la decodifica MP3, inizializzato a null.
-AudioFileSourceLittleFS *file = nullptr; // Usa LittleFS 
-AudioFileSourceBuffer *buff = nullptr;  // Puntatore all'oggetto per la sorgente audio da buffer, inizializzato a null.
-bool isPlaying = false; // Flag per indicare se l'audio è attualmente in riproduzione.
+bool isPlaying = false;
 
-// Buffer per tono di test
-const int sampleRate = 16000; // Frequenza di campionamento per il tono di test (16000 campioni al secondo).
-const int bufferLen = sampleRate/4; // Lunghezza del buffer per il tono di test (un quarto di secondo di dati).
-int16_t sineBuffer[bufferLen]; // Array di interi a 16 bit per memorizzare i campioni del tono sinusoidale.
-
-// Prototipi delle funzioni relative all'audio
-void generateSineWave(); // Prototipo della funzione per generare un'onda sinusoidale.
-void playTone(int frequency, int duration_ms); // Prototipo della funzione per riprodurre un tono a una data frequenza per una data durata.
-void playFrequencySweep(); // Prototipo della funzione per riprodurre una variazione continua di frequenza (sweep).
-bool playTTS(const String& text, const String& language); // Prototipo della funzione per riprodurre testo tramite sintesi vocale (Text-to-Speech).
-void cleanupAudio(); // Prototipo della funzione per rilasciare le risorse utilizzate per l'audio.
-String myUrlEncode(const String& msg); // MODIFICATO: rinominato da urlEncode a myUrlEncode - Prototipo della funzione per codificare una stringhe per l'URL.
-bool announceTime(); // Prototipo della funzione per annunciare l'ora corrente tramite sintesi vocale.
-bool playLocalMP3(const char* filename); // Prototipo della funzione per riprodurre un file MP3 locale.
-bool playMP3Sequence(const String files[], int count); // Prototipo della funzione per riprodurre una sequenza di file MP3 locali.
-bool concatenateMP3Files(const String files[], int count, const char* outputFile); // Prototipo della funzione per concatenare più file MP3 in un unico file temporaneo.
-bool announceTimeLocal(); // Prototipo della funzione per annunciare l'ora usando file MP3 locali.
-bool announceBootLocal(); // Prototipo della funzione per annunciare data/ora al boot usando file MP3 locali.
+// Prototipi funzioni audio (implementate in 5_AUDIO.ino)
+void playTone(int frequency, int duration_ms);
+void playFrequencySweep();
+bool playTTS(const String& text, const String& language);
+void cleanupAudio();
+String myUrlEncode(const String& msg);
+bool announceTime();
+bool playLocalMP3(const char* filename);
+bool playMP3Sequence(const String files[], int count);
+bool concatenateMP3Files(const String files[], int count, const char* outputFile);
+bool announceTimeLocal();
+bool announceBootLocal();
 #endif
-
 // ================== PROTOTIPI FUNZIONI AUDIO (sempre disponibili) ==================
 void checkTimeAndAnnounce(); // Verifica se è il momento di annunciare l'ora (funziona con audio I2S o WiFi)
 bool announceTimeFixed(); // Annuncia l'ora corrente (wrapper per audio I2S o WiFi)
+bool playLocalMP3(const char* filename); // Prototipo della funzione per riprodurre un file MP3 locale (disponibile sempre)
 
 // ================== PROTOTIPI FUNZIONI AUDIO I2C (ESP32C3) ==================
 void setup_audio_i2c(); // Inizializza comunicazione I2C con ESP32C3 audio slave
@@ -865,6 +919,12 @@ void updateAudioI2C(); // Aggiorna stato connessione I2C audio (opzionale)
 bool announceTimeViaI2C(uint8_t hour, uint8_t minute); // Annuncia orario via ESP32C3
 bool playBeepViaI2C(); // Riproduci beep.mp3 (feedback tocco)
 bool playClackViaI2C(); // Riproduci clack.mp3 (flip clock)
+
+////////////TEST NUOVO I2S AUDIO////////////
+void audio_info(const char *info);
+// --- Prototipo del Task Audio ---
+void audioTask(void *pvParameters);
+////////////TEST NUOVO I2S AUDIO////////////
 
 // ================== PROTOTIPI FUNZIONI MAGNETOMETRO (QMC5883P) ==================
 // NOTA: Il magnetometro è un QMC5883P (NON QMC5883L!) con indirizzo I2C 0x0C
@@ -992,6 +1052,7 @@ uint32_t lastRadarRead = 0;              // Timestamp dell'ultima lettura del ra
 const uint32_t RADAR_READ_INTERVAL = 200; // Intervallo lettura radar in ms (200ms = 5Hz per risposta rapida al rilevamento presenza)
 const uint32_t PRESENCE_TIMEOUT = 30000;  // Timeout presenza in ms (30 secondi)
 
+
 // Controllo luminosità basato su PRESENZA + ORA
 // brightnessDay e brightnessNight sono già definite sopra (#define)
 // Senza presenza: sempre 0 (display spento)
@@ -1027,6 +1088,7 @@ uint32_t lastWeatherUpdate = 0;        // Timestamp ultimo aggiornamento meteo
 // ================== VARIABILI GLOBALI AUDIO WIFI (ESP32C3) ==================
 // Audio gestito da ESP32C3 esterno via WiFi/UDP - nessun conflitto pin con radar
 bool audioSlaveConnected = false;          // Flag per indicare se ESP32C3 audio è connesso
+// localAudioActive rimosso - MP3 player ora usa stessa libreria Audio.h
 unsigned long lastWiFiPing = 0;            // Timestamp ultimo ping WiFi a ESP32C3
 #define WIFI_PING_INTERVAL 30000           // Intervallo ping WiFi in ms (30 secondi)
 bool isAnnouncing = false;                 // Flag per indicare se è in corso un annuncio audio
@@ -1815,7 +1877,7 @@ void drawAlarmIndicator() {
   // Non disegna nulla se nessuna sveglia è abilitata
 }
 
-void  testSpeakerSafely() {
+/*void  testSpeakerSafely() {
   // Generiamo un'onda quadra a 440Hz per circa 1 secondo
   int16_t sample[2]; 
   
@@ -1832,11 +1894,27 @@ void  testSpeakerSafely() {
     // Un micro-ritardo ogni 100 campioni per non saturare il buffer
     if (i % 100 == 0) delayMicroseconds(100); 
   }
-}
+}*/
 
+//////////////TEST NUOVO I2S AUDIO//////////////////////////////////////////
+void audio_info(const char *info){
+    Serial.print("info        "); Serial.println(info);
+}
+///////////////////////////////////////////////////////////////////////////
 // ================== SETUP PRINCIPALE ==================
 void setup() {
 
+/////////////////TEST NUOVO I2S AUDIO//////////////////////////////////////
+    xTaskCreatePinnedToCore(
+        audioTask,      // Funzione del task assegnazione a core 0 esp32 della task per AUDIO
+        "AudioTask",    // Nome
+        16384,          // Stack size (aumentato per decoder MP3)
+        NULL,           // Parametri
+        2,              // Priorità alta
+        NULL,           // Handle
+        0               // CORE 0
+    );
+/////////////////////////////////////////////////////////////////////////////
   // RICAVO NOME SKETCH DA STAMPARE A VIDEO
   int lastSlash = ino.lastIndexOf("/");
   if (lastSlash == -1) {
@@ -1965,6 +2043,16 @@ Serial.println("LittleFS inizializzato correttamente.");
     setup_radar_webserver(clockWebServer);
     Serial.println("[WEBSERVER] Radar Remote disponibile su /radar/*");
 
+    #ifdef EFFECT_MP3_PLAYER
+    setup_mp3player_webserver(clockWebServer);
+    Serial.println("[WEBSERVER] MP3 Player disponibile su /mp3player");
+    #endif
+
+    #ifdef EFFECT_WEB_RADIO
+    setup_webradio_webserver(clockWebServer);
+    Serial.println("[WEBSERVER] Web Radio disponibile su /webradio");
+    #endif
+
     clockWebServer->begin();
     Serial.println("[WEBSERVER] Server configurazione avviato su porta 8080");
     Serial.println("[WEBSERVER] Accedi a http://" + WiFi.localIP().toString() + ":8080/");
@@ -1979,6 +2067,8 @@ Serial.println("LittleFS inizializzato correttamente.");
     #ifdef AUDIO
     setup_audio(); // Inizializza il sistema audio (solo se la macro AUDIO è definita).
     #endif
+
+      
   } else {
     Serial.println("WiFi non connesso, utilizzo ora predefinita");
     currentHour = 12;
@@ -2024,13 +2114,26 @@ Serial.println("LittleFS inizializzato correttamente.");
   Serial.printf("[SETUP] Impostazioni caricate: Mode=%d, Preset=%d, Color=R%d G%d B%d\n",
                 currentMode, currentPreset, currentColor.r, currentColor.g, currentColor.b);
 
-  // Annuncio boot DOPO che il display è inizializzato (così l'utente vede l'orologio durante l'audio)
-  playBootAnnounce();
-
   // Inizializza modulo meteo OpenWeatherMap (dopo WiFi)
   if (WiFi.status() == WL_CONNECTED) {
     initWeather();
   }
+
+
+///////////////////////////////////WEB RADIO INIT///////////////////////////////////////////////
+    // Inizializza audio I2S per web radio
+    audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
+    audio.setVolume(21); // default 0...21
+    Serial.println("[WEBRADIO] Audio I2S configurato");
+    // Carica lista stazioni radio da SD card
+    loadWebRadioStationsFromSD();
+    // Carica impostazioni salvate (enabled, volume, stazione) e avvia radio se era attiva
+    loadWebRadioSettings();
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  // Annuncio boot DOPO che audio I2S è inizializzato
+  playBootAnnounce();
+
 
   // ========== IMPORTANTE: FORZA LUMINOSITÀ INIZIALE ==========
   // Assicura che il display sia SEMPRE acceso dopo il boot
@@ -2052,6 +2155,161 @@ Serial.println("LittleFS inizializzato correttamente.");
   }
   Serial.println("Display: ACCESO");
   Serial.println("========================================\n");
+}
+
+// ================== IMPLEMENTAZIONI WEB RADIO ==================
+
+// Carica impostazioni web radio da EEPROM
+void loadWebRadioSettings() {
+  // NON avviare automaticamente al boot - l'utente decide quando attivare
+  webRadioEnabled = false;  // Sempre spenta al boot
+
+  webRadioVolume = EEPROM.read(EEPROM_WEBRADIO_VOLUME_ADDR);
+  if (webRadioVolume > 21) webRadioVolume = 21;
+
+  uint8_t stationIdx = EEPROM.read(EEPROM_WEBRADIO_STATION_ADDR);
+  if (stationIdx < webRadioStationCount) {
+    webRadioCurrentIndex = stationIdx;
+    webRadioName = webRadioStations[stationIdx].name;
+    webRadioUrl = webRadioStations[stationIdx].url;
+  }
+
+  audio.setVolume(webRadioVolume);
+
+  // Radio NON si avvia automaticamente - utente la attiva dalla pagina dedicata
+  Serial.printf("[WEBRADIO] Caricato: volume=%d, station=%d (radio SPENTA al boot)\n",
+                webRadioVolume, webRadioCurrentIndex);
+}
+
+// Salva impostazioni web radio in EEPROM
+void saveWebRadioSettings() {
+  EEPROM.write(EEPROM_WEBRADIO_ENABLED_ADDR, webRadioEnabled ? 1 : 0);
+  EEPROM.write(EEPROM_WEBRADIO_VOLUME_ADDR, webRadioVolume);
+  EEPROM.write(EEPROM_WEBRADIO_STATION_ADDR, (uint8_t)webRadioCurrentIndex);
+  EEPROM.commit();
+  Serial.printf("[WEBRADIO] Salvato: enabled=%d, volume=%d, station=%d\n",
+                webRadioEnabled, webRadioVolume, webRadioCurrentIndex);
+}
+
+// Avvia web radio
+void startWebRadio() {
+  if (webRadioEnabled) return;
+  Serial.println("[WEBRADIO] Avvio streaming...");
+  audio.connecttohost(webRadioUrl.c_str());
+  webRadioEnabled = true;
+  saveWebRadioSettings();
+}
+
+// Ferma web radio
+void stopWebRadio() {
+  if (!webRadioEnabled) return;
+  Serial.println("[WEBRADIO] Stop streaming...");
+  audio.stopSong();
+  webRadioEnabled = false;
+  saveWebRadioSettings();
+}
+
+// Imposta volume web radio
+void setWebRadioVolume(uint8_t vol) {
+  if (vol > 21) vol = 21;
+  webRadioVolume = vol;
+  audio.setVolume(vol);
+  saveWebRadioSettings();
+}
+
+// Seleziona stazione radio
+void selectWebRadioStation(int index) {
+  if (index < 0 || index >= webRadioStationCount) return;
+
+  webRadioCurrentIndex = index;
+  webRadioName = webRadioStations[index].name;
+  webRadioUrl = webRadioStations[index].url;
+
+  Serial.printf("[WEBRADIO] Selezionata: %s\n", webRadioName.c_str());
+
+  if (webRadioEnabled) {
+    audio.stopSong();
+    delay(200);
+    audio.connecttohost(webRadioUrl.c_str());
+  }
+
+  saveWebRadioSettings();
+}
+
+// Inizializza radio di default
+void initDefaultRadioStations() {
+  webRadioStationCount = 0;
+  addWebRadioStation("Rai Radio 1", "http://icestreaming.rai.it/1.mp3");
+  addWebRadioStation("Rai Radio 2", "http://icestreaming.rai.it/2.mp3");
+  addWebRadioStation("Rai Radio 3", "http://icestreaming.rai.it/3.mp3");
+  addWebRadioStation("RTL 102.5", "http://shoutcast.rtl.it:3010/");
+  addWebRadioStation("Virgin Radio", "http://icecast.unitedradio.it/Virgin.mp3");
+}
+
+// Aggiunge stazione radio
+bool addWebRadioStation(const String& name, const String& url) {
+  if (webRadioStationCount >= MAX_RADIO_STATIONS) return false;
+  webRadioStations[webRadioStationCount].name = name;
+  webRadioStations[webRadioStationCount].url = url;
+  webRadioStationCount++;
+  return true;
+}
+
+// Rimuove stazione radio
+bool removeWebRadioStation(int index) {
+  if (index < 0 || index >= webRadioStationCount) return false;
+  for (int i = index; i < webRadioStationCount - 1; i++) {
+    webRadioStations[i] = webRadioStations[i + 1];
+  }
+  webRadioStationCount--;
+  if (webRadioCurrentIndex >= webRadioStationCount) {
+    webRadioCurrentIndex = webRadioStationCount > 0 ? 0 : -1;
+  }
+  return true;
+}
+
+// Salva lista radio su SD
+void saveWebRadioStationsToSD() {
+  File file = SD.open("/webradio.txt", FILE_WRITE);
+  if (!file) return;
+  for (int i = 0; i < webRadioStationCount; i++) {
+    file.print(webRadioStations[i].name);
+    file.print("|");
+    file.println(webRadioStations[i].url);
+  }
+  file.close();
+}
+
+// Carica lista radio da SD
+void loadWebRadioStationsFromSD() {
+  webRadioStationCount = 0;
+  if (!SD.exists("/webradio.txt")) {
+    initDefaultRadioStations();
+    saveWebRadioStationsToSD();
+    return;
+  }
+
+  File file = SD.open("/webradio.txt", FILE_READ);
+  if (!file) {
+    initDefaultRadioStations();
+    return;
+  }
+
+  while (file.available() && webRadioStationCount < MAX_RADIO_STATIONS) {
+    String line = file.readStringUntil('\n');
+    line.trim();
+    int sep = line.indexOf('|');
+    if (sep > 0) {
+      String name = line.substring(0, sep);
+      String url = line.substring(sep + 1);
+      addWebRadioStation(name, url);
+    }
+  }
+  file.close();
+
+  if (webRadioStationCount == 0) {
+    initDefaultRadioStations();
+  }
 }
 
 void setup_NTP() {
@@ -2144,66 +2402,15 @@ void setup_audio() {
   #ifdef AUDIO
   Serial.println("Inizializzazione sistema audio...");
 
-  // Inizializza l'output I2S con la libreria Audio
-  output = new AudioOutputI2S();
-  output->SetPinout(I2S_BCLK, I2S_LRC, I2S_DOUT); // Imposta i pin per BCLK, LRC e DOUT.
-  output->SetGain(VOLUME_LEVEL); // Imposta il livello di volume.
-  output->SetChannels(1);  // Configura l'output come mono (1 canale).
+  extern void setVolumeLocal(uint8_t volume);
+  lastWasNightTime = checkIsNightTime(currentHour, currentMinute);
+  uint8_t startupVolume = lastWasNightTime ? volumeNight : volumeDay;
+  setVolumeLocal(startupVolume);
+  lastAppliedVolume = startupVolume;
 
-  // Attendi un momento per la stabilizzazione dell'hardware audio
-  delay(50);
-  output->begin();
-
-  // B. RIPRODUCI (Esempio MP3 o Beep)
-  // Durante questo tempo vedrai il disturbo rosso, ma l'audio sarà udibile
-  //testSpeakerSafely(); 
-
-  // C. TORNA IN STATO "SAFE" (Il trucco magico)
-  output->stop();
-  delete output;    // Elimina l'oggetto per liberare memoria
-  output = NULL;
-
-  // Forza i pin a tornare in High Impedance (Input) come all'accensione
-  pinMode(1, INPUT);
-  pinMode(2, INPUT);
-  pinMode(40, INPUT);
-
-  Serial.println("Audio spento, pin in High Impedance. Display pulito.");
-
-
-  delay(5);
-
-  // Sistema audio inizializzato (NESSUN TEST AUDIO AL BOOT)
-  isPlaying = false;
-  Serial.println("Sistema audio inizializzato - nessun test al boot");
-
-  // Conferma uso PSRAM per buffer audio
-  if (psramFound()) {
-    Serial.println("Buffer audio allocati in PSRAM (risparmia SRAM interna)");
-  } else {
-    Serial.println("PSRAM non disponibile - buffer audio in SRAM");
-  }
-
-  // Verifica presenza file audio essenziali
-  Serial.println("Verifica file audio su LittleFS:");
-  String essentialFiles[] = {"sonole.mp3", "e.mp3", "minuti.mp3", "silenzio.mp3", "1.mp3", "12.mp3"};
-  int foundCount = 0;
-  for (int i = 0; i < 6; i++) {
-    String path = "/" + essentialFiles[i];
-    if (LittleFS.exists(path)) {
-      foundCount++;
-      Serial.println("  ✓ " + essentialFiles[i]);
-    } else {
-      Serial.println("  ✗ MANCANTE: " + essentialFiles[i]);
-    }
-  }
-  Serial.printf("File audio trovati: %d/6\n", foundCount);
-  if (foundCount < 6) {
-    Serial.println("ATTENZIONE: Alcuni file audio mancano! Caricare la cartella data/ su LittleFS");
-  }
-
-  Serial.println("Setup audio completato - in attesa del cambio ora...");
- #endif
+  Serial.printf("[AUDIO-LOCAL] Avvio: Volume impostato a %d%% (%s)\n",
+                lastAppliedVolume, lastWasNightTime ? "NOTTE" : "GIORNO");
+  #endif
 }
 
 // ================== FUNZIONE LETTURA SENSORE BME280 ==================
@@ -2274,6 +2481,17 @@ void readBME280Temperature() {
   indoorSensorSource = 0;
 }
 
+//////////////////////////TEST NUOVO I2S AUDIO////////////////////
+// audio_eof_mp3() callback definito in 31_MP3_PLAYER.ino (dove MP3PlayerState e' visibile)
+
+void audioTask(void *pvParameters) {
+    while(1) {
+        audio.loop();
+        vTaskDelay(1);
+    }
+}
+//////////////////////////////////////////////////////////////////
+
 // ================== LOOP PRINCIPALE ==================
 void loop() {
   static uint32_t lastUpdate = 0;     // Timestamp dell'ultimo aggiornamento dell'ora.
@@ -2284,11 +2502,11 @@ void loop() {
   static uint8_t lastSecondFast = 255; // Ultimo secondo visualizzato in modalità FAST (per aggiornare solo al cambio di secondo).
 
   // Variabili static per controllo luminosità radar (fuori dai blocchi condizionali)
-  #ifndef AUDIO
+  //#ifndef AUDIO
   static uint32_t lastLightRead = 0;
   static uint32_t lastBrightnessUpdate = 0;
   static uint32_t lastBrightnessDebug = 0;
-  #endif
+  //#endif
 
   uint32_t currentMillis = millis();  // Ottiene il tempo attuale in millisecondi dall'avvio.
 
@@ -2299,6 +2517,10 @@ void loop() {
     retryNTPSync(); // Ritenta sincronizzazione NTP se fallita al boot
     espalexa.loop(); // Gestisce le comunicazioni con Alexa.
     updateRadarServer(); // Gestisce riconnessione radar server remoto
+
+    
+    //audio.loop();
+
 
     // Gestione aggiornamenti Alexa NON BLOCCANTI
     if (alexaUpdatePending) {
@@ -2409,7 +2631,7 @@ void loop() {
   }
 
   // ========== GESTIONE RADAR LD2410 PER RILEVAMENTO PRESENZA ==========
-  #ifndef AUDIO
+  //#ifndef AUDIO
 
   if (radarAvailable && currentMillis - lastRadarRead > RADAR_READ_INTERVAL) {
     lastRadarRead = currentMillis;
@@ -2504,15 +2726,18 @@ void loop() {
     // MODALITÀ 3: RADAR REMOTO - gestito dagli handler HTTP
     if (remoteRadarActive) {
       // Non fare nulla qui - luminosità gestita da handleRadarBrightness()
+      Serial.println("Modalità radar Remoto");
     }
     // RADAR REMOTO ABILITATO MA TIMEOUT - rispetta comunque lo stato presenza
     else if (radarServerEnabled && !radarRemotePresence) {
       // Radar server abilitato e nessuna presenza - mantieni display spento
       // Non sovrascrivere con luminosità manuale
+       Serial.println("Modalità radar Remoto in timeout");
     }
     // MODALITÀ 2: RADAR LOCALE
     else if (localRadarActive) {
       bool shouldTurnOff = setupOptions.powerSaveEnabled && !presenceDetected;
+       Serial.println("Modalità radar Locale");
       if (shouldTurnOff) {
         targetBrightness = 0;
       } else {
@@ -2529,40 +2754,43 @@ void loop() {
       lastAppliedBrightness = targetBrightness;
     }
   }
-  #endif
+  //#endif
 
-  // Gestione audio
-  #ifdef AUDIO
-  if (mp3 && mp3->isRunning()) { // Se un file MP3 è in riproduzione.
-    if (!mp3->loop()) { // E se il loop di riproduzione è terminato (fine del file o errore).
-      mp3->stop();     // Ferma la riproduzione.
-      cleanupAudio();  // Libera le risorse audio.
-      Serial.println("Riproduzione completata");
-    }
-  }
-  #endif
+  // Gestione audio: audio.loop() e' gestito da audioTask su Core 0
+  // EOF e cleanup sono gestiti dalla callback audio_eof_mp3()
 
   // ========== AGGIORNAMENTO AUDIO I2C (ESP32C3) ==========
   // Verifica periodicamente connessione I2C con ESP32C3 audio slave
   updateAudioI2C();
 
   // ========== AGGIORNAMENTO VOLUME AUTOMATICO GIORNO/NOTTE ==========
-  // Cambia il volume dell'ESP32C3 quando cambia la fascia oraria
-  extern bool setVolumeViaI2C(uint8_t volume);  // Dichiarata in 7_AUDIO_WIFI.ino
-  if (audioSlaveConnected) {
-    bool currentIsNight = checkIsNightTime(currentHour, currentMinute);
-    if (currentIsNight != lastWasNightTime) {
-      // Cambio fascia oraria rilevato
-      lastWasNightTime = currentIsNight;
-      uint8_t targetVolume = currentIsNight ? volumeNight : volumeDay;
-      if (targetVolume != lastAppliedVolume) {
+  extern bool setVolumeViaI2C(uint8_t volume); // Remoto (I2C)
+  extern void setVolumeLocal(uint8_t volume);  // Locale (Interno)
+
+bool currentIsNight = checkIsNightTime(currentHour, currentMinute);
+
+if (currentIsNight != lastWasNightTime) {
+  // Cambio fascia oraria rilevato
+  lastWasNightTime = currentIsNight;
+  uint8_t targetVolume = currentIsNight ? volumeNight : volumeDay;
+
+  if (targetVolume != lastAppliedVolume) {
+    
+    #ifdef AUDIO
+      // Eseguito SEMPRE al cambio fascia oraria, indipendentemente dallo slave
+      setVolumeLocal(targetVolume);
+    #else
+      // Eseguito solo se NON è definita AUDIO e lo slave è connesso
+      if (audioSlaveConnected) {
         setVolumeViaI2C(targetVolume);
-        lastAppliedVolume = targetVolume;
-        Serial.printf("[AUDIO] Cambio fascia oraria: %s - Volume: %d%%\n",
-                      currentIsNight ? "NOTTE" : "GIORNO", targetVolume);
       }
-    }
+    #endif
+
+    lastAppliedVolume = targetVolume;
+    Serial.printf("[AUDIO] Cambio fascia oraria: %s - Volume: %d%%\n",
+                  currentIsNight ? "NOTTE" : "GIORNO", targetVolume);
   }
+}
 
   // ========== AGGIORNAMENTO MAGNETOMETRO QMC5883P (ogni 100ms) ==========
   // Legge heading dal magnetometro QMC5883P per la bussola nella Weather Station
@@ -2852,6 +3080,12 @@ void loop() {
 #ifdef EFFECT_MP3_PLAYER
         case MODE_MP3_PLAYER:
           updateMP3Player();  // Gestisce il lettore MP3/WAV
+          break;
+#endif
+
+#ifdef EFFECT_WEB_RADIO
+        case MODE_WEB_RADIO:
+          updateWebRadioUI();  // Gestisce interfaccia Web Radio
           break;
 #endif
 

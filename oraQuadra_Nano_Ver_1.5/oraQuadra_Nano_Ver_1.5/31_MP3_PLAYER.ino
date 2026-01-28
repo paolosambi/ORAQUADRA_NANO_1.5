@@ -5,8 +5,11 @@
 
 #ifdef EFFECT_MP3_PLAYER
 
-#include "AudioGeneratorWAV.h"      // Generatore per file WAV
-#include "AudioFileSourceFS.h"      // Sorgente audio da filesystem (SD)
+// Audio unificato: usa Audio.h (ESP32-audioI2S) tramite oggetto globale 'audio'
+
+// Prototipi funzioni salvataggio/caricamento (definite più avanti)
+void saveMP3PlayerSettings();
+void loadMP3PlayerSettings();
 
 // ================== CONFIGURAZIONE MP3 PLAYER ==================
 #define MP3_FOLDER "/MP3"           // Cartella sulla SD dove cercare i file
@@ -14,29 +17,29 @@
 #define MP3_TITLE_MAX_LEN 40        // Lunghezza massima del titolo visualizzato
 #define MP3_SCROLL_SPEED 150        // Velocità scroll titolo lungo (ms)
 
-// ================== LAYOUT DISPLAY 480x480 ==================
-// VU Meter sinistro: x=10, larghezza=40, altezza=380
-// VU Meter destro: x=430, larghezza=40, altezza=380
-// Area centrale controlli: x=60 a x=420 (360px)
-// Preview brano: y=50 a y=200
-// Controlli: y=250 a y=380
-// Tasto uscita: y=420 a y=470
+// ================== LAYOUT DISPLAY 480x480 FULL SCREEN ==================
+// VU Meter sinistro: x=0, larghezza=55
+// VU Meter destro: x=425, larghezza=55
+// Area centrale: x=60 a x=420 (360px)
 
-#define VU_LEFT_X       10
-#define VU_RIGHT_X      430
-#define VU_WIDTH        40
-#define VU_HEIGHT       300
-#define VU_Y_START      90
+#define VU_LEFT_X       0
+#define VU_RIGHT_X      425
+#define VU_WIDTH        55
+#define VU_HEIGHT       420
+#define VU_Y_START      50
 #define VU_SEGMENTS     20          // Numero di segmenti per VU meter
 
-#define PREVIEW_X       70
+#define PREVIEW_X       60
 #define PREVIEW_Y       50
-#define PREVIEW_W       340
-#define PREVIEW_H       150
+#define PREVIEW_W       360
+#define PREVIEW_H       130
 
-#define CONTROLS_Y      260
-#define BTN_SIZE        70
-#define BTN_SPACING     20
+#define CONTROLS_Y      195
+#define BTN_SIZE        65
+#define BTN_SPACING     10
+
+#define VOLUME_BAR_Y    280
+#define VOLUME_BAR_H    35
 
 #define EXIT_BTN_Y      420
 #define EXIT_BTN_H      50
@@ -73,6 +76,7 @@ struct MP3PlayerState {
   int currentTrack;                 // Indice traccia corrente
   int totalTracks;                  // Numero totale tracce
   MP3File* tracks;                  // Array dinamico delle tracce
+  uint8_t volume;                   // Volume (0-21)
   uint8_t vuLeft;                   // Livello VU sinistro (0-100)
   uint8_t vuRight;                  // Livello VU destro (0-100)
   uint8_t vuPeakLeft;               // Picco VU sinistro
@@ -86,8 +90,6 @@ struct MP3PlayerState {
 // ================== VARIABILI GLOBALI ==================
 MP3PlayerState mp3Player;
 bool mp3PlayerInitialized = false;
-AudioFileSourceFS* mp3FileSD = nullptr;  // Sorgente audio da SD (usa FS generico)
-AudioGeneratorWAV* wav = nullptr;        // Generatore WAV (piu' leggero di MP3)
 
 
 // Variabili per VU meter (evita flickering)
@@ -97,16 +99,19 @@ static int8_t prevPeakLeft = -1;
 static int8_t prevPeakRight = -1;
 static bool vuBackgroundDrawn = false;
 
-// ================== TASK AUDIO (opzionale) ==================
-#define USE_AUDIO_TASK 0  // 0 = disabilitato, 1 = abilitato
+// Task audio separato rimosso: audioTask globale (audio.loop()) gestisce tutto
 
-#if USE_AUDIO_TASK
-TaskHandle_t mp3TaskHandle = nullptr;
-volatile bool mp3TaskRunning = false;
-volatile bool mp3RequestStop = false;
-volatile bool mp3TrackEnded = false;
-SemaphoreHandle_t mp3Mutex = nullptr;
-#endif
+// ================== CALLBACK AUDIO EOF ==================
+// Chiamato dalla libreria Audio.h quando un file MP3 termina
+void audio_eof_mp3(const char *info) {
+  Serial.printf("[AUDIO] EOF: %s\n", info);
+  if (mp3Player.playing) {
+    mp3Player.playing = false;
+    extern bool isPlaying;
+    isPlaying = false;
+    // nextMP3Track() verra' chiamato da updateMP3Player()
+  }
+}
 
 // ================== PROTOTIPI FUNZIONI ==================
 void initMP3Player();
@@ -116,6 +121,7 @@ void drawVUBackground();
 void drawVUMeterVertical(int x, int y, int w, int h, uint8_t level, uint8_t peak, bool leftSide);
 void drawMP3Controls();
 void drawMP3Preview();
+void drawMP3VolumeBar();
 void drawMP3ExitButton();
 bool handleMP3PlayerTouch(int16_t x, int16_t y);
 void scanMP3Files();
@@ -128,11 +134,12 @@ void prevMP3Track();
 void updateMP3VUMeters();
 void cleanupMP3Player();
 String extractTitle(const char* filename);
-#if USE_AUDIO_TASK
-void mp3AudioTask(void* parameter);
-void startMP3Task();
-void stopMP3Task();
-#endif
+
+// ================== HELPER FUNCTION ==================
+// Usata da altri file per controllare se MP3 sta riproducendo
+bool isMP3Playing() {
+  return mp3Player.playing;
+}
 
 // ================== INIZIALIZZAZIONE ==================
 void initMP3Player() {
@@ -145,6 +152,7 @@ void initMP3Player() {
   mp3Player.currentTrack = 0;
   mp3Player.totalTracks = 0;
   mp3Player.tracks = nullptr;
+  mp3Player.volume = 15;  // Volume default (0-21)
   mp3Player.vuLeft = 0;
   mp3Player.vuRight = 0;
   mp3Player.vuPeakLeft = 0;
@@ -192,6 +200,9 @@ void initMP3Player() {
 
   mp3Player.initialized = true;
   mp3PlayerInitialized = true;
+
+  // Carica impostazioni salvate (traccia, stato riproduzione)
+  loadMP3PlayerSettings();
 
   // Reset variabili statiche VU per evitare flickering
   vuBackgroundDrawn = false;
@@ -296,10 +307,10 @@ String extractTitle(const char* filename) {
 void drawMP3PlayerUI() {
   gfx->fillScreen(MP3_BG_COLOR);
 
-  // Titolo in alto
-  gfx->setFont(u8g2_font_helvB18_tr);
+  // Titolo in alto (centrato)
+  gfx->setFont(u8g2_font_helvB24_tr);
   gfx->setTextColor(MP3_ACCENT_COLOR);
-  gfx->setCursor(160, 30);
+  gfx->setCursor(140, 38);
   gfx->print("MP3 PLAYER");
 
   // Pannello preview
@@ -310,6 +321,9 @@ void drawMP3PlayerUI() {
 
   // Controlli
   drawMP3Controls();
+
+  // Barra volume
+  drawMP3VolumeBar();
 
   // Tasto uscita
   drawMP3ExitButton();
@@ -326,7 +340,7 @@ void drawMP3Preview() {
   if (mp3Player.totalTracks == 0) {
     gfx->setFont(u8g2_font_helvB14_tr);
     gfx->setTextColor(MP3_TEXT_COLOR);
-    gfx->setCursor(PREVIEW_X + 80, PREVIEW_Y + 80);
+    gfx->setCursor(PREVIEW_X + 80, PREVIEW_Y + 70);
     gfx->print("Nessuna traccia");
     return;
   }
@@ -336,7 +350,7 @@ void drawMP3Preview() {
   gfx->setTextColor(MP3_ACCENT_COLOR);
   char trackNum[32];
   snprintf(trackNum, sizeof(trackNum), "Traccia %d / %d", mp3Player.currentTrack + 1, mp3Player.totalTracks);
-  gfx->setCursor(PREVIEW_X + 100, PREVIEW_Y + 30);
+  gfx->setCursor(PREVIEW_X + 100, PREVIEW_Y + 28);
   gfx->print(trackNum);
 
   // Titolo brano (con scroll se troppo lungo)
@@ -352,15 +366,15 @@ void drawMP3Preview() {
   if (textWidth <= maxWidth) {
     // Titolo corto: centra
     int xPos = PREVIEW_X + (PREVIEW_W - textWidth) / 2;
-    gfx->setCursor(xPos, PREVIEW_Y + 80);
+    gfx->setCursor(xPos, PREVIEW_Y + 70);
     gfx->print(title);
   } else {
     // Titolo lungo: mostra con scroll offset
-    gfx->setCursor(PREVIEW_X + 20, PREVIEW_Y + 80);
+    gfx->setCursor(PREVIEW_X + 20, PREVIEW_Y + 70);
     // Clipping manuale - mostra solo porzione visibile
     String visiblePart = title.substring(mp3Player.scrollOffset);
-    if (visiblePart.length() > 25) {
-      visiblePart = visiblePart.substring(0, 25);
+    if (visiblePart.length() > 26) {
+      visiblePart = visiblePart.substring(0, 26);
     }
     gfx->print(visiblePart);
   }
@@ -371,10 +385,10 @@ void drawMP3Preview() {
   uint16_t statusColor;
 
   if (mp3Player.playing && !mp3Player.paused) {
-    status = "IN RIPRODUZIONE";
+    status = "RIPRODUZIONE";
     statusColor = MP3_PLAY_COLOR;
   } else if (mp3Player.paused) {
-    status = "IN PAUSA";
+    status = "PAUSA";
     statusColor = MP3_PAUSE_COLOR;
   } else {
     status = "FERMO";
@@ -382,8 +396,8 @@ void drawMP3Preview() {
   }
 
   gfx->setTextColor(statusColor);
-  int statusX = PREVIEW_X + (PREVIEW_W - strlen(status) * 9) / 2;
-  gfx->setCursor(statusX, PREVIEW_Y + 130);
+  int statusX = PREVIEW_X + (PREVIEW_W - strlen(status) * 10) / 2;
+  gfx->setCursor(statusX, PREVIEW_Y + 110);
   gfx->print(status);
 }
 
@@ -492,7 +506,7 @@ void drawMP3Controls() {
   int centerX = 240;
   int btnY = CONTROLS_Y;
 
-  // Calcola posizioni pulsanti (5 pulsanti: prev, stop, play/pause, next + spazio)
+  // Calcola posizioni pulsanti (4 pulsanti: prev, stop, play/pause, next)
   int totalWidth = 4 * BTN_SIZE + 3 * BTN_SPACING;
   int startX = centerX - totalWidth / 2;
 
@@ -500,10 +514,9 @@ void drawMP3Controls() {
   int prevX = startX;
   gfx->fillRoundRect(prevX, btnY, BTN_SIZE, BTN_SIZE, 10, MP3_PANEL_COLOR);
   gfx->drawRoundRect(prevX, btnY, BTN_SIZE, BTN_SIZE, 10, MP3_ACCENT_COLOR);
-  // Disegna simbolo <<
   gfx->setTextColor(MP3_TEXT_COLOR);
   gfx->setFont(u8g2_font_helvB18_tr);
-  gfx->setCursor(prevX + 15, btnY + 45);
+  gfx->setCursor(prevX + 17, btnY + 42);
   gfx->print("<<");
 
   // Pulsante STOP
@@ -511,7 +524,7 @@ void drawMP3Controls() {
   gfx->fillRoundRect(stopX, btnY, BTN_SIZE, BTN_SIZE, 10, MP3_PANEL_COLOR);
   gfx->drawRoundRect(stopX, btnY, BTN_SIZE, BTN_SIZE, 10, MP3_STOP_COLOR);
   // Quadrato stop
-  gfx->fillRect(stopX + 20, btnY + 20, 30, 30, MP3_STOP_COLOR);
+  gfx->fillRect(stopX + 20, btnY + 20, 25, 25, MP3_STOP_COLOR);
 
   // Pulsante PLAY/PAUSE
   int playX = startX + 2 * (BTN_SIZE + BTN_SPACING);
@@ -521,12 +534,12 @@ void drawMP3Controls() {
 
   if (mp3Player.playing && !mp3Player.paused) {
     // Simbolo pausa ||
-    gfx->fillRect(playX + 20, btnY + 18, 10, 34, playColor);
-    gfx->fillRect(playX + 40, btnY + 18, 10, 34, playColor);
+    gfx->fillRect(playX + 20, btnY + 17, 9, 32, playColor);
+    gfx->fillRect(playX + 36, btnY + 17, 9, 32, playColor);
   } else {
     // Triangolo play
-    for (int i = 0; i < 30; i++) {
-      gfx->drawFastVLine(playX + 20 + i, btnY + 20 + i/2, 30 - i, playColor);
+    for (int i = 0; i < 26; i++) {
+      gfx->drawFastVLine(playX + 20 + i, btnY + 20 + i/2, 26 - i, playColor);
     }
   }
 
@@ -536,37 +549,50 @@ void drawMP3Controls() {
   gfx->drawRoundRect(nextX, btnY, BTN_SIZE, BTN_SIZE, 10, MP3_ACCENT_COLOR);
   gfx->setTextColor(MP3_TEXT_COLOR);
   gfx->setFont(u8g2_font_helvB18_tr);
-  gfx->setCursor(nextX + 15, btnY + 45);
+  gfx->setCursor(nextX + 17, btnY + 42);
   gfx->print(">>");
+}
 
-  // Barra progresso sotto i controlli
-  int progressY = btnY + BTN_SIZE + 30;
-  int progressW = 300;
-  int progressH = 10;
-  int progressX = centerX - progressW / 2;
+// ================== DISEGNA BARRA VOLUME ==================
+void drawMP3VolumeBar() {
+  int barX = 100;
+  int barW = 280;
+  int barH = VOLUME_BAR_H;
+  int y = VOLUME_BAR_Y;
 
-  gfx->fillRoundRect(progressX, progressY, progressW, progressH, 3, MP3_VU_BG);
-  gfx->drawRoundRect(progressX, progressY, progressW, progressH, 3, MP3_ACCENT_COLOR);
+  // Etichetta VOL
+  gfx->setFont(u8g2_font_helvB12_tr);
+  gfx->setTextColor(MP3_TEXT_COLOR);
+  gfx->setCursor(60, y + 24);
+  gfx->print("VOL");
 
-  // TODO: Aggiungi progresso reale quando disponibile dal decoder
-  // Per ora mostra una barra statica
-  if (mp3Player.playing) {
-    static int fakeProgress = 0;
-    fakeProgress = (fakeProgress + 1) % 100;
-    int progressFill = (progressW - 4) * fakeProgress / 100;
-    gfx->fillRoundRect(progressX + 2, progressY + 2, progressFill, progressH - 4, 2, MP3_ACCENT_COLOR);
+  // Sfondo barra
+  gfx->fillRoundRect(barX, y, barW, barH, 8, MP3_PANEL_COLOR);
+  gfx->drawRoundRect(barX, y, barW, barH, 8, MP3_ACCENT_COLOR);
+
+  // Barra di riempimento (volume va da 0 a 21)
+  int fillW = map(mp3Player.volume, 0, 21, 0, barW - 8);
+  if (fillW > 0) {
+    gfx->fillRoundRect(barX + 4, y + 4, fillW, barH - 8, 5, MP3_PLAY_COLOR);
   }
+
+  // Valore numerico
+  gfx->setFont(u8g2_font_helvB12_tr);
+  gfx->setTextColor(MP3_TEXT_COLOR);
+  String volStr = String(mp3Player.volume);
+  gfx->setCursor(barX + barW + 10, y + 24);
+  gfx->print(volStr);
 }
 
 // ================== DISEGNA TASTO USCITA ==================
 void drawMP3ExitButton() {
-  int btnW = 200;
+  int btnW = 180;
   int btnX = 240 - btnW / 2;
 
-  gfx->fillRoundRect(btnX, EXIT_BTN_Y, btnW, EXIT_BTN_H, 8, MP3_STOP_COLOR);
-  gfx->setFont(u8g2_font_helvB14_tr);
+  gfx->fillRoundRect(btnX, EXIT_BTN_Y, btnW, EXIT_BTN_H, 10, MP3_STOP_COLOR);
+  gfx->setFont(u8g2_font_helvB18_tr);
   gfx->setTextColor(MP3_TEXT_COLOR);
-  gfx->setCursor(btnX + 60, EXIT_BTN_Y + 32);
+  gfx->setCursor(btnX + 60, EXIT_BTN_Y + 34);
   gfx->print("ESCI");
 }
 
@@ -574,9 +600,9 @@ void drawMP3ExitButton() {
 bool handleMP3PlayerTouch(int16_t x, int16_t y) {
   if (!mp3Player.initialized) return false;
 
-  // Area tasto ESCI
+  // Area tasto ESCI (btnW=180, btnX=150)
   if (y >= EXIT_BTN_Y && y <= EXIT_BTN_Y + EXIT_BTN_H) {
-    if (x >= 140 && x <= 340) {
+    if (x >= 150 && x <= 330) {
       Serial.println("[MP3] Tasto ESCI premuto");
       stopMP3Track();
       cleanupMP3Player();
@@ -594,7 +620,7 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y) {
     if (x >= startX && x <= startX + BTN_SIZE) {
       Serial.println("[MP3] Tasto PREV premuto");
       prevMP3Track();
-      playTouchSound();
+      // NO playTouchSound() - interferirebbe con la riproduzione MP3
       return false;
     }
 
@@ -603,7 +629,7 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y) {
     if (x >= stopX && x <= stopX + BTN_SIZE) {
       Serial.println("[MP3] Tasto STOP premuto");
       stopMP3Track();
-      playTouchSound();
+      // NO playTouchSound() - interferirebbe con la riproduzione MP3
       mp3Player.needsRedraw = true;
       return false;
     }
@@ -621,7 +647,7 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y) {
         Serial.println("[MP3] Tasto PLAY premuto");
         playMP3Track(mp3Player.currentTrack);
       }
-      playTouchSound();
+      // NO playTouchSound() - interferirebbe con la riproduzione MP3
       mp3Player.needsRedraw = true;
       return false;
     }
@@ -631,7 +657,29 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y) {
     if (x >= nextX && x <= nextX + BTN_SIZE) {
       Serial.println("[MP3] Tasto NEXT premuto");
       nextMP3Track();
-      playTouchSound();
+      // NO playTouchSound() - interferirebbe con la riproduzione MP3
+      return false;
+    }
+  }
+
+  // Area barra volume (touch diretto)
+  int volBarX = 100;
+  int volBarW = 280;
+  if (y >= VOLUME_BAR_Y && y <= VOLUME_BAR_Y + VOLUME_BAR_H) {
+    if (x >= volBarX && x <= volBarX + volBarW) {
+      // Calcola nuovo volume dalla posizione X
+      int newVol = map(x - volBarX, 0, volBarW, 0, 21);
+      newVol = constrain(newVol, 0, 21);
+      if (newVol != mp3Player.volume) {
+        mp3Player.volume = newVol;
+        #ifdef AUDIO
+        extern Audio audio;
+        audio.setVolume(mp3Player.volume);
+        #endif
+        saveMP3PlayerSettings();
+        Serial.printf("[MP3] Volume impostato a %d\n", mp3Player.volume);
+        mp3Player.needsRedraw = true;
+      }
       return false;
     }
   }
@@ -645,7 +693,7 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y) {
       // Meta' destra = traccia successiva
       nextMP3Track();
     }
-    playTouchSound();
+    // NO playTouchSound() - interferirebbe con la riproduzione MP3
     mp3Player.needsRedraw = true;
     return false;
   }
@@ -653,238 +701,56 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y) {
   return false;
 }
 
-#if USE_AUDIO_TASK
-// ================== FREERTOS AUDIO TASK (CORE 0) ==================
-// Task dedicato all'audio che gira su Core 0
-// Core 1 e' usato dal display, separando si evitano conflitti
-void mp3AudioTask(void* parameter) {
-  Serial.println("[MP3] Task audio avviato su Core 0");
-
-  while (mp3TaskRunning) {
-    // Controlla se c'e' una richiesta di stop
-    if (mp3RequestStop) {
-      mp3RequestStop = false;
-      vTaskDelay(10);
-      continue;
-    }
-
-    // Controlla se in riproduzione
-    if (mp3Player.playing && !mp3Player.paused && mp3 != nullptr) {
-      if (mp3->isRunning()) {
-        // Chiama loop per alimentare il buffer I2S
-        bool ok = mp3->loop();
-        if (!ok) {
-          // Traccia terminata
-          mp3TrackEnded = true;
-          vTaskDelay(10);
-        }
-      } else {
-        vTaskDelay(5);
-      }
-    } else {
-      // Non in riproduzione - attendi piu' a lungo
-      vTaskDelay(10);
-    }
-
-    // Yield per permettere ad altri task di girare
-    taskYIELD();
-  }
-
-  Serial.println("[MP3] Task audio terminato");
-  vTaskDelete(NULL);
-}
-
-void startMP3Task() {
-  if (mp3TaskHandle != nullptr) {
-    return;  // Task gia' in esecuzione
-  }
-
-  // Crea mutex se non esiste
-  if (mp3Mutex == nullptr) {
-    mp3Mutex = xSemaphoreCreateMutex();
-  }
-
-  mp3TaskRunning = true;
-  mp3TrackEnded = false;
-  mp3RequestStop = false;
-
-  // Crea task su Core 0 con priorita' alta
-  // Core 0: Audio
-  // Core 1: Display/loop principale
-  xTaskCreatePinnedToCore(
-    mp3AudioTask,      // Funzione task
-    "MP3Audio",        // Nome
-    16384,             // Stack size (16KB - MP3 decoder usa molta memoria)
-    NULL,              // Parametri
-    5,                 // Priorita' alta ma non massima (evita watchdog)
-    &mp3TaskHandle,    // Handle
-    0                  // Core 0
-  );
-
-  Serial.println("[MP3] Task audio creato su Core 0");
-}
-
-void stopMP3Task() {
-  if (mp3TaskHandle == nullptr) {
-    return;
-  }
-
-  mp3TaskRunning = false;
-
-  // Attendi che il task termini
-  delay(100);
-
-  mp3TaskHandle = nullptr;
-  Serial.println("[MP3] Task audio fermato");
-}
-#endif // USE_AUDIO_TASK
+// mp3AudioTask, startMP3Task, stopMP3Task rimossi
+// audioTask globale (audio.loop()) gestisce la riproduzione
 
 // ================== RIPRODUZIONE ==================
 void playMP3Track(int index) {
   #ifdef AUDIO
-  if (index < 0 || index >= mp3Player.totalTracks) {
-    Serial.println("[MP3] Indice traccia non valido");
-    return;
+  if (index < 0 || index >= mp3Player.totalTracks) return;
+
+  extern Audio audio;
+  extern bool webRadioEnabled;
+
+  // Ferma web radio se attiva
+  if (webRadioEnabled) {
+    audio.stopSong();
+    delay(50);
   }
 
-  // Ferma eventuale riproduzione in corso
+  // Ferma eventuale riproduzione
   stopMP3Track();
-
   mp3Player.currentTrack = index;
 
-  // Costruisci percorso completo
   String fullPath = String(MP3_FOLDER) + "/" + String(mp3Player.tracks[index].filename);
   Serial.printf("[MP3] Riproduzione: %s\n", fullPath.c_str());
 
-  // Verifica esistenza file
   if (!SD.exists(fullPath)) {
     Serial.println("[MP3] ERRORE: File non trovato!");
     return;
   }
 
-  // Pulisci risorse precedenti
-  if (mp3FileSD != nullptr) {
-    delete mp3FileSD;
-    mp3FileSD = nullptr;
-  }
-  if (mp3 != nullptr) {
-    mp3->stop();
-    delete mp3;
-    mp3 = nullptr;
-  }
-  if (buff != nullptr) {
-    delete buff;
-    buff = nullptr;
-  }
-
-  // Pulisce output precedente e ricrea (come fa TTS)
-  if (output != nullptr) {
-    output->stop();
-    delete output;
-    output = nullptr;
-  }
-
-  // Crea output audio
-  output = new AudioOutputI2S();
-  output->SetPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
-  output->SetGain(VOLUME_LEVEL);
-  output->SetChannels(1);  // MONO
-  delay(50);
-
-  // Apri file da SD
-  mp3FileSD = new AudioFileSourceFS(SD, fullPath.c_str());
-  if (!mp3FileSD->isOpen()) {
-    Serial.println("[AUDIO] ERRORE: Impossibile aprire file!");
-    delete mp3FileSD;
-    mp3FileSD = nullptr;
+  // Usa audio.connecttoFS con SD
+  if (!audio.connecttoFS(SD, fullPath.c_str())) {
+    Serial.println("[MP3] Errore connessione file!");
     return;
   }
 
-  // Determina tipo file
-  AudioFileType fileType = mp3Player.tracks[index].type;
-  bool started = false;
-
-  if (fileType == AUDIO_TYPE_WAV) {
-    // ========== WAV: Semplice, da SD con buffer ==========
-    Serial.println("[AUDIO] Usando decoder WAV");
-
-    // Buffer per WAV
-    buff = new AudioFileSourceBuffer(mp3FileSD, 32768);
-
-    // Crea decoder WAV
-    wav = new AudioGeneratorWAV();
-
-    // Avvia riproduzione WAV
-    if (wav->begin(buff, output)) {
-      started = true;
-      Serial.println("[AUDIO] Riproduzione WAV avviata!");
-    }
-  } else {
-    // ========== MP3: Richiede decodifica CPU ==========
-    Serial.println("[AUDIO] Usando decoder MP3 (pesante)");
-
-    // Buffer grande per MP3
-    buff = new AudioFileSourceBuffer(mp3FileSD, 65536);
-
-    // Crea decoder MP3
-    mp3 = new AudioGeneratorMP3();
-
-    // Avvia riproduzione MP3
-    if (mp3->begin(buff, output)) {
-      started = true;
-      Serial.println("[AUDIO] Riproduzione MP3 avviata!");
-    }
-  }
-
-  if (started) {
-    mp3Player.playing = true;
-    mp3Player.paused = false;
-    isPlaying = true;
-
-    #if USE_AUDIO_TASK
-    mp3TrackEnded = false;
-    startMP3Task();
-    #endif
-  } else {
-    Serial.println("[AUDIO] ERRORE: Impossibile avviare riproduzione!");
-    stopMP3Track();
-  }
-
+  mp3Player.playing = true;
+  mp3Player.paused = false;
+  isPlaying = true;
+  saveMP3PlayerSettings();
   mp3Player.needsRedraw = true;
   #endif
 }
 
 void stopMP3Track() {
   #ifdef AUDIO
-  #if USE_AUDIO_TASK
-  // Prima ferma il task audio
-  mp3RequestStop = true;
-  stopMP3Task();
-  #endif
+  extern Audio audio;
+  extern bool webRadioEnabled;
+  extern String webRadioUrl;
 
-  // Pulisci decoder MP3
-  if (mp3 != nullptr) {
-    mp3->stop();
-    delete mp3;
-    mp3 = nullptr;
-  }
-
-  // Pulisci decoder WAV
-  if (wav != nullptr) {
-    wav->stop();
-    delete wav;
-    wav = nullptr;
-  }
-
-  // Pulisci buffer e sorgente SD
-  if (buff != nullptr) {
-    delete buff;
-    buff = nullptr;
-  }
-  if (mp3FileSD != nullptr) {
-    delete mp3FileSD;
-    mp3FileSD = nullptr;
-  }
+  audio.stopSong();
 
   mp3Player.playing = false;
   mp3Player.paused = false;
@@ -893,6 +759,14 @@ void stopMP3Track() {
   mp3Player.vuRight = 0;
   mp3Player.vuPeakLeft = 0;
   mp3Player.vuPeakRight = 0;
+  saveMP3PlayerSettings();
+
+  // Riprendi web radio se era attiva
+  if (webRadioEnabled) {
+    Serial.println("[MP3] Riprendo web radio...");
+    delay(100);
+    audio.connecttohost(webRadioUrl.c_str());
+  }
 
   Serial.println("[MP3] Riproduzione fermata");
   #endif
@@ -900,10 +774,11 @@ void stopMP3Track() {
 
 void pauseMP3Track() {
   #ifdef AUDIO
+  extern Audio audio;
   if (mp3Player.playing && !mp3Player.paused) {
+    audio.pauseResume();  // Audio.h supporta pause nativo
     mp3Player.paused = true;
-    // Il decoder MP3 non ha un metodo pause nativo,
-    // quindi smettiamo di chiamare loop() nel ciclo principale
+    saveMP3PlayerSettings();
     Serial.println("[MP3] Riproduzione in pausa");
   }
   #endif
@@ -911,8 +786,11 @@ void pauseMP3Track() {
 
 void resumeMP3Track() {
   #ifdef AUDIO
+  extern Audio audio;
   if (mp3Player.paused) {
+    audio.pauseResume();
     mp3Player.paused = false;
+    saveMP3PlayerSettings();
     Serial.println("[MP3] Riproduzione ripresa");
   }
   #endif
@@ -1014,6 +892,16 @@ static uint32_t lastVUUpdate = 0;
 #define VU_UPDATE_INTERVAL 80         // Aggiorna VU ogni 80ms
 
 void updateMP3Player() {
+  // Traccia ultimo modo per forzare ridisegno al rientro
+  static int lastActiveMode = -1;
+
+  // Forza ridisegno quando si entra nella modalità da un'altra
+  if (lastActiveMode != MODE_MP3_PLAYER) {
+    mp3Player.needsRedraw = true;
+    mp3Player.initialized = false;  // Re-inizializza
+  }
+  lastActiveMode = currentMode;
+
   if (!mp3Player.initialized) {
     initMP3Player();
     return;
@@ -1022,62 +910,56 @@ void updateMP3Player() {
   uint32_t now = millis();
 
   #ifdef AUDIO
-  // ========== PRIORITA' ASSOLUTA: AUDIO ==========
-  // Durante la riproduzione, l'audio ha la massima priorita'
+  extern Audio audio;
+
+  // ========== GESTIONE RIPRODUZIONE AUDIO ==========
   if (mp3Player.playing && !mp3Player.paused) {
-    bool isRunning = false;
-    bool loopOk = false;
-
-    // Controlla quale decoder e' attivo
-    if (wav != nullptr) {
-      // ===== WAV: Molto leggero, nessuna decodifica =====
-      isRunning = wav->isRunning();
-      if (isRunning) {
-        loopOk = wav->loop();
-      }
-    } else if (mp3 != nullptr) {
-      // ===== MP3: Richiede decodifica =====
-      isRunning = mp3->isRunning();
-      if (isRunning) {
-        loopOk = mp3->loop();
-      }
-    }
-
-    if (isRunning) {
-      if (!loopOk) {
-        Serial.println("[AUDIO] Traccia terminata");
-        nextMP3Track();
-        return;
-      }
-
-      // Touch per controlli durante riproduzione
-      ts.read();
-      if (ts.isTouched) {
-        static uint32_t lastTouchPlay = 0;
-        if (now - lastTouchPlay > 400) {
-          int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
-          int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
-          if (handleMP3PlayerTouch(x, y)) {
-            currentMode = MODE_FADE;
-            forceDisplayUpdate();
-            return;
-          }
-          lastTouchPlay = now;
-        }
-      }
+    // audio.loop() e' chiamato da audioTask - qui controlliamo solo stato
+    if (!audio.isRunning() && !mp3Player.paused) {
+      // Traccia terminata (EOF callback ha gia' aggiornato i flag)
+      Serial.println("[MP3] Traccia terminata - prossima");
+      nextMP3Track();
       return;
-
-    } else {
-      // Decoder si e' fermato
-      mp3Player.playing = false;
-      isPlaying = false;
-      mp3Player.needsRedraw = true;
     }
+
+    // Touch per controlli durante riproduzione
+    ts.read();
+    if (ts.isTouched) {
+      static uint32_t lastTouchPlay = 0;
+      if (now - lastTouchPlay > 400) {
+        int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+        int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+        if (handleMP3PlayerTouch(x, y)) {
+          // Passa alla modalità successiva nel ciclo (non direttamente a FADE)
+          handleModeChange();
+          return;
+        }
+        lastTouchPlay = now;
+      }
+    }
+
+    // Ridisegna UI se necessario
+    if (mp3Player.needsRedraw) {
+      drawMP3PlayerUI();
+      mp3Player.needsRedraw = false;
+    }
+
+    // Aggiorna VU meters durante riproduzione
+    static uint32_t lastVUUpdatePlay = 0;
+    if (now - lastVUUpdatePlay >= 100) {
+      updateMP3VUMeters();
+      drawVUMeterVertical(VU_LEFT_X, VU_Y_START, VU_WIDTH, VU_HEIGHT,
+                          mp3Player.vuLeft, mp3Player.vuPeakLeft, true);
+      drawVUMeterVertical(VU_RIGHT_X, VU_Y_START, VU_WIDTH, VU_HEIGHT,
+                          mp3Player.vuRight, mp3Player.vuPeakRight, false);
+      lastVUUpdatePlay = now;
+    }
+
+    return;
   }
   #endif
 
   // ========== QUANDO NON IN RIPRODUZIONE ==========
-  // Gestione touch normale
   ts.read();
   if (ts.isTouched) {
     static uint32_t lastTouch = 0;
@@ -1086,8 +968,8 @@ void updateMP3Player() {
       int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
 
       if (handleMP3PlayerTouch(x, y)) {
-        currentMode = MODE_FADE;
-        forceDisplayUpdate();
+        // Passa alla modalità successiva nel ciclo (non direttamente a FADE)
+        handleModeChange();
         return;
       }
       lastTouch = now;
@@ -1102,7 +984,7 @@ void updateMP3Player() {
     return;
   }
 
-  // Aggiorna VU meters (solo quando non in riproduzione)
+  // Aggiorna VU meters
   if (now - lastVUUpdate >= VU_UPDATE_INTERVAL) {
     updateMP3VUMeters();
     drawVUMeterVertical(VU_LEFT_X, VU_Y_START, VU_WIDTH, VU_HEIGHT,
@@ -1130,16 +1012,7 @@ void updateMP3Player() {
 
 // ================== CLEANUP ==================
 void cleanupMP3Player() {
-  // Ferma la riproduzione e il task audio
   stopMP3Track();
-
-  #if USE_AUDIO_TASK
-  // Libera il mutex se esiste
-  if (mp3Mutex != nullptr) {
-    vSemaphoreDelete(mp3Mutex);
-    mp3Mutex = nullptr;
-  }
-  #endif
 
   if (mp3Player.tracks != nullptr) {
     heap_caps_free(mp3Player.tracks);
@@ -1151,6 +1024,228 @@ void cleanupMP3Player() {
   mp3Player.totalTracks = 0;
 
   Serial.println("[MP3] Lettore MP3 chiuso");
+}
+
+// ================== WEBSERVER MP3 PLAYER ==================
+// HTML per pagina controllo MP3 Player
+const char MP3_PLAYER_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MP3 Player</title><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:sans-serif;background:#1a1a2e;min-height:100vh;padding:20px;color:#eee}
+.c{max-width:600px;margin:0 auto;background:rgba(255,255,255,.1);border-radius:20px;overflow:hidden}
+.h{background:linear-gradient(135deg,#2196F3,#1976D2);padding:25px;text-align:center}
+.h h1{font-size:1.5em;margin-bottom:5px}
+.ct{padding:25px}
+.s{background:rgba(0,0,0,.3);border-radius:15px;padding:20px;margin-bottom:20px}
+.s h3{margin-bottom:15px;color:#2196F3}
+.track{padding:12px;background:rgba(255,255,255,.1);border-radius:8px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+.track:hover{background:rgba(33,150,243,.3)}
+.track.active{background:rgba(33,150,243,.5);border:1px solid #2196F3}
+.track .name{flex:1}
+.track .type{font-size:0.8em;opacity:0.7;padding:2px 8px;background:rgba(255,255,255,.1);border-radius:4px}
+.controls{display:flex;justify-content:center;gap:15px;margin:20px 0}
+.btn{width:60px;height:60px;border-radius:50%;border:none;cursor:pointer;font-size:1.5em;display:flex;align-items:center;justify-content:center;transition:all 0.3s}
+.btn-prev,.btn-next{background:rgba(255,255,255,.1);color:#fff}
+.btn-prev:hover,.btn-next:hover{background:rgba(255,255,255,.2)}
+.btn-play{background:#4CAF50;color:#fff;width:70px;height:70px}
+.btn-play.playing{background:#ff9800}
+.btn-stop{background:#f44336;color:#fff}
+.status{text-align:center;padding:15px;background:rgba(0,0,0,.2);border-radius:10px;margin-bottom:20px}
+.status .now{font-size:1.2em;font-weight:bold;margin-bottom:5px}
+.status .state{opacity:0.7}
+.vu{display:flex;justify-content:center;gap:3px;height:40px;align-items:flex-end;margin:15px 0}
+.vu-bar{width:8px;background:linear-gradient(to top,#4CAF50,#FFEB3B,#f44336);border-radius:2px;transition:height 0.1s}
+.hm{display:block;text-align:center;color:#94a3b8;padding:10px;text-decoration:none;font-size:.9em}.hm:hover{color:#fff}
+.empty{text-align:center;padding:40px;opacity:0.6}
+.mode-btn{width:100%;padding:15px;border:none;border-radius:10px;font-weight:bold;cursor:pointer;font-size:1em;margin-top:10px;background:linear-gradient(135deg,#2196F3,#1976D2);color:#fff}
+</style></head><body><div class="c"><a href="/" class="hm">&larr; Home</a><div class="h">
+<h1>🎵 MP3 Player</h1><p>Play music from SD card</p></div><div class="ct">
+<div class="status">
+<div class="now" id="nowPlaying">No track selected</div>
+<div class="state" id="playState">Stopped</div>
+</div>
+<div class="vu" id="vuMeter"></div>
+<div class="controls">
+<button class="btn btn-prev" onclick="cmd('prev')">⏮</button>
+<button class="btn btn-stop" onclick="cmd('stop')">⏹</button>
+<button class="btn btn-play" id="playBtn" onclick="cmd('toggle')">▶</button>
+<button class="btn btn-next" onclick="cmd('next')">⏭</button>
+</div>
+<div class="s"><h3>Playlist</h3>
+<div id="playlist"></div>
+</div>
+<button class="mode-btn" onclick="activateMode()">Attiva modalità MP3 Player</button>
+</div></div><script>
+var isPlaying=false,currentTrack=-1;
+function cmd(c,idx){
+  var url='/mp3player/cmd?action='+c;
+  if(typeof idx!=='undefined')url+='&track='+idx;
+  fetch(url).then(r=>r.json()).then(d=>{update(d)});
+}
+function update(d){
+  isPlaying=d.playing;currentTrack=d.current;
+  document.getElementById('playBtn').innerHTML=isPlaying?'⏸':'▶';
+  document.getElementById('playBtn').className='btn btn-play'+(isPlaying?' playing':'');
+  document.getElementById('playState').textContent=isPlaying?(d.paused?'Paused':'Playing'):'Stopped';
+  if(d.tracks&&d.tracks.length>0){
+    document.getElementById('nowPlaying').textContent=currentTrack>=0?d.tracks[currentTrack].title:'Select a track';
+    var html='';
+    for(var i=0;i<d.tracks.length;i++){
+      html+='<div class="track'+(i==currentTrack?' active':'')+'" onclick="cmd(\'play\','+i+')">';
+      html+='<span class="name">'+(i+1)+'. '+d.tracks[i].title+'</span>';
+      html+='<span class="type">'+d.tracks[i].type+'</span></div>';
+    }
+    document.getElementById('playlist').innerHTML=html;
+  }else{
+    document.getElementById('playlist').innerHTML='<div class="empty">No MP3/WAV files found in /MP3 folder</div>';
+  }
+  updateVU(d.vuL||0,d.vuR||0);
+}
+function updateVU(l,r){
+  var vu=document.getElementById('vuMeter');
+  var html='';
+  for(var i=0;i<10;i++){
+    var h1=Math.min(40,l*40/100*(i<l/10?1:0.3));
+    var h2=Math.min(40,r*40/100*(i<r/10?1:0.3));
+    html+='<div class="vu-bar" style="height:'+Math.max(4,l>i*10?h1:4)+'px"></div>';
+  }
+  for(var i=9;i>=0;i--){
+    var h2=Math.min(40,r*40/100*(i<r/10?1:0.3));
+    html+='<div class="vu-bar" style="height:'+Math.max(4,r>i*10?h2:4)+'px"></div>';
+  }
+  vu.innerHTML=html;
+}
+function activateMode(){
+  fetch('/mp3player/activate').then(()=>{alert('MP3 Player mode activated on display!')});
+}
+function poll(){fetch('/mp3player/status').then(r=>r.json()).then(d=>{update(d)}).catch(()=>{});}
+poll();setInterval(poll,1000);
+</script></body></html>
+)rawliteral";
+
+// Funzione per ottenere lo stato JSON del player
+String getMP3PlayerStatusJSON() {
+  String json = "{";
+  json += "\"playing\":" + String(mp3Player.playing ? "true" : "false") + ",";
+  json += "\"paused\":" + String(mp3Player.paused ? "true" : "false") + ",";
+  json += "\"current\":" + String(mp3Player.currentTrack) + ",";
+  json += "\"total\":" + String(mp3Player.totalTracks) + ",";
+  json += "\"vuL\":" + String(mp3Player.vuLeft) + ",";
+  json += "\"vuR\":" + String(mp3Player.vuRight) + ",";
+  json += "\"tracks\":[";
+
+  for (int i = 0; i < mp3Player.totalTracks && i < 50; i++) {
+    if (i > 0) json += ",";
+    json += "{\"title\":\"" + String(mp3Player.tracks[i].title) + "\",";
+    json += "\"type\":\"" + String(mp3Player.tracks[i].type == AUDIO_TYPE_WAV ? "WAV" : "MP3") + "\"}";
+  }
+
+  json += "]}";
+  return json;
+}
+
+// ================== SALVATAGGIO/CARICAMENTO IMPOSTAZIONI MP3 ==================
+// Salva impostazioni MP3 Player in EEPROM
+void saveMP3PlayerSettings() {
+  EEPROM.write(EEPROM_MP3PLAYER_TRACK_ADDR, (uint8_t)mp3Player.currentTrack);
+  EEPROM.write(EEPROM_MP3PLAYER_PLAYING_ADDR, mp3Player.playing ? 1 : 0);
+  EEPROM.write(EEPROM_MP3PLAYER_VOLUME_ADDR, mp3Player.volume);
+  EEPROM.commit();
+  Serial.printf("[MP3] Impostazioni salvate: track=%d, playing=%d, volume=%d\n",
+                mp3Player.currentTrack, mp3Player.playing, mp3Player.volume);
+}
+
+// Carica impostazioni MP3 Player da EEPROM
+void loadMP3PlayerSettings() {
+  uint8_t savedTrack = EEPROM.read(EEPROM_MP3PLAYER_TRACK_ADDR);
+  uint8_t savedVolume = EEPROM.read(EEPROM_MP3PLAYER_VOLUME_ADDR);
+
+  // Valida volume (0-21)
+  if (savedVolume > 21) savedVolume = 15;  // Default
+  mp3Player.volume = savedVolume;
+
+  Serial.printf("[MP3] Impostazioni caricate: track=%d, volume=%d (riproduzione SPENTA al boot)\n",
+                savedTrack, savedVolume);
+
+  // Applica solo traccia salvata (se valida), ma NON avviare riproduzione
+  if (mp3Player.initialized && savedTrack < mp3Player.totalTracks) {
+    mp3Player.currentTrack = savedTrack;
+    Serial.printf("[MP3] Traccia ripristinata: %d (non avviata)\n", savedTrack);
+  }
+
+  // Applica volume all'audio
+  #ifdef AUDIO
+  extern Audio audio;
+  audio.setVolume(mp3Player.volume);
+  #endif
+}
+
+// Setup WebServer per MP3 Player
+void setup_mp3player_webserver(AsyncWebServer* server) {
+  Serial.println("[MP3-WEB] Configurazione endpoints web...");
+
+  // Pagina principale MP3 Player
+  server->on("/mp3player", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/html", MP3_PLAYER_HTML);
+  });
+
+  // API stato player
+  server->on("/mp3player/status", HTTP_GET, [](AsyncWebServerRequest *request){
+    // Se non inizializzato, scansiona prima i file
+    if (!mp3Player.initialized && mp3Player.totalTracks == 0) {
+      scanMP3Files();
+    }
+    request->send(200, "application/json", getMP3PlayerStatusJSON());
+  });
+
+  // API comandi
+  server->on("/mp3player/cmd", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (request->hasParam("action")) {
+      String action = request->getParam("action")->value();
+
+      // Se non inizializzato, inizializza prima
+      if (!mp3Player.initialized) {
+        scanMP3Files();
+        mp3Player.initialized = true;
+      }
+
+      if (action == "play" && request->hasParam("track")) {
+        int track = request->getParam("track")->value().toInt();
+        playMP3Track(track);
+      }
+      else if (action == "toggle") {
+        if (mp3Player.playing && !mp3Player.paused) {
+          pauseMP3Track();
+        } else if (mp3Player.paused) {
+          resumeMP3Track();
+        } else {
+          playMP3Track(mp3Player.currentTrack);
+        }
+      }
+      else if (action == "stop") {
+        stopMP3Track();
+      }
+      else if (action == "next") {
+        nextMP3Track();
+      }
+      else if (action == "prev") {
+        prevMP3Track();
+      }
+    }
+    request->send(200, "application/json", getMP3PlayerStatusJSON());
+  });
+
+  // API attiva modalità MP3 sul display
+  server->on("/mp3player/activate", HTTP_GET, [](AsyncWebServerRequest *request){
+    currentMode = MODE_MP3_PLAYER;
+    mp3Player.needsRedraw = true;
+    forceDisplayUpdate();
+    request->send(200, "application/json", "{\"success\":true}");
+  });
+
+  Serial.println("[MP3-WEB] Endpoints configurati su /mp3player");
 }
 
 #endif // EFFECT_MP3_PLAYER
