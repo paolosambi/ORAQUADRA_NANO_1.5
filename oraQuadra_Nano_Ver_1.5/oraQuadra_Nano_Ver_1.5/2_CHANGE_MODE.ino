@@ -138,6 +138,13 @@ void forceDisplayUpdate() {
       initWebRadioUI();                   // Chiama la funzione per inizializzare la Web Radio.
       break;
 #endif
+#ifdef EFFECT_RADIO_ALARM
+    case MODE_RADIO_ALARM:
+      radioAlarmInitialized = false;      // Forza la reinizializzazione della Radio Alarm.
+      radioAlarmNeedsRedraw = true;       // Forza il ridisegno.
+      initRadioAlarm();                   // Chiama la funzione per inizializzare la Radio Alarm.
+      break;
+#endif
     case MODE_FADE:
       fadeInitialized = false;   // Forza la reinizializzazione della modalità dissolvenza.
       updateFadeMode();          // Chiama la funzione per aggiornare la modalità dissolvenza.
@@ -373,6 +380,9 @@ bool isValidMode(DisplayMode mode) {
 #ifdef EFFECT_WEB_RADIO
     case MODE_WEB_RADIO:
 #endif
+#ifdef EFFECT_RADIO_ALARM
+    case MODE_RADIO_ALARM:
+#endif
       return true;
     default:
       return false;
@@ -600,6 +610,12 @@ void handleModeChange() {
     case MODE_WEB_RADIO:
       modeName = "WEB RADIO";
       modeColor = GREEN;  // Verde per la radio
+      break;
+#endif
+#ifdef EFFECT_RADIO_ALARM
+    case MODE_RADIO_ALARM:
+      modeName = "RADIO ALARM";
+      modeColor = CYAN;  // Ciano per la radiosveglia
       break;
 #endif
     default:

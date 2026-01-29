@@ -380,6 +380,14 @@ void checkButtons() {
   }
   #endif
 
+  // ====================== SKIP TOUCH SE IN MODALITA' RADIO ALARM ======================
+  // La Radio Alarm gestisce i propri tocchi internamente
+  #ifdef EFFECT_RADIO_ALARM
+  if (currentMode == MODE_RADIO_ALARM) {
+    return;  // Il touch viene gestito da updateRadioAlarm()
+  }
+  #endif
+
   // ====================== ZONA NASCOSTA: MOSTRA URL SETTINGS (angolo basso-destra) ======================
   // Piccola area 50x50 pixel nell'angolo in basso a destra per mostrare l'URL della pagina settings
   if (touch_last_x >= 430 && touch_last_x <= 480 &&

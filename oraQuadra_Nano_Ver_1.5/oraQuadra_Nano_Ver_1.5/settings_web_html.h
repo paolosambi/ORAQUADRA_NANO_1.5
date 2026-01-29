@@ -1270,7 +1270,8 @@ const MODES = [
   { id: 22, name: 'FIRE', icon: '🔥', desc: 'Fuoco Camino' },
   { id: 23, name: 'FIRE TEXT', icon: '🔥', desc: 'Lettere di Fuoco' },
   { id: 24, name: 'MP3 PLAYER', icon: '🎵', desc: 'Lettore MP3' },
-  { id: 25, name: 'WEB RADIO', icon: '📻', desc: 'Web Radio' }
+  { id: 25, name: 'WEB RADIO', icon: '📻', desc: 'Web Radio' },
+  { id: 26, name: 'RADIO ALARM', icon: '⏰', desc: 'Radiosveglia' }
 ];
 
 let currentMode = 2;
@@ -2096,7 +2097,7 @@ const MODE_NAMES = {
   5: 'SNAKE', 6: 'WATER', 7: 'MARIO', 8: 'TRON', 9: 'GALAGA',
   10: 'ANALOG', 11: 'FLIP', 12: 'BTTF', 13: 'LED RING', 14: 'WEATHER',
   15: 'CLOCK', 17: 'GALAGA2', 19: 'ESP-CAM', 20: 'FLUX', 21: 'CHRISTMAS', 22: 'FIRE', 23: 'FIRE TEXT',
-  24: 'MP3 PLAYER', 25: 'WEB RADIO'
+  24: 'MP3 PLAYER', 25: 'WEB RADIO', 26: 'RADIO ALARM'
 };
 
 // Nomi preset per il riassunto

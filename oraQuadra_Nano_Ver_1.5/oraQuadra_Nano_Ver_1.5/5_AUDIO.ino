@@ -140,6 +140,10 @@ void forceClockRedraw() {
     return;
   }
   #endif
+
+  // Per tutti gli altri mode, forza un aggiornamento completo del display
+  // Questo risolve il problema del VU meter che non ripristina lo sfondo
+  forceDisplayUpdate();
 }
 
 // Nascondi VU meter e ripristina display

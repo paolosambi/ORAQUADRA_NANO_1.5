@@ -9,39 +9,66 @@
 
 #ifdef EFFECT_WEB_RADIO
 
-// ================== COSTANTI UI ==================
-#define WR_BG_COLOR       0x0000  // Nero
+// ================== TEMA MODERNO - PALETTE COLORI ==================
+// Sfondo e base
+#define WR_BG_COLOR       0x0841  // Blu molto scuro (8,16,8)
+#define WR_BG_DARK        0x0000  // Nero puro per contrasto
+#define WR_BG_CARD        0x1082  // Grigio-blu scuro per cards
+
+// Testo
 #define WR_TEXT_COLOR     0xFFFF  // Bianco
-#define WR_ACCENT_COLOR   0x07E0  // Verde
-#define WR_BUTTON_COLOR   0x4208  // Grigio scuro
-#define WR_BUTTON_ACTIVE  0x07E0  // Verde (attivo)
-#define WR_BUTTON_BORDER  0x6B6D  // Grigio chiaro
+#define WR_TEXT_DIM       0xB5B6  // Grigio chiaro
+#define WR_TEXT_MUTED     0x7BCF  // Grigio medio
 
-// Colori VU meter
-#define WR_VU_LOW         0x07E0  // Verde
+// Accenti - Ciano/Turchese moderno
+#define WR_ACCENT_COLOR   0x07FF  // Ciano brillante
+#define WR_ACCENT_DARK    0x0575  // Ciano scuro
+#define WR_ACCENT_GLOW    0x5FFF  // Ciano chiaro (glow)
+
+// Bottoni
+#define WR_BUTTON_COLOR   0x2124  // Grigio scuro
+#define WR_BUTTON_HOVER   0x3186  // Grigio medio
+#define WR_BUTTON_ACTIVE  0x0575  // Ciano scuro (attivo)
+#define WR_BUTTON_BORDER  0x4A69  // Grigio bordo
+#define WR_BUTTON_SHADOW  0x1082  // Ombra bottone
+
+// VU meter - Gradiente moderno
+#define WR_VU_LOW         0x07E0  // Verde brillante
+#define WR_VU_LOW2        0x2FE0  // Verde-ciano
 #define WR_VU_MID         0xFFE0  // Giallo
+#define WR_VU_MID2        0xFD20  // Arancione
 #define WR_VU_HIGH        0xF800  // Rosso
-#define WR_VU_BG          0x2104  // Grigio scuro
+#define WR_VU_PEAK        0xF81F  // Magenta (peak indicator)
+#define WR_VU_BG          0x18C3  // Grigio-blu VU background
 
-// Layout FULL SCREEN 480x480
-// VU meters ai lati: 0-55 sinistra, 425-480 destra
-// Area centrale: 60-420 (360px)
-#define WR_HEADER_Y       5
-#define WR_STATION_Y      55
-#define WR_STATUS_Y       115
-#define WR_VOLUME_Y       160
-#define WR_CONTROLS_Y     210
-#define WR_LIST_Y         280
-#define WR_LIST_HEIGHT    130
+// Status colors
+#define WR_STATUS_ON      0x07E0  // Verde streaming
+#define WR_STATUS_OFF     0xF800  // Rosso stopped
+#define WR_STATUS_GLOW    0x2FE4  // Glow verde
+
+// Layout FULL SCREEN 480x480 - TEMA MODERNO
+// VU meters ai lati: 0-50 sinistra, 430-480 destra
+// Area centrale: 55-425 (370px)
+#define WR_HEADER_Y       8
+#define WR_STATION_Y      60
+#define WR_STATUS_Y       120
+#define WR_VOLUME_Y       165
+#define WR_CONTROLS_Y     215
+#define WR_LIST_Y         285
+#define WR_LIST_HEIGHT    125
 #define WR_EXIT_Y         420
 
-// VU meters - ai lati (tutto lo schermo in altezza)
+// VU meters - ai lati con design sottile
 #define WR_VU_LEFT_X      0
-#define WR_VU_RIGHT_X     425
-#define WR_VU_WIDTH       55
-#define WR_VU_HEIGHT      420
-#define WR_VU_Y_START     50
-#define WR_VU_SEGMENTS    20
+#define WR_VU_RIGHT_X     432
+#define WR_VU_WIDTH       48
+#define WR_VU_HEIGHT      410
+#define WR_VU_Y_START     55
+#define WR_VU_SEGMENTS    24
+
+// Area centrale
+#define WR_CENTER_X       55
+#define WR_CENTER_W       370
 
 // ================== VARIABILI GLOBALI ==================
 bool webRadioInitialized = false;
@@ -69,6 +96,7 @@ void drawWebRadioHeader();
 void drawWebRadioStation();
 void drawWebRadioStatus();
 void drawWebRadioVolumeBar();
+void drawWRModernButton(int bx, int by, int bw, int bh, bool active, bool highlight);
 void drawWebRadioControls();
 void drawWebRadioStationList();
 void drawWebRadioExitButton();
@@ -155,7 +183,16 @@ void updateWebRadioUI() {
 
 // ================== DISEGNO UI COMPLETA ==================
 void drawWebRadioUI() {
-  gfx->fillScreen(WR_BG_COLOR);
+  // Sfondo con gradiente simulato (bande orizzontali)
+  for (int y = 0; y < 480; y += 4) {
+    uint16_t shade = (y < 240) ? WR_BG_COLOR : WR_BG_DARK;
+    gfx->fillRect(0, y, 480, 4, shade);
+  }
+
+  // Linee decorative sottili in alto e in basso
+  gfx->drawFastHLine(0, 2, 480, WR_ACCENT_DARK);
+  gfx->drawFastHLine(0, 477, 480, WR_ACCENT_DARK);
+
   drawWebRadioVUBackground();
   drawWebRadioHeader();
   drawWebRadioStation();
@@ -166,100 +203,226 @@ void drawWebRadioUI() {
   drawWebRadioExitButton();
 }
 
-// ================== HEADER ==================
+// ================== HEADER MODERNO ==================
 void drawWebRadioHeader() {
+  int centerX = 240;
+
+  // Icona radio stilizzata (onde)
+  for (int i = 0; i < 3; i++) {
+    int r = 12 + i * 8;
+    gfx->drawCircle(85, WR_HEADER_Y + 25, r, WR_ACCENT_DARK);
+    // Solo arco destro (simulato con punti)
+    for (int a = -45; a <= 45; a += 5) {
+      float rad = a * 3.14159 / 180.0;
+      int px = 85 + cos(rad) * r;
+      int py = WR_HEADER_Y + 25 + sin(rad) * r;
+      gfx->drawPixel(px, py, WR_ACCENT_COLOR);
+    }
+  }
+
+  // Titolo con effetto glow
   gfx->setFont(u8g2_font_helvB24_tr);
+
+  // Glow effect (testo sfumato dietro)
+  gfx->setTextColor(WR_ACCENT_DARK);
+  gfx->setCursor(centerX - 75 + 1, WR_HEADER_Y + 36);
+  gfx->print("WEB RADIO");
+
+  // Testo principale
   gfx->setTextColor(WR_ACCENT_COLOR);
+  gfx->setCursor(centerX - 75, WR_HEADER_Y + 35);
+  gfx->print("WEB RADIO");
 
-  const char* title = "WEB RADIO";
-  int16_t tw = strlen(title) * 15;
-  gfx->setCursor((480 - tw) / 2, WR_HEADER_Y + 35);
-  gfx->print(title);
+  // Icona radio destra (simmetrica)
+  for (int i = 0; i < 3; i++) {
+    int r = 12 + i * 8;
+    for (int a = 135; a <= 225; a += 5) {
+      float rad = a * 3.14159 / 180.0;
+      int px = 395 + cos(rad) * r;
+      int py = WR_HEADER_Y + 25 + sin(rad) * r;
+      gfx->drawPixel(px, py, WR_ACCENT_COLOR);
+    }
+  }
 
-  // Linea separatrice (area centrale tra i VU)
-  gfx->drawFastHLine(60, WR_HEADER_Y + 45, 360, WR_BUTTON_BORDER);
+  // Linea separatrice elegante con gradiente
+  for (int i = 0; i < 3; i++) {
+    uint16_t lineColor = (i == 1) ? WR_ACCENT_COLOR : WR_ACCENT_DARK;
+    gfx->drawFastHLine(WR_CENTER_X, WR_HEADER_Y + 48 + i, WR_CENTER_W, lineColor);
+  }
 }
 
-// ================== NOME STAZIONE ==================
+// ================== NOME STAZIONE - CARD MODERNA ==================
 void drawWebRadioStation() {
-  // Box stazione (area centrale tra VU: x=60, width=360)
-  gfx->fillRoundRect(60, WR_STATION_Y, 360, 50, 10, WR_BUTTON_COLOR);
-  gfx->drawRoundRect(60, WR_STATION_Y, 360, 50, 10, WR_BUTTON_BORDER);
+  int boxX = WR_CENTER_X;
+  int boxW = WR_CENTER_W;
+  int boxH = 52;
 
+  // Ombra della card
+  gfx->fillRoundRect(boxX + 3, WR_STATION_Y + 3, boxW, boxH, 12, WR_BUTTON_SHADOW);
+
+  // Card principale con bordo ciano
+  gfx->fillRoundRect(boxX, WR_STATION_Y, boxW, boxH, 12, WR_BG_CARD);
+
+  // Bordo con effetto glow
+  gfx->drawRoundRect(boxX, WR_STATION_Y, boxW, boxH, 12, WR_ACCENT_DARK);
+  gfx->drawRoundRect(boxX + 1, WR_STATION_Y + 1, boxW - 2, boxH - 2, 11, WR_ACCENT_COLOR);
+
+  // Icona nota musicale stilizzata
+  int iconX = boxX + 15;
+  int iconY = WR_STATION_Y + 18;
+  gfx->fillCircle(iconX, iconY + 10, 6, WR_ACCENT_COLOR);
+  gfx->fillCircle(iconX + 12, iconY + 6, 6, WR_ACCENT_COLOR);
+  gfx->fillRect(iconX + 4, iconY - 8, 3, 18, WR_ACCENT_COLOR);
+  gfx->fillRect(iconX + 16, iconY - 12, 3, 18, WR_ACCENT_COLOR);
+  gfx->fillRect(iconX + 4, iconY - 10, 15, 3, WR_ACCENT_COLOR);
+
+  // Nome stazione
   gfx->setFont(u8g2_font_helvB14_tr);
   gfx->setTextColor(WR_TEXT_COLOR);
 
   String stationName = webRadioName;
-  if (stationName.length() > 26) {
-    stationName = stationName.substring(0, 23) + "...";
+  if (stationName.length() > 24) {
+    stationName = stationName.substring(0, 21) + "...";
   }
 
   int16_t tw = stationName.length() * 9;
-  gfx->setCursor((480 - tw) / 2, WR_STATION_Y + 34);
+  int textX = boxX + 45 + (boxW - 60 - tw) / 2;
+  gfx->setCursor(textX, WR_STATION_Y + 34);
   gfx->print(stationName);
 }
 
-// ================== STATO ==================
+// ================== STATO - DESIGN MODERNO ==================
 void drawWebRadioStatus() {
-  gfx->setFont(u8g2_font_helvB18_tr);
+  int centerX = 240;
+  int y = WR_STATUS_Y;
 
-  // Stato ON/OFF
-  String status;
-  uint16_t statusColor;
   if (webRadioEnabled) {
-    status = "STREAMING";
-    statusColor = WR_ACCENT_COLOR;
-  } else {
-    status = "STOPPED";
-    statusColor = 0xF800;  // Rosso
-  }
+    // Indicatore LED pulsante (cerchi concentrici)
+    gfx->fillCircle(centerX - 70, y + 18, 8, WR_STATUS_ON);
+    gfx->drawCircle(centerX - 70, y + 18, 11, WR_STATUS_GLOW);
+    gfx->drawCircle(centerX - 70, y + 18, 14, WR_ACCENT_DARK);
 
-  gfx->setTextColor(statusColor);
-  int16_t tw = status.length() * 12;
-  gfx->setCursor((480 - tw) / 2, WR_STATUS_Y + 28);
-  gfx->print(status);
+    // Testo STREAMING
+    gfx->setFont(u8g2_font_helvB18_tr);
+    gfx->setTextColor(WR_STATUS_ON);
+    gfx->setCursor(centerX - 50, y + 26);
+    gfx->print("STREAMING");
+
+    // Barre audio animate (3 barre)
+    for (int i = 0; i < 3; i++) {
+      int barH = 8 + (i % 2) * 8;
+      int barX = centerX + 75 + i * 8;
+      gfx->fillRoundRect(barX, y + 22 - barH / 2, 4, barH, 2, WR_STATUS_ON);
+    }
+  } else {
+    // Indicatore LED spento
+    gfx->fillCircle(centerX - 55, y + 18, 8, WR_STATUS_OFF);
+    gfx->drawCircle(centerX - 55, y + 18, 11, 0x7800);
+
+    // Testo STOPPED
+    gfx->setFont(u8g2_font_helvB18_tr);
+    gfx->setTextColor(WR_STATUS_OFF);
+    gfx->setCursor(centerX - 35, y + 26);
+    gfx->print("STOPPED");
+
+    // Icona stop (quadrato)
+    gfx->fillRoundRect(centerX + 60, y + 10, 16, 16, 2, WR_STATUS_OFF);
+  }
 }
 
-// ================== BARRA VOLUME ==================
+// ================== BARRA VOLUME - DESIGN MODERNO ==================
 void drawWebRadioVolumeBar() {
-  int barX = 100;
-  int barW = 280;
-  int barH = 30;
+  int barX = 95;
+  int barW = 290;
+  int barH = 36;
   int y = WR_VOLUME_Y;
 
-  // Etichetta VOL
-  gfx->setFont(u8g2_font_helvB12_tr);
-  gfx->setTextColor(WR_TEXT_COLOR);
-  gfx->setCursor(60, y + 22);
-  gfx->print("VOL");
+  // Icona speaker moderna
+  int spkX = WR_CENTER_X + 8;
+  int spkY = y + 18;
+  // Corpo speaker
+  gfx->fillRect(spkX - 6, spkY - 4, 8, 8, WR_ACCENT_COLOR);
+  gfx->fillTriangle(spkX + 2, spkY - 8, spkX + 2, spkY + 8, spkX + 12, spkY, WR_ACCENT_COLOR);
 
-  // Sfondo barra
-  gfx->fillRoundRect(barX, y, barW, barH, 8, WR_BUTTON_COLOR);
-  gfx->drawRoundRect(barX, y, barW, barH, 8, WR_BUTTON_BORDER);
-
-  // Barra di riempimento (webRadioVolume va da 0 a 21)
-  int fillW = map(webRadioVolume, 0, 21, 0, barW - 8);
-  if (fillW > 0) {
-    gfx->fillRoundRect(barX + 4, y + 4, fillW, barH - 8, 5, WR_ACCENT_COLOR);
+  // Onde sonore (in base al volume) - semicerchi a destra
+  if (webRadioVolume > 5) {
+    for (int a = -40; a <= 40; a += 8) {
+      float rad = a * 3.14159 / 180.0;
+      int px = spkX + 16 + cos(rad) * 8;
+      int py = spkY + sin(rad) * 8;
+      gfx->drawPixel(px, py, WR_ACCENT_DARK);
+      gfx->drawPixel(px + 1, py, WR_ACCENT_DARK);
+    }
+  }
+  if (webRadioVolume > 12) {
+    for (int a = -40; a <= 40; a += 6) {
+      float rad = a * 3.14159 / 180.0;
+      int px = spkX + 16 + cos(rad) * 14;
+      int py = spkY + sin(rad) * 14;
+      gfx->drawPixel(px, py, WR_ACCENT_COLOR);
+      gfx->drawPixel(px + 1, py, WR_ACCENT_COLOR);
+    }
   }
 
-  // Valore numerico
-  gfx->setFont(u8g2_font_helvB12_tr);
-  gfx->setTextColor(WR_TEXT_COLOR);
+  // Sfondo barra con effetto scavato
+  gfx->fillRoundRect(barX, y + 2, barW, barH - 4, 10, WR_BG_DARK);
+  gfx->drawRoundRect(barX, y + 2, barW, barH - 4, 10, WR_BUTTON_BORDER);
+
+  // Barra di riempimento con gradiente simulato
+  int fillW = map(webRadioVolume, 0, 21, 0, barW - 8);
+  if (fillW > 0) {
+    // Gradiente: ciano scuro -> ciano brillante
+    int segments = fillW / 4;
+    for (int i = 0; i < segments; i++) {
+      int segX = barX + 4 + i * 4;
+      uint16_t segColor = (i < segments / 2) ? WR_ACCENT_DARK : WR_ACCENT_COLOR;
+      gfx->fillRoundRect(segX, y + 6, 3, barH - 12, 1, segColor);
+    }
+
+    // Highlight superiore
+    gfx->drawFastHLine(barX + 4, y + 6, fillW, WR_ACCENT_GLOW);
+  }
+
+  // Indicatore posizione (knob)
+  int knobX = barX + 4 + fillW;
+  if (knobX > barX + barW - 10) knobX = barX + barW - 10;
+  gfx->fillCircle(knobX, y + barH / 2, 8, WR_ACCENT_COLOR);
+  gfx->fillCircle(knobX, y + barH / 2, 4, WR_TEXT_COLOR);
+
+  // Valore numerico in box
+  int valX = barX + barW + 8;
+  gfx->fillRoundRect(valX, y + 4, 36, barH - 8, 6, WR_BG_CARD);
+  gfx->drawRoundRect(valX, y + 4, 36, barH - 8, 6, WR_ACCENT_DARK);
+
+  gfx->setFont(u8g2_font_helvB14_tr);
+  gfx->setTextColor(WR_ACCENT_COLOR);
   String volStr = String(webRadioVolume);
-  gfx->setCursor(barX + barW + 10, y + 22);
+  int textOffset = (webRadioVolume < 10) ? 12 : 6;
+  gfx->setCursor(valX + textOffset, y + 26);
   gfx->print(volStr);
 }
 
-// ================== VU METER BACKGROUND ==================
+// ================== VU METER BACKGROUND - MODERNO ==================
 void drawWebRadioVUBackground() {
-  // VU sinistro
-  gfx->fillRoundRect(WR_VU_LEFT_X, WR_VU_Y_START, WR_VU_WIDTH, WR_VU_HEIGHT, 5, WR_VU_BG);
-  gfx->drawRoundRect(WR_VU_LEFT_X, WR_VU_Y_START, WR_VU_WIDTH, WR_VU_HEIGHT, 5, WR_ACCENT_COLOR);
+  // VU sinistro - design moderno con bordo doppio
+  gfx->fillRoundRect(WR_VU_LEFT_X + 2, WR_VU_Y_START, WR_VU_WIDTH - 4, WR_VU_HEIGHT, 8, WR_BG_DARK);
+  gfx->drawRoundRect(WR_VU_LEFT_X + 2, WR_VU_Y_START, WR_VU_WIDTH - 4, WR_VU_HEIGHT, 8, WR_BUTTON_BORDER);
+  gfx->drawRoundRect(WR_VU_LEFT_X + 4, WR_VU_Y_START + 2, WR_VU_WIDTH - 8, WR_VU_HEIGHT - 4, 6, WR_ACCENT_DARK);
+
+  // Label "L"
+  gfx->setFont(u8g2_font_helvB12_tr);
+  gfx->setTextColor(WR_ACCENT_COLOR);
+  gfx->setCursor(WR_VU_LEFT_X + 18, WR_VU_Y_START + WR_VU_HEIGHT + 18);
+  gfx->print("L");
 
   // VU destro
-  gfx->fillRoundRect(WR_VU_RIGHT_X, WR_VU_Y_START, WR_VU_WIDTH, WR_VU_HEIGHT, 5, WR_VU_BG);
-  gfx->drawRoundRect(WR_VU_RIGHT_X, WR_VU_Y_START, WR_VU_WIDTH, WR_VU_HEIGHT, 5, WR_ACCENT_COLOR);
+  gfx->fillRoundRect(WR_VU_RIGHT_X + 2, WR_VU_Y_START, WR_VU_WIDTH - 4, WR_VU_HEIGHT, 8, WR_BG_DARK);
+  gfx->drawRoundRect(WR_VU_RIGHT_X + 2, WR_VU_Y_START, WR_VU_WIDTH - 4, WR_VU_HEIGHT, 8, WR_BUTTON_BORDER);
+  gfx->drawRoundRect(WR_VU_RIGHT_X + 4, WR_VU_Y_START + 2, WR_VU_WIDTH - 8, WR_VU_HEIGHT - 4, 6, WR_ACCENT_DARK);
+
+  // Label "R"
+  gfx->setCursor(WR_VU_RIGHT_X + 18, WR_VU_Y_START + WR_VU_HEIGHT + 18);
+  gfx->print("R");
 
   // Reset stato precedente
   wrPrevActiveLeft = -1;
@@ -269,13 +432,13 @@ void drawWebRadioVUBackground() {
   wrVuBackgroundDrawn = true;
 }
 
-// ================== VU METER DRAWING ==================
+// ================== VU METER DRAWING - MODERNO ==================
 void drawWebRadioVUMeter(int x, int y, int w, int h, uint8_t level, uint8_t peak, bool leftSide) {
-  // Calcola dimensioni segmenti
-  int segmentH = (h - 20) / WR_VU_SEGMENTS;
-  int segmentW = w - 10;
-  int segmentX = x + 5;
-  int startY = y + h - 10;  // Parte dal basso
+  // Calcola dimensioni segmenti con gap
+  int segmentH = (h - 30) / WR_VU_SEGMENTS;
+  int segmentW = w - 16;
+  int segmentX = x + 8;
+  int startY = y + h - 15;  // Parte dal basso
 
   // Calcola quanti segmenti accendere
   int activeSegments = (level * WR_VU_SEGMENTS) / 100;
@@ -293,38 +456,70 @@ void drawWebRadioVUMeter(int x, int y, int w, int h, uint8_t level, uint8_t peak
   // Aggiorna solo i segmenti che cambiano
   int minSeg = (activeSegments < prevActive) ? activeSegments : prevActive;
   int maxSeg = (activeSegments > prevActive) ? activeSegments : prevActive;
+  if (minSeg < 0) minSeg = 0;
 
   for (int i = minSeg; i <= maxSeg && i < WR_VU_SEGMENTS; i++) {
     int segY = startY - (i + 1) * segmentH;
     uint16_t color;
+    uint16_t dimColor;
 
-    // Determina colore in base alla posizione
-    if (i < WR_VU_SEGMENTS * 0.6) {
-      color = WR_VU_LOW;    // Verde (60% inferiore)
-    } else if (i < WR_VU_SEGMENTS * 0.85) {
-      color = WR_VU_MID;    // Giallo (25% centrale)
+    // Gradiente colore moderno: verde -> ciano -> giallo -> arancione -> rosso
+    float ratio = (float)i / WR_VU_SEGMENTS;
+    if (ratio < 0.4) {
+      color = WR_VU_LOW;       // Verde (0-40%)
+      dimColor = 0x0320;
+    } else if (ratio < 0.55) {
+      color = WR_VU_LOW2;      // Verde-ciano (40-55%)
+      dimColor = 0x0220;
+    } else if (ratio < 0.70) {
+      color = WR_VU_MID;       // Giallo (55-70%)
+      dimColor = 0x4200;
+    } else if (ratio < 0.85) {
+      color = WR_VU_MID2;      // Arancione (70-85%)
+      dimColor = 0x4100;
     } else {
-      color = WR_VU_HIGH;   // Rosso (15% superiore)
+      color = WR_VU_HIGH;      // Rosso (85-100%)
+      dimColor = 0x4000;
     }
 
     if (i < activeSegments) {
-      gfx->fillRoundRect(segmentX, segY, segmentW, segmentH - 2, 2, color);
+      // Segmento acceso con highlight
+      gfx->fillRoundRect(segmentX, segY, segmentW, segmentH - 3, 3, color);
+      // Highlight superiore per effetto 3D
+      gfx->drawFastHLine(segmentX + 2, segY + 1, segmentW - 4, WR_TEXT_COLOR);
     } else {
-      gfx->fillRoundRect(segmentX, segY, segmentW, segmentH - 2, 2, WR_VU_BG);
+      // Segmento spento (visibile ma dim)
+      gfx->fillRoundRect(segmentX, segY, segmentW, segmentH - 3, 3, dimColor);
     }
   }
 
-  // Gestione picco
+  // Gestione picco con stile moderno (linea luminosa)
   if (peakSegment != prevPeak && peakSegment > 0 && peakSegment < WR_VU_SEGMENTS) {
+    // Cancella vecchio picco
     if (prevPeak > 0 && prevPeak < WR_VU_SEGMENTS) {
       int oldPeakY = startY - (prevPeak + 1) * segmentH;
-      uint16_t oldColor = (prevPeak < activeSegments) ?
-        ((prevPeak < WR_VU_SEGMENTS * 0.6) ? WR_VU_LOW :
-         (prevPeak < WR_VU_SEGMENTS * 0.85) ? WR_VU_MID : WR_VU_HIGH) : WR_VU_BG;
-      gfx->fillRoundRect(segmentX, oldPeakY, segmentW, segmentH - 2, 2, oldColor);
+      float ratio = (float)prevPeak / WR_VU_SEGMENTS;
+      uint16_t oldColor;
+      if (prevPeak < activeSegments) {
+        if (ratio < 0.4) oldColor = WR_VU_LOW;
+        else if (ratio < 0.55) oldColor = WR_VU_LOW2;
+        else if (ratio < 0.70) oldColor = WR_VU_MID;
+        else if (ratio < 0.85) oldColor = WR_VU_MID2;
+        else oldColor = WR_VU_HIGH;
+      } else {
+        if (ratio < 0.4) oldColor = 0x0320;
+        else if (ratio < 0.55) oldColor = 0x0220;
+        else if (ratio < 0.70) oldColor = 0x4200;
+        else if (ratio < 0.85) oldColor = 0x4100;
+        else oldColor = 0x4000;
+      }
+      gfx->fillRoundRect(segmentX, oldPeakY, segmentW, segmentH - 3, 3, oldColor);
     }
+
+    // Disegna nuovo picco (magenta brillante)
     int newPeakY = startY - (peakSegment + 1) * segmentH;
-    gfx->drawRect(segmentX, newPeakY, segmentW, segmentH - 2, 0xFFFF);
+    gfx->fillRoundRect(segmentX, newPeakY, segmentW, segmentH - 3, 3, WR_VU_PEAK);
+    gfx->drawRoundRect(segmentX - 1, newPeakY - 1, segmentW + 2, segmentH - 1, 3, WR_TEXT_COLOR);
   }
 
   // Salva stato corrente
@@ -393,120 +588,219 @@ void updateWebRadioVUMeters() {
   }
 }
 
-// ================== CONTROLLI ==================
-void drawWebRadioControls() {
-  int btnW = 65;
-  int btnH = 55;
-  int spacing = 8;
-  int totalW = 5 * btnW + 4 * spacing;  // 357
-  int startX = (480 - totalW) / 2;      // 61
-  int y = WR_CONTROLS_Y;
-
-  // Pulsante PREV
-  gfx->fillRoundRect(startX, y, btnW, btnH, 10, WR_BUTTON_COLOR);
-  gfx->drawRoundRect(startX, y, btnW, btnH, 10, WR_BUTTON_BORDER);
-  gfx->setFont(u8g2_font_helvB14_tr);
-  gfx->setTextColor(WR_TEXT_COLOR);
-  gfx->setCursor(startX + 18, y + 36);
-  gfx->print("<<");
-
-  // Pulsante VOL-
-  int x1 = startX + btnW + spacing;
-  gfx->fillRoundRect(x1, y, btnW, btnH, 10, WR_BUTTON_COLOR);
-  gfx->drawRoundRect(x1, y, btnW, btnH, 10, WR_BUTTON_BORDER);
-  gfx->setCursor(x1 + 18, y + 36);
-  gfx->print("V-");
-
-  // Pulsante PLAY/STOP (centrale)
-  int x2 = x1 + btnW + spacing;
-  uint16_t playColor = webRadioEnabled ? WR_BUTTON_ACTIVE : WR_BUTTON_COLOR;
-  gfx->fillRoundRect(x2, y, btnW, btnH, 10, playColor);
-  gfx->drawRoundRect(x2, y, btnW, btnH, 10, WR_BUTTON_BORDER);
-  gfx->setTextColor(webRadioEnabled ? WR_BG_COLOR : WR_TEXT_COLOR);
-  gfx->setCursor(x2 + (webRadioEnabled ? 8 : 10), y + 36);
-  gfx->print(webRadioEnabled ? "STOP" : "PLAY");
-
-  // Pulsante VOL+
-  int x3 = x2 + btnW + spacing;
-  gfx->fillRoundRect(x3, y, btnW, btnH, 10, WR_BUTTON_COLOR);
-  gfx->drawRoundRect(x3, y, btnW, btnH, 10, WR_BUTTON_BORDER);
-  gfx->setTextColor(WR_TEXT_COLOR);
-  gfx->setCursor(x3 + 18, y + 36);
-  gfx->print("V+");
-
-  // Pulsante NEXT
-  int x4 = x3 + btnW + spacing;
-  gfx->fillRoundRect(x4, y, btnW, btnH, 10, WR_BUTTON_COLOR);
-  gfx->drawRoundRect(x4, y, btnW, btnH, 10, WR_BUTTON_BORDER);
-  gfx->setCursor(x4 + 18, y + 36);
-  gfx->print(">>");
+// ================== HELPER BOTTONE MODERNO ==================
+void drawWRModernButton(int bx, int by, int bw, int bh, bool active, bool highlight) {
+  // Ombra
+  gfx->fillRoundRect(bx + 2, by + 2, bw, bh, 12, WR_BUTTON_SHADOW);
+  // Sfondo
+  uint16_t bgColor = active ? WR_BUTTON_ACTIVE : (highlight ? WR_BUTTON_HOVER : WR_BUTTON_COLOR);
+  gfx->fillRoundRect(bx, by, bw, bh, 12, bgColor);
+  // Bordo esterno
+  gfx->drawRoundRect(bx, by, bw, bh, 12, WR_BUTTON_BORDER);
+  // Highlight interno superiore (effetto 3D)
+  if (active) {
+    gfx->drawRoundRect(bx + 2, by + 2, bw - 4, bh / 2, 10, WR_ACCENT_GLOW);
+  } else {
+    gfx->drawFastHLine(bx + 8, by + 4, bw - 16, WR_BUTTON_HOVER);
+  }
 }
 
-// ================== LISTA STAZIONI ==================
+// ================== CONTROLLI - DESIGN MODERNO ==================
+void drawWebRadioControls() {
+  int btnW = 62;
+  int btnH = 52;
+  int spacing = 10;
+  int totalW = 5 * btnW + 4 * spacing;
+  int startX = (480 - totalW) / 2;
+  int y = WR_CONTROLS_Y;
+
+  // Pulsante PREV (<<)
+  drawWRModernButton(startX, y, btnW, btnH, false, false);
+  // Icona freccia doppia sinistra
+  int cx = startX + btnW / 2;
+  int cy = y + btnH / 2;
+  gfx->fillTriangle(cx - 5, cy, cx + 5, cy - 10, cx + 5, cy + 10, WR_ACCENT_COLOR);
+  gfx->fillTriangle(cx - 15, cy, cx - 5, cy - 10, cx - 5, cy + 10, WR_ACCENT_COLOR);
+
+  // Pulsante VOL- (speaker con -)
+  int x1 = startX + btnW + spacing;
+  drawWRModernButton(x1, y, btnW, btnH, false, false);
+  cx = x1 + btnW / 2;
+  cy = y + btnH / 2;
+  // Icona volume meno
+  gfx->fillRect(cx - 12, cy - 2, 10, 4, WR_ACCENT_COLOR);
+  gfx->fillTriangle(cx + 2, cy, cx + 12, cy - 8, cx + 12, cy + 8, WR_ACCENT_COLOR);
+
+  // Pulsante PLAY/STOP (centrale - più grande)
+  int x2 = x1 + btnW + spacing;
+  int playBtnW = btnW + 4;
+  drawWRModernButton(x2 - 2, y - 3, playBtnW, btnH + 6, webRadioEnabled, true);
+  cx = x2 + btnW / 2;
+  cy = y + btnH / 2;
+  if (webRadioEnabled) {
+    // Icona STOP (quadrato)
+    gfx->fillRoundRect(cx - 10, cy - 10, 20, 20, 3, WR_TEXT_COLOR);
+  } else {
+    // Icona PLAY (triangolo)
+    gfx->fillTriangle(cx - 8, cy - 12, cx - 8, cy + 12, cx + 12, cy, WR_TEXT_COLOR);
+  }
+
+  // Pulsante VOL+ (speaker con +)
+  int x3 = x2 + btnW + spacing;
+  drawWRModernButton(x3, y, btnW, btnH, false, false);
+  cx = x3 + btnW / 2;
+  cy = y + btnH / 2;
+  // Icona volume più
+  gfx->fillRect(cx - 14, cy - 2, 10, 4, WR_ACCENT_COLOR);
+  gfx->fillRect(cx - 11, cy - 5, 4, 10, WR_ACCENT_COLOR);
+  gfx->fillTriangle(cx, cy, cx + 10, cy - 8, cx + 10, cy + 8, WR_ACCENT_COLOR);
+
+  // Pulsante NEXT (>>)
+  int x4 = x3 + btnW + spacing;
+  drawWRModernButton(x4, y, btnW, btnH, false, false);
+  cx = x4 + btnW / 2;
+  cy = y + btnH / 2;
+  // Icona freccia doppia destra
+  gfx->fillTriangle(cx + 5, cy, cx - 5, cy - 10, cx - 5, cy + 10, WR_ACCENT_COLOR);
+  gfx->fillTriangle(cx + 15, cy, cx + 5, cy - 10, cx + 5, cy + 10, WR_ACCENT_COLOR);
+}
+
+// ================== LISTA STAZIONI - DESIGN MODERNO ==================
 void drawWebRadioStationList() {
-  // Titolo lista
+  int listX = WR_CENTER_X;
+  int listW = WR_CENTER_W;
+
+  // Header della lista con icona
   gfx->setFont(u8g2_font_helvB12_tr);
   gfx->setTextColor(WR_ACCENT_COLOR);
-  gfx->setCursor(60, WR_LIST_Y - 8);
-  gfx->print("Stazioni:");
 
-  // Area lista (tra i VU meters: x=60, width=360)
-  gfx->fillRoundRect(60, WR_LIST_Y, 360, WR_LIST_HEIGHT, 8, 0x1082);  // Grigio scuro sfondo
-  gfx->drawRoundRect(60, WR_LIST_Y, 360, WR_LIST_HEIGHT, 8, WR_BUTTON_BORDER);
+  // Icona antenna
+  gfx->fillRect(listX + 5, WR_LIST_Y - 18, 2, 12, WR_ACCENT_COLOR);
+  gfx->fillCircle(listX + 6, WR_LIST_Y - 20, 3, WR_ACCENT_COLOR);
+  gfx->drawLine(listX + 6, WR_LIST_Y - 15, listX + 2, WR_LIST_Y - 8, WR_ACCENT_DARK);
+  gfx->drawLine(listX + 6, WR_LIST_Y - 15, listX + 10, WR_LIST_Y - 8, WR_ACCENT_DARK);
+
+  gfx->setCursor(listX + 18, WR_LIST_Y - 6);
+  gfx->print("STATIONS");
+
+  // Contatore stazioni
+  gfx->setFont(u8g2_font_helvR10_tr);
+  gfx->setTextColor(WR_TEXT_DIM);
+  String countStr = "(" + String(webRadioStationCount) + ")";
+  gfx->setCursor(listX + 95, WR_LIST_Y - 6);
+  gfx->print(countStr);
+
+  // Card lista con ombra
+  gfx->fillRoundRect(listX + 2, WR_LIST_Y + 2, listW, WR_LIST_HEIGHT, 10, WR_BUTTON_SHADOW);
+  gfx->fillRoundRect(listX, WR_LIST_Y, listW, WR_LIST_HEIGHT, 10, WR_BG_CARD);
+  gfx->drawRoundRect(listX, WR_LIST_Y, listW, WR_LIST_HEIGHT, 10, WR_BUTTON_BORDER);
 
   // Mostra stazioni visibili
-  int itemH = 26;
+  int itemH = 25;
   int maxVisible = WR_LIST_HEIGHT / itemH;
-
-  gfx->setFont(u8g2_font_helvR12_tr);
+  int itemPadding = 4;
 
   for (int i = 0; i < maxVisible && (webRadioScrollOffset + i) < webRadioStationCount; i++) {
     int idx = webRadioScrollOffset + i;
-    int itemY = WR_LIST_Y + 5 + i * itemH;
+    int itemY = WR_LIST_Y + 4 + i * itemH;
 
-    // Evidenzia stazione corrente (area centrale)
+    // Evidenzia stazione corrente con bordo ciano
     if (idx == webRadioCurrentIndex) {
-      gfx->fillRoundRect(64, itemY, 352, itemH - 2, 5, 0x0320);  // Verde scuro
+      gfx->fillRoundRect(listX + 4, itemY, listW - 8, itemH - 2, 6, WR_ACCENT_DARK);
+      gfx->drawRoundRect(listX + 4, itemY, listW - 8, itemH - 2, 6, WR_ACCENT_COLOR);
+
+      // Indicatore play attivo
+      int triX = listX + 12;
+      int triY = itemY + itemH / 2;
+      gfx->fillTriangle(triX, triY - 5, triX, triY + 5, triX + 8, triY, WR_ACCENT_GLOW);
+    } else {
+      // Linea separatrice sottile
+      if (i > 0) {
+        gfx->drawFastHLine(listX + 20, itemY, listW - 40, WR_BUTTON_SHADOW);
+      }
     }
 
-    // Numero e nome
-    gfx->setTextColor(idx == webRadioCurrentIndex ? WR_ACCENT_COLOR : WR_TEXT_COLOR);
-    gfx->setCursor(70, itemY + 18);
+    // Numero stazione
+    gfx->setFont(u8g2_font_helvR10_tr);
+    uint16_t numColor = (idx == webRadioCurrentIndex) ? WR_ACCENT_GLOW : WR_TEXT_MUTED;
+    gfx->setTextColor(numColor);
+    int numX = (idx == webRadioCurrentIndex) ? listX + 24 : listX + 12;
+    gfx->setCursor(numX, itemY + 16);
+    gfx->print(String(idx + 1) + ".");
 
-    String entry = String(idx + 1) + ". " + webRadioStations[idx].name;
-    if (entry.length() > 32) {
-      entry = entry.substring(0, 29) + "...";
+    // Nome stazione
+    gfx->setFont(u8g2_font_helvR12_tr);
+    uint16_t nameColor = (idx == webRadioCurrentIndex) ? WR_TEXT_COLOR : WR_TEXT_DIM;
+    gfx->setTextColor(nameColor);
+    gfx->setCursor(numX + 28, itemY + 17);
+
+    String stName = webRadioStations[idx].name;
+    if (stName.length() > 28) {
+      stName = stName.substring(0, 25) + "...";
     }
-    gfx->print(entry);
+    gfx->print(stName);
   }
 
-  // Indicatori scroll (dentro area centrale)
+  // Indicatori scroll moderni
+  int scrollX = listX + listW - 22;
+
   if (webRadioScrollOffset > 0) {
-    gfx->setFont(u8g2_font_helvB14_tr);
-    gfx->setTextColor(WR_ACCENT_COLOR);
-    gfx->setCursor(400, WR_LIST_Y + 18);
-    gfx->print("^");
+    // Freccia su
+    gfx->fillTriangle(scrollX, WR_LIST_Y + 18, scrollX - 8, WR_LIST_Y + 28, scrollX + 8, WR_LIST_Y + 28, WR_ACCENT_COLOR);
   }
+
   if (webRadioScrollOffset + maxVisible < webRadioStationCount) {
-    gfx->setFont(u8g2_font_helvB14_tr);
-    gfx->setTextColor(WR_ACCENT_COLOR);
-    gfx->setCursor(400, WR_LIST_Y + WR_LIST_HEIGHT - 10);
-    gfx->print("v");
+    // Freccia giu
+    int downY = WR_LIST_Y + WR_LIST_HEIGHT - 18;
+    gfx->fillTriangle(scrollX, downY + 10, scrollX - 8, downY, scrollX + 8, downY, WR_ACCENT_COLOR);
+  }
+
+  // Barra di scorrimento laterale
+  if (webRadioStationCount > maxVisible) {
+    int scrollBarH = WR_LIST_HEIGHT - 20;
+    int thumbH = (scrollBarH * maxVisible) / webRadioStationCount;
+    if (thumbH < 20) thumbH = 20;
+    int thumbY = WR_LIST_Y + 10 + (scrollBarH - thumbH) * webRadioScrollOffset / (webRadioStationCount - maxVisible);
+
+    // Track
+    gfx->fillRoundRect(scrollX + 14, WR_LIST_Y + 10, 4, scrollBarH, 2, WR_BUTTON_SHADOW);
+    // Thumb
+    gfx->fillRoundRect(scrollX + 14, thumbY, 4, thumbH, 2, WR_ACCENT_COLOR);
   }
 }
 
-// ================== PULSANTE EXIT ==================
+// ================== PULSANTE EXIT - DESIGN MODERNO ==================
 void drawWebRadioExitButton() {
-  int btnW = 160;
-  int btnH = 50;
+  int btnW = 140;
+  int btnH = 46;
   int x = (480 - btnW) / 2;
+  int y = WR_EXIT_Y;
 
-  gfx->fillRoundRect(x, WR_EXIT_Y, btnW, btnH, 10, 0xF800);  // Rosso
-  gfx->drawRoundRect(x, WR_EXIT_Y, btnW, btnH, 10, WR_BUTTON_BORDER);
+  // Ombra profonda
+  gfx->fillRoundRect(x + 3, y + 3, btnW, btnH, 14, 0x4000);
 
+  // Sfondo gradiente rosso (simulato)
+  gfx->fillRoundRect(x, y, btnW, btnH, 14, 0xC000);
+  gfx->fillRoundRect(x + 4, y + 4, btnW - 8, btnH - 16, 10, 0xF800);
+
+  // Bordo
+  gfx->drawRoundRect(x, y, btnW, btnH, 14, 0x7800);
+
+  // Highlight superiore
+  gfx->drawFastHLine(x + 15, y + 4, btnW - 30, 0xFC00);
+
+  // Icona X
+  int iconX = x + 25;
+  int iconY = y + btnH / 2;
+  gfx->drawLine(iconX - 6, iconY - 6, iconX + 6, iconY + 6, WR_TEXT_COLOR);
+  gfx->drawLine(iconX - 6, iconY + 6, iconX + 6, iconY - 6, WR_TEXT_COLOR);
+  gfx->drawLine(iconX - 5, iconY - 6, iconX + 7, iconY + 6, WR_TEXT_COLOR);
+  gfx->drawLine(iconX - 5, iconY + 6, iconX + 7, iconY - 6, WR_TEXT_COLOR);
+
+  // Testo EXIT
   gfx->setFont(u8g2_font_helvB18_tr);
   gfx->setTextColor(WR_TEXT_COLOR);
-  gfx->setCursor(x + 50, WR_EXIT_Y + 34);
+  gfx->setCursor(x + 48, y + 32);
   gfx->print("EXIT");
 }
 
@@ -514,9 +808,9 @@ void drawWebRadioExitButton() {
 bool handleWebRadioTouch(int16_t x, int16_t y) {
   playTouchSound();
 
-  int btnW = 65;
-  int btnH = 55;
-  int spacing = 8;
+  int btnW = 62;
+  int btnH = 52;
+  int spacing = 10;
   int totalW = 5 * btnW + 4 * spacing;
   int startX = (480 - totalW) / 2;
   int ctrlY = WR_CONTROLS_Y;
@@ -587,9 +881,9 @@ bool handleWebRadioTouch(int16_t x, int16_t y) {
   }
 
   // ===== BARRA VOLUME (touch diretto) =====
-  int volBarX = 100;
-  int volBarW = 280;
-  int volBarH = 30;
+  int volBarX = 95;
+  int volBarW = 290;
+  int volBarH = 36;
   if (y >= WR_VOLUME_Y && y <= WR_VOLUME_Y + volBarH) {
     if (x >= volBarX && x <= volBarX + volBarW) {
       // Calcola nuovo volume dalla posizione X
@@ -607,7 +901,7 @@ bool handleWebRadioTouch(int16_t x, int16_t y) {
 
   // ===== LISTA STAZIONI =====
   if (y >= WR_LIST_Y && y <= WR_LIST_Y + WR_LIST_HEIGHT) {
-    int itemH = 26;
+    int itemH = 25;
     int maxVisible = WR_LIST_HEIGHT / itemH;
     int clickedItem = (y - WR_LIST_Y) / itemH;
     int stationIdx = webRadioScrollOffset + clickedItem;
@@ -629,7 +923,7 @@ bool handleWebRadioTouch(int16_t x, int16_t y) {
   }
 
   // Scroll DOWN (tocco sotto la lista)
-  int itemH = 26;
+  int itemH = 25;
   int maxVisible = WR_LIST_HEIGHT / itemH;
   if (y > WR_LIST_Y + WR_LIST_HEIGHT && y <= WR_LIST_Y + WR_LIST_HEIGHT + 35) {
     if (webRadioScrollOffset + maxVisible < webRadioStationCount) {
@@ -640,8 +934,8 @@ bool handleWebRadioTouch(int16_t x, int16_t y) {
   }
 
   // ===== EXIT =====
-  int exitBtnW = 160;
-  int exitBtnH = 50;
+  int exitBtnW = 140;
+  int exitBtnH = 46;
   int exitX = (480 - exitBtnW) / 2;
   if (y >= WR_EXIT_Y && y <= WR_EXIT_Y + exitBtnH) {
     if (x >= exitX && x <= exitX + exitBtnW) {

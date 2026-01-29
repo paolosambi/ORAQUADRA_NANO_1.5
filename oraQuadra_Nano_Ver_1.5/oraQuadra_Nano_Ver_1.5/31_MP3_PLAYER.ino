@@ -17,45 +17,76 @@ void loadMP3PlayerSettings();
 #define MP3_TITLE_MAX_LEN 40        // Lunghezza massima del titolo visualizzato
 #define MP3_SCROLL_SPEED 150        // Velocità scroll titolo lungo (ms)
 
-// ================== LAYOUT DISPLAY 480x480 FULL SCREEN ==================
-// VU Meter sinistro: x=0, larghezza=55
-// VU Meter destro: x=425, larghezza=55
-// Area centrale: x=60 a x=420 (360px)
+// ================== LAYOUT DISPLAY 480x480 - TEMA MODERNO ==================
+// VU Meter sinistro: x=0, larghezza=48
+// VU Meter destro: x=432, larghezza=48
+// Area centrale: x=55 a x=425 (370px)
 
 #define VU_LEFT_X       0
-#define VU_RIGHT_X      425
-#define VU_WIDTH        55
-#define VU_HEIGHT       420
-#define VU_Y_START      50
-#define VU_SEGMENTS     20          // Numero di segmenti per VU meter
+#define VU_RIGHT_X      432
+#define VU_WIDTH        48
+#define VU_HEIGHT       410
+#define VU_Y_START      55
+#define VU_SEGMENTS     24          // Numero di segmenti per VU meter
 
-#define PREVIEW_X       60
-#define PREVIEW_Y       50
-#define PREVIEW_W       360
-#define PREVIEW_H       130
+#define PREVIEW_X       55
+#define PREVIEW_Y       58
+#define PREVIEW_W       370
+#define PREVIEW_H       115
 
-#define CONTROLS_Y      195
-#define BTN_SIZE        65
+#define CONTROLS_Y      185
+#define BTN_SIZE        62
 #define BTN_SPACING     10
 
-#define VOLUME_BAR_Y    280
-#define VOLUME_BAR_H    35
+#define VOLUME_BAR_Y    265
+#define VOLUME_BAR_H    36
+
+#define PLAYLIST_Y      315
+#define PLAYLIST_H      95
 
 #define EXIT_BTN_Y      420
-#define EXIT_BTN_H      50
+#define EXIT_BTN_H      46
 
-// ================== COLORI ==================
-#define MP3_BG_COLOR      0x0000    // Nero
-#define MP3_PANEL_COLOR   0x18E3    // Grigio scuro
-#define MP3_ACCENT_COLOR  0x07FF    // Ciano
+// Area centrale
+#define MP3_CENTER_X    55
+#define MP3_CENTER_W    370
+
+// ================== TEMA MODERNO - PALETTE COLORI ==================
+// Sfondo e base
+#define MP3_BG_COLOR      0x0841    // Blu molto scuro
+#define MP3_BG_DARK       0x0000    // Nero puro
+#define MP3_BG_CARD       0x1082    // Grigio-blu scuro per cards
+#define MP3_PANEL_COLOR   0x1082    // Alias per compatibilità
+
+// Testo
 #define MP3_TEXT_COLOR    0xFFFF    // Bianco
+#define MP3_TEXT_DIM      0xB5B6    // Grigio chiaro
+#define MP3_TEXT_MUTED    0x7BCF    // Grigio medio
+
+// Accenti - Ciano/Turchese moderno
+#define MP3_ACCENT_COLOR  0x07FF    // Ciano brillante
+#define MP3_ACCENT_DARK   0x0575    // Ciano scuro
+#define MP3_ACCENT_GLOW   0x5FFF    // Ciano chiaro (glow)
+
+// Controlli
 #define MP3_PLAY_COLOR    0x07E0    // Verde
 #define MP3_PAUSE_COLOR   0xFD20    // Arancione
 #define MP3_STOP_COLOR    0xF800    // Rosso
-#define MP3_VU_LOW        0x07E0    // Verde
+
+// Bottoni
+#define MP3_BUTTON_COLOR  0x2124    // Grigio scuro
+#define MP3_BUTTON_HOVER  0x3186    // Grigio medio
+#define MP3_BUTTON_BORDER 0x4A69    // Grigio bordo
+#define MP3_BUTTON_SHADOW 0x1082    // Ombra bottone
+
+// VU meter - Gradiente moderno
+#define MP3_VU_LOW        0x07E0    // Verde brillante
+#define MP3_VU_LOW2       0x2FE0    // Verde-ciano
 #define MP3_VU_MID        0xFFE0    // Giallo
+#define MP3_VU_MID2       0xFD20    // Arancione
 #define MP3_VU_HIGH       0xF800    // Rosso
-#define MP3_VU_BG         0x2104    // Grigio scuro
+#define MP3_VU_PEAK       0xF81F    // Magenta (peak)
+#define MP3_VU_BG         0x18C3    // Grigio-blu VU background
 
 // ================== STRUTTURE DATI ==================
 enum AudioFileType {
@@ -117,8 +148,10 @@ void audio_eof_mp3(const char *info) {
 void initMP3Player();
 void updateMP3Player();
 void drawMP3PlayerUI();
+void drawMP3Header();
 void drawVUBackground();
 void drawVUMeterVertical(int x, int y, int w, int h, uint8_t level, uint8_t peak, bool leftSide);
+void drawMP3ModernButton(int bx, int by, int bw, int bh, bool active, uint16_t activeColor);
 void drawMP3Controls();
 void drawMP3Preview();
 void drawMP3VolumeBar();
@@ -305,13 +338,18 @@ String extractTitle(const char* filename) {
 
 // ================== DISEGNA INTERFACCIA COMPLETA ==================
 void drawMP3PlayerUI() {
-  gfx->fillScreen(MP3_BG_COLOR);
+  // Sfondo con gradiente simulato (bande orizzontali)
+  for (int y = 0; y < 480; y += 4) {
+    uint16_t shade = (y < 240) ? MP3_BG_COLOR : MP3_BG_DARK;
+    gfx->fillRect(0, y, 480, 4, shade);
+  }
 
-  // Titolo in alto (centrato)
-  gfx->setFont(u8g2_font_helvB24_tr);
-  gfx->setTextColor(MP3_ACCENT_COLOR);
-  gfx->setCursor(140, 38);
-  gfx->print("MP3 PLAYER");
+  // Linee decorative sottili in alto e in basso
+  gfx->drawFastHLine(0, 2, 480, MP3_ACCENT_DARK);
+  gfx->drawFastHLine(0, 477, 480, MP3_ACCENT_DARK);
+
+  // Header moderno
+  drawMP3Header();
 
   // Pannello preview
   drawMP3Preview();
@@ -331,110 +369,192 @@ void drawMP3PlayerUI() {
   mp3Player.needsRedraw = false;
 }
 
-// ================== DISEGNA PREVIEW BRANO ==================
+// ================== HEADER MODERNO ==================
+void drawMP3Header() {
+  int centerX = 240;
+
+  // Icona nota musicale sinistra
+  int iconL = 75;
+  gfx->fillCircle(iconL, 28, 7, MP3_ACCENT_COLOR);
+  gfx->fillCircle(iconL + 14, 24, 7, MP3_ACCENT_COLOR);
+  gfx->fillRect(iconL + 5, 8, 3, 20, MP3_ACCENT_COLOR);
+  gfx->fillRect(iconL + 19, 4, 3, 20, MP3_ACCENT_COLOR);
+  gfx->fillRect(iconL + 5, 6, 17, 3, MP3_ACCENT_COLOR);
+
+  // Titolo con effetto glow
+  gfx->setFont(u8g2_font_helvB24_tr);
+
+  // Glow effect (testo sfumato dietro)
+  gfx->setTextColor(MP3_ACCENT_DARK);
+  gfx->setCursor(centerX - 85 + 1, 38);
+  gfx->print("MP3 PLAYER");
+
+  // Testo principale
+  gfx->setTextColor(MP3_ACCENT_COLOR);
+  gfx->setCursor(centerX - 85, 37);
+  gfx->print("MP3 PLAYER");
+
+  // Icona nota musicale destra (speculare)
+  int iconR = 395;
+  gfx->fillCircle(iconR, 28, 7, MP3_ACCENT_COLOR);
+  gfx->fillCircle(iconR - 14, 24, 7, MP3_ACCENT_COLOR);
+  gfx->fillRect(iconR - 7, 8, 3, 20, MP3_ACCENT_COLOR);
+  gfx->fillRect(iconR - 21, 4, 3, 20, MP3_ACCENT_COLOR);
+  gfx->fillRect(iconR - 21, 6, 17, 3, MP3_ACCENT_COLOR);
+
+  // Linea separatrice elegante
+  for (int i = 0; i < 3; i++) {
+    uint16_t lineColor = (i == 1) ? MP3_ACCENT_COLOR : MP3_ACCENT_DARK;
+    gfx->drawFastHLine(MP3_CENTER_X, 48 + i, MP3_CENTER_W, lineColor);
+  }
+}
+
+// ================== DISEGNA PREVIEW BRANO - CARD MODERNA ==================
 void drawMP3Preview() {
-  // Sfondo pannello
-  gfx->fillRoundRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 10, MP3_PANEL_COLOR);
-  gfx->drawRoundRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 10, MP3_ACCENT_COLOR);
+  // Ombra della card
+  gfx->fillRoundRect(PREVIEW_X + 3, PREVIEW_Y + 3, PREVIEW_W, PREVIEW_H, 12, MP3_BUTTON_SHADOW);
+
+  // Card principale
+  gfx->fillRoundRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 12, MP3_BG_CARD);
+
+  // Bordo con effetto glow
+  gfx->drawRoundRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 12, MP3_ACCENT_DARK);
+  gfx->drawRoundRect(PREVIEW_X + 1, PREVIEW_Y + 1, PREVIEW_W - 2, PREVIEW_H - 2, 11, MP3_ACCENT_COLOR);
 
   if (mp3Player.totalTracks == 0) {
     gfx->setFont(u8g2_font_helvB14_tr);
-    gfx->setTextColor(MP3_TEXT_COLOR);
-    gfx->setCursor(PREVIEW_X + 80, PREVIEW_Y + 70);
+    gfx->setTextColor(MP3_TEXT_DIM);
+    gfx->setCursor(PREVIEW_X + 100, PREVIEW_Y + 65);
     gfx->print("Nessuna traccia");
     return;
   }
+
+  // Icona disco/CD animata
+  int discX = PREVIEW_X + 30;
+  int discY = PREVIEW_Y + 55;
+  gfx->drawCircle(discX, discY, 20, MP3_ACCENT_COLOR);
+  gfx->drawCircle(discX, discY, 15, MP3_ACCENT_DARK);
+  gfx->drawCircle(discX, discY, 8, MP3_ACCENT_COLOR);
+  gfx->fillCircle(discX, discY, 4, MP3_ACCENT_GLOW);
+
+  // Tipo file (MP3/WAV)
+  gfx->setFont(u8g2_font_helvR10_tr);
+  gfx->setTextColor(MP3_ACCENT_DARK);
+  const char* typeStr = (mp3Player.tracks[mp3Player.currentTrack].type == AUDIO_TYPE_WAV) ? "WAV" : "MP3";
+  gfx->setCursor(PREVIEW_X + PREVIEW_W - 45, PREVIEW_Y + 22);
+  gfx->print(typeStr);
 
   // Numero traccia
   gfx->setFont(u8g2_font_helvB12_tr);
   gfx->setTextColor(MP3_ACCENT_COLOR);
   char trackNum[32];
-  snprintf(trackNum, sizeof(trackNum), "Traccia %d / %d", mp3Player.currentTrack + 1, mp3Player.totalTracks);
-  gfx->setCursor(PREVIEW_X + 100, PREVIEW_Y + 28);
+  snprintf(trackNum, sizeof(trackNum), "Track %d / %d", mp3Player.currentTrack + 1, mp3Player.totalTracks);
+  gfx->setCursor(PREVIEW_X + 60, PREVIEW_Y + 22);
   gfx->print(trackNum);
 
-  // Titolo brano (con scroll se troppo lungo)
+  // Titolo brano
   gfx->setFont(u8g2_font_helvB18_tr);
   gfx->setTextColor(MP3_TEXT_COLOR);
 
   String title = String(mp3Player.tracks[mp3Player.currentTrack].title);
-
-  // Calcola larghezza testo approssimativa
-  int textWidth = title.length() * 11;  // ~11px per carattere con questo font
-  int maxWidth = PREVIEW_W - 40;
+  int textWidth = title.length() * 11;
+  int maxWidth = PREVIEW_W - 80;
 
   if (textWidth <= maxWidth) {
-    // Titolo corto: centra
-    int xPos = PREVIEW_X + (PREVIEW_W - textWidth) / 2;
-    gfx->setCursor(xPos, PREVIEW_Y + 70);
+    int xPos = PREVIEW_X + 60 + (PREVIEW_W - 70 - textWidth) / 2;
+    gfx->setCursor(xPos, PREVIEW_Y + 60);
     gfx->print(title);
   } else {
-    // Titolo lungo: mostra con scroll offset
-    gfx->setCursor(PREVIEW_X + 20, PREVIEW_Y + 70);
-    // Clipping manuale - mostra solo porzione visibile
+    gfx->setCursor(PREVIEW_X + 60, PREVIEW_Y + 60);
     String visiblePart = title.substring(mp3Player.scrollOffset);
-    if (visiblePart.length() > 26) {
-      visiblePart = visiblePart.substring(0, 26);
+    if (visiblePart.length() > 24) {
+      visiblePart = visiblePart.substring(0, 24);
     }
     gfx->print(visiblePart);
   }
 
-  // Stato riproduzione
-  gfx->setFont(u8g2_font_helvB14_tr);
-  const char* status;
-  uint16_t statusColor;
+  // Stato riproduzione con indicatore LED
+  int statusY = PREVIEW_Y + 90;
+  int centerX = PREVIEW_X + PREVIEW_W / 2;
 
   if (mp3Player.playing && !mp3Player.paused) {
-    status = "RIPRODUZIONE";
-    statusColor = MP3_PLAY_COLOR;
-  } else if (mp3Player.paused) {
-    status = "PAUSA";
-    statusColor = MP3_PAUSE_COLOR;
-  } else {
-    status = "FERMO";
-    statusColor = MP3_TEXT_COLOR;
-  }
+    // LED verde pulsante
+    gfx->fillCircle(centerX - 65, statusY + 8, 6, MP3_PLAY_COLOR);
+    gfx->drawCircle(centerX - 65, statusY + 8, 9, 0x2FE4);
 
-  gfx->setTextColor(statusColor);
-  int statusX = PREVIEW_X + (PREVIEW_W - strlen(status) * 10) / 2;
-  gfx->setCursor(statusX, PREVIEW_Y + 110);
-  gfx->print(status);
+    gfx->setFont(u8g2_font_helvB14_tr);
+    gfx->setTextColor(MP3_PLAY_COLOR);
+    gfx->setCursor(centerX - 50, statusY + 14);
+    gfx->print("PLAYING");
+
+    // Barre audio
+    for (int i = 0; i < 3; i++) {
+      int barH = 6 + (i % 2) * 6;
+      gfx->fillRoundRect(centerX + 55 + i * 7, statusY + 10 - barH / 2, 4, barH, 2, MP3_PLAY_COLOR);
+    }
+  } else if (mp3Player.paused) {
+    // LED arancione
+    gfx->fillCircle(centerX - 45, statusY + 8, 6, MP3_PAUSE_COLOR);
+    gfx->drawCircle(centerX - 45, statusY + 8, 9, 0x7A00);
+
+    gfx->setFont(u8g2_font_helvB14_tr);
+    gfx->setTextColor(MP3_PAUSE_COLOR);
+    gfx->setCursor(centerX - 30, statusY + 14);
+    gfx->print("PAUSED");
+
+    // Icona pausa
+    gfx->fillRect(centerX + 45, statusY + 2, 5, 12, MP3_PAUSE_COLOR);
+    gfx->fillRect(centerX + 55, statusY + 2, 5, 12, MP3_PAUSE_COLOR);
+  } else {
+    // LED spento
+    gfx->fillCircle(centerX - 50, statusY + 8, 6, MP3_TEXT_MUTED);
+
+    gfx->setFont(u8g2_font_helvB14_tr);
+    gfx->setTextColor(MP3_TEXT_DIM);
+    gfx->setCursor(centerX - 35, statusY + 14);
+    gfx->print("STOPPED");
+
+    // Icona stop
+    gfx->fillRoundRect(centerX + 45, statusY + 2, 12, 12, 2, MP3_TEXT_MUTED);
+  }
 }
 
-// ================== DISEGNA VU METER VERTICALE ==================
+// ================== DISEGNA VU METER VERTICALE - MODERNO ==================
 // Disegna solo lo sfondo dei VU (chiamare una volta)
 void drawVUBackground() {
-  // VU sinistro
-  gfx->fillRoundRect(VU_LEFT_X, VU_Y_START, VU_WIDTH, VU_HEIGHT, 5, MP3_PANEL_COLOR);
-  gfx->drawRoundRect(VU_LEFT_X, VU_Y_START, VU_WIDTH, VU_HEIGHT, 5, MP3_ACCENT_COLOR);
+  // VU sinistro - design moderno con bordo doppio
+  gfx->fillRoundRect(VU_LEFT_X + 2, VU_Y_START, VU_WIDTH - 4, VU_HEIGHT, 8, MP3_BG_DARK);
+  gfx->drawRoundRect(VU_LEFT_X + 2, VU_Y_START, VU_WIDTH - 4, VU_HEIGHT, 8, MP3_BUTTON_BORDER);
+  gfx->drawRoundRect(VU_LEFT_X + 4, VU_Y_START + 2, VU_WIDTH - 8, VU_HEIGHT - 4, 6, MP3_ACCENT_DARK);
+
+  // Label "L"
+  gfx->setFont(u8g2_font_helvB12_tr);
+  gfx->setTextColor(MP3_ACCENT_COLOR);
+  gfx->setCursor(VU_LEFT_X + 18, VU_Y_START + VU_HEIGHT + 18);
+  gfx->print("L");
 
   // VU destro
-  gfx->fillRoundRect(VU_RIGHT_X, VU_Y_START, VU_WIDTH, VU_HEIGHT, 5, MP3_PANEL_COLOR);
-  gfx->drawRoundRect(VU_RIGHT_X, VU_Y_START, VU_WIDTH, VU_HEIGHT, 5, MP3_ACCENT_COLOR);
+  gfx->fillRoundRect(VU_RIGHT_X + 2, VU_Y_START, VU_WIDTH - 4, VU_HEIGHT, 8, MP3_BG_DARK);
+  gfx->drawRoundRect(VU_RIGHT_X + 2, VU_Y_START, VU_WIDTH - 4, VU_HEIGHT, 8, MP3_BUTTON_BORDER);
+  gfx->drawRoundRect(VU_RIGHT_X + 4, VU_Y_START + 2, VU_WIDTH - 8, VU_HEIGHT - 4, 6, MP3_ACCENT_DARK);
 
-  // Disegna tutti i segmenti spenti
-  int segmentH = (VU_HEIGHT - 20) / VU_SEGMENTS;
-  int segmentW = VU_WIDTH - 10;
-
-  for (int i = 0; i < VU_SEGMENTS; i++) {
-    int segY = VU_Y_START + VU_HEIGHT - 10 - (i + 1) * segmentH;
-    gfx->fillRoundRect(VU_LEFT_X + 5, segY, segmentW, segmentH - 2, 2, MP3_VU_BG);
-    gfx->fillRoundRect(VU_RIGHT_X + 5, segY, segmentW, segmentH - 2, 2, MP3_VU_BG);
-  }
+  // Label "R"
+  gfx->setCursor(VU_RIGHT_X + 18, VU_Y_START + VU_HEIGHT + 18);
+  gfx->print("R");
 
   vuBackgroundDrawn = true;
-  prevActiveLeft = 0;
-  prevActiveRight = 0;
-  prevPeakLeft = 0;
-  prevPeakRight = 0;
+  prevActiveLeft = -1;
+  prevActiveRight = -1;
+  prevPeakLeft = -1;
+  prevPeakRight = -1;
 }
 
 void drawVUMeterVertical(int x, int y, int w, int h, uint8_t level, uint8_t peak, bool leftSide) {
-  // Calcola dimensioni segmenti
-  int segmentH = (h - 20) / VU_SEGMENTS;
-  int segmentW = w - 10;
-  int segmentX = x + 5;
-  int startY = y + h - 10;  // Parte dal basso
+  // Calcola dimensioni segmenti con gap
+  int segmentH = (h - 30) / VU_SEGMENTS;
+  int segmentW = w - 16;
+  int segmentX = x + 8;
+  int startY = y + h - 15;  // Parte dal basso
 
   // Calcola quanti segmenti accendere
   int activeSegments = (level * VU_SEGMENTS) / 100;
@@ -452,43 +572,70 @@ void drawVUMeterVertical(int x, int y, int w, int h, uint8_t level, uint8_t peak
   // Aggiorna solo i segmenti che cambiano
   int minSeg = (activeSegments < prevActive) ? activeSegments : prevActive;
   int maxSeg = (activeSegments > prevActive) ? activeSegments : prevActive;
+  if (minSeg < 0) minSeg = 0;
 
   for (int i = minSeg; i <= maxSeg && i < VU_SEGMENTS; i++) {
     int segY = startY - (i + 1) * segmentH;
     uint16_t color;
+    uint16_t dimColor;
 
-    // Determina colore in base alla posizione
-    if (i < VU_SEGMENTS * 0.6) {
-      color = MP3_VU_LOW;    // Verde (60% inferiore)
-    } else if (i < VU_SEGMENTS * 0.85) {
-      color = MP3_VU_MID;    // Giallo (25% centrale)
+    // Gradiente colore moderno: verde -> ciano -> giallo -> arancione -> rosso
+    float ratio = (float)i / VU_SEGMENTS;
+    if (ratio < 0.4) {
+      color = MP3_VU_LOW;       // Verde (0-40%)
+      dimColor = 0x0320;
+    } else if (ratio < 0.55) {
+      color = MP3_VU_LOW2;      // Verde-ciano (40-55%)
+      dimColor = 0x0220;
+    } else if (ratio < 0.70) {
+      color = MP3_VU_MID;       // Giallo (55-70%)
+      dimColor = 0x4200;
+    } else if (ratio < 0.85) {
+      color = MP3_VU_MID2;      // Arancione (70-85%)
+      dimColor = 0x4100;
     } else {
-      color = MP3_VU_HIGH;   // Rosso (15% superiore)
+      color = MP3_VU_HIGH;      // Rosso (85-100%)
+      dimColor = 0x4000;
     }
 
     if (i < activeSegments) {
-      // Segmento attivo
-      gfx->fillRoundRect(segmentX, segY, segmentW, segmentH - 2, 2, color);
+      // Segmento acceso con highlight
+      gfx->fillRoundRect(segmentX, segY, segmentW, segmentH - 3, 3, color);
+      // Highlight superiore per effetto 3D
+      gfx->drawFastHLine(segmentX + 2, segY + 1, segmentW - 4, MP3_TEXT_COLOR);
     } else {
-      // Segmento spento
-      gfx->fillRoundRect(segmentX, segY, segmentW, segmentH - 2, 2, MP3_VU_BG);
+      // Segmento spento (visibile ma dim)
+      gfx->fillRoundRect(segmentX, segY, segmentW, segmentH - 3, 3, dimColor);
     }
   }
 
-  // Gestione picco separata (solo se cambiato)
+  // Gestione picco con stile moderno (linea luminosa)
   if (peakSegment != prevPeak && peakSegment > 0 && peakSegment < VU_SEGMENTS) {
     // Cancella vecchio picco
     if (prevPeak > 0 && prevPeak < VU_SEGMENTS) {
       int oldPeakY = startY - (prevPeak + 1) * segmentH;
-      // Ridisegna segmento senza bordo picco
-      uint16_t oldColor = (prevPeak < activeSegments) ?
-        ((prevPeak < VU_SEGMENTS * 0.6) ? MP3_VU_LOW :
-         (prevPeak < VU_SEGMENTS * 0.85) ? MP3_VU_MID : MP3_VU_HIGH) : MP3_VU_BG;
-      gfx->fillRoundRect(segmentX, oldPeakY, segmentW, segmentH - 2, 2, oldColor);
+      float ratio = (float)prevPeak / VU_SEGMENTS;
+      uint16_t oldColor;
+      if (prevPeak < activeSegments) {
+        if (ratio < 0.4) oldColor = MP3_VU_LOW;
+        else if (ratio < 0.55) oldColor = MP3_VU_LOW2;
+        else if (ratio < 0.70) oldColor = MP3_VU_MID;
+        else if (ratio < 0.85) oldColor = MP3_VU_MID2;
+        else oldColor = MP3_VU_HIGH;
+      } else {
+        if (ratio < 0.4) oldColor = 0x0320;
+        else if (ratio < 0.55) oldColor = 0x0220;
+        else if (ratio < 0.70) oldColor = 0x4200;
+        else if (ratio < 0.85) oldColor = 0x4100;
+        else oldColor = 0x4000;
+      }
+      gfx->fillRoundRect(segmentX, oldPeakY, segmentW, segmentH - 3, 3, oldColor);
     }
-    // Disegna nuovo picco
+
+    // Disegna nuovo picco (magenta brillante)
     int newPeakY = startY - (peakSegment + 1) * segmentH;
-    gfx->drawRect(segmentX, newPeakY, segmentW, segmentH - 2, 0xFFFF);
+    gfx->fillRoundRect(segmentX, newPeakY, segmentW, segmentH - 3, 3, MP3_VU_PEAK);
+    gfx->drawRoundRect(segmentX - 1, newPeakY - 1, segmentW + 2, segmentH - 1, 3, MP3_TEXT_COLOR);
   }
 
   // Salva stato corrente
@@ -501,7 +648,23 @@ void drawVUMeterVertical(int x, int y, int w, int h, uint8_t level, uint8_t peak
   }
 }
 
-// ================== DISEGNA CONTROLLI ==================
+// ================== HELPER BOTTONE MODERNO ==================
+void drawMP3ModernButton(int bx, int by, int bw, int bh, bool active, uint16_t activeColor) {
+  // Ombra
+  gfx->fillRoundRect(bx + 2, by + 2, bw, bh, 12, MP3_BUTTON_SHADOW);
+  // Sfondo
+  uint16_t bgColor = active ? activeColor : MP3_BUTTON_COLOR;
+  gfx->fillRoundRect(bx, by, bw, bh, 12, bgColor);
+  // Bordo esterno
+  uint16_t borderColor = active ? activeColor : MP3_BUTTON_BORDER;
+  gfx->drawRoundRect(bx, by, bw, bh, 12, borderColor);
+  // Highlight interno superiore (effetto 3D)
+  if (!active) {
+    gfx->drawFastHLine(bx + 8, by + 4, bw - 16, MP3_BUTTON_HOVER);
+  }
+}
+
+// ================== DISEGNA CONTROLLI - DESIGN MODERNO ==================
 void drawMP3Controls() {
   int centerX = 240;
   int btnY = CONTROLS_Y;
@@ -512,97 +675,164 @@ void drawMP3Controls() {
 
   // Pulsante PREV (<<)
   int prevX = startX;
-  gfx->fillRoundRect(prevX, btnY, BTN_SIZE, BTN_SIZE, 10, MP3_PANEL_COLOR);
-  gfx->drawRoundRect(prevX, btnY, BTN_SIZE, BTN_SIZE, 10, MP3_ACCENT_COLOR);
-  gfx->setTextColor(MP3_TEXT_COLOR);
-  gfx->setFont(u8g2_font_helvB18_tr);
-  gfx->setCursor(prevX + 17, btnY + 42);
-  gfx->print("<<");
+  drawMP3ModernButton(prevX, btnY, BTN_SIZE, BTN_SIZE, false, 0);
+  // Icona freccia doppia sinistra
+  int cx = prevX + BTN_SIZE / 2;
+  int cy = btnY + BTN_SIZE / 2;
+  gfx->fillTriangle(cx - 5, cy, cx + 5, cy - 10, cx + 5, cy + 10, MP3_ACCENT_COLOR);
+  gfx->fillTriangle(cx - 15, cy, cx - 5, cy - 10, cx - 5, cy + 10, MP3_ACCENT_COLOR);
 
   // Pulsante STOP
   int stopX = startX + BTN_SIZE + BTN_SPACING;
-  gfx->fillRoundRect(stopX, btnY, BTN_SIZE, BTN_SIZE, 10, MP3_PANEL_COLOR);
-  gfx->drawRoundRect(stopX, btnY, BTN_SIZE, BTN_SIZE, 10, MP3_STOP_COLOR);
-  // Quadrato stop
-  gfx->fillRect(stopX + 20, btnY + 20, 25, 25, MP3_STOP_COLOR);
+  drawMP3ModernButton(stopX, btnY, BTN_SIZE, BTN_SIZE, false, 0);
+  // Icona stop (quadrato)
+  cx = stopX + BTN_SIZE / 2;
+  cy = btnY + BTN_SIZE / 2;
+  gfx->fillRoundRect(cx - 10, cy - 10, 20, 20, 3, MP3_STOP_COLOR);
 
-  // Pulsante PLAY/PAUSE
+  // Pulsante PLAY/PAUSE (centrale - più grande)
   int playX = startX + 2 * (BTN_SIZE + BTN_SPACING);
-  uint16_t playColor = mp3Player.playing && !mp3Player.paused ? MP3_PAUSE_COLOR : MP3_PLAY_COLOR;
-  gfx->fillRoundRect(playX, btnY, BTN_SIZE, BTN_SIZE, 10, MP3_PANEL_COLOR);
-  gfx->drawRoundRect(playX, btnY, BTN_SIZE, BTN_SIZE, 10, playColor);
+  int playBtnW = BTN_SIZE + 4;
+  bool isPlaying = mp3Player.playing && !mp3Player.paused;
+  uint16_t playColor = isPlaying ? MP3_PAUSE_COLOR : MP3_PLAY_COLOR;
+  drawMP3ModernButton(playX - 2, btnY - 3, playBtnW, BTN_SIZE + 6, true, playColor);
 
-  if (mp3Player.playing && !mp3Player.paused) {
-    // Simbolo pausa ||
-    gfx->fillRect(playX + 20, btnY + 17, 9, 32, playColor);
-    gfx->fillRect(playX + 36, btnY + 17, 9, 32, playColor);
+  cx = playX + BTN_SIZE / 2;
+  cy = btnY + BTN_SIZE / 2;
+  if (isPlaying) {
+    // Icona pausa ||
+    gfx->fillRoundRect(cx - 12, cy - 12, 8, 24, 2, MP3_TEXT_COLOR);
+    gfx->fillRoundRect(cx + 4, cy - 12, 8, 24, 2, MP3_TEXT_COLOR);
   } else {
-    // Triangolo play
-    for (int i = 0; i < 26; i++) {
-      gfx->drawFastVLine(playX + 20 + i, btnY + 20 + i/2, 26 - i, playColor);
-    }
+    // Icona play (triangolo)
+    gfx->fillTriangle(cx - 8, cy - 14, cx - 8, cy + 14, cx + 14, cy, MP3_TEXT_COLOR);
   }
 
   // Pulsante NEXT (>>)
   int nextX = startX + 3 * (BTN_SIZE + BTN_SPACING);
-  gfx->fillRoundRect(nextX, btnY, BTN_SIZE, BTN_SIZE, 10, MP3_PANEL_COLOR);
-  gfx->drawRoundRect(nextX, btnY, BTN_SIZE, BTN_SIZE, 10, MP3_ACCENT_COLOR);
-  gfx->setTextColor(MP3_TEXT_COLOR);
-  gfx->setFont(u8g2_font_helvB18_tr);
-  gfx->setCursor(nextX + 17, btnY + 42);
-  gfx->print(">>");
+  drawMP3ModernButton(nextX, btnY, BTN_SIZE, BTN_SIZE, false, 0);
+  // Icona freccia doppia destra
+  cx = nextX + BTN_SIZE / 2;
+  cy = btnY + BTN_SIZE / 2;
+  gfx->fillTriangle(cx + 5, cy, cx - 5, cy - 10, cx - 5, cy + 10, MP3_ACCENT_COLOR);
+  gfx->fillTriangle(cx + 15, cy, cx + 5, cy - 10, cx + 5, cy + 10, MP3_ACCENT_COLOR);
 }
 
-// ================== DISEGNA BARRA VOLUME ==================
+// ================== DISEGNA BARRA VOLUME - DESIGN MODERNO ==================
 void drawMP3VolumeBar() {
-  int barX = 100;
-  int barW = 280;
+  int barX = 95;
+  int barW = 290;
   int barH = VOLUME_BAR_H;
   int y = VOLUME_BAR_Y;
 
-  // Etichetta VOL
-  gfx->setFont(u8g2_font_helvB12_tr);
-  gfx->setTextColor(MP3_TEXT_COLOR);
-  gfx->setCursor(60, y + 24);
-  gfx->print("VOL");
+  // Icona speaker moderna
+  int spkX = MP3_CENTER_X + 8;
+  int spkY = y + 18;
+  // Corpo speaker
+  gfx->fillRect(spkX - 6, spkY - 4, 8, 8, MP3_ACCENT_COLOR);
+  gfx->fillTriangle(spkX + 2, spkY - 8, spkX + 2, spkY + 8, spkX + 12, spkY, MP3_ACCENT_COLOR);
 
-  // Sfondo barra
-  gfx->fillRoundRect(barX, y, barW, barH, 8, MP3_PANEL_COLOR);
-  gfx->drawRoundRect(barX, y, barW, barH, 8, MP3_ACCENT_COLOR);
-
-  // Barra di riempimento (volume va da 0 a 21)
-  int fillW = map(mp3Player.volume, 0, 21, 0, barW - 8);
-  if (fillW > 0) {
-    gfx->fillRoundRect(barX + 4, y + 4, fillW, barH - 8, 5, MP3_PLAY_COLOR);
+  // Onde sonore (in base al volume)
+  if (mp3Player.volume > 5) {
+    for (int a = -40; a <= 40; a += 8) {
+      float rad = a * 3.14159 / 180.0;
+      int px = spkX + 16 + cos(rad) * 8;
+      int py = spkY + sin(rad) * 8;
+      gfx->drawPixel(px, py, MP3_ACCENT_DARK);
+      gfx->drawPixel(px + 1, py, MP3_ACCENT_DARK);
+    }
+  }
+  if (mp3Player.volume > 12) {
+    for (int a = -40; a <= 40; a += 6) {
+      float rad = a * 3.14159 / 180.0;
+      int px = spkX + 16 + cos(rad) * 14;
+      int py = spkY + sin(rad) * 14;
+      gfx->drawPixel(px, py, MP3_ACCENT_COLOR);
+      gfx->drawPixel(px + 1, py, MP3_ACCENT_COLOR);
+    }
   }
 
-  // Valore numerico
-  gfx->setFont(u8g2_font_helvB12_tr);
-  gfx->setTextColor(MP3_TEXT_COLOR);
+  // Sfondo barra con effetto scavato
+  gfx->fillRoundRect(barX, y + 2, barW, barH - 4, 10, MP3_BG_DARK);
+  gfx->drawRoundRect(barX, y + 2, barW, barH - 4, 10, MP3_BUTTON_BORDER);
+
+  // Barra di riempimento con gradiente simulato
+  int fillW = map(mp3Player.volume, 0, 21, 0, barW - 8);
+  if (fillW > 0) {
+    // Gradiente: ciano scuro -> ciano brillante
+    int segments = fillW / 4;
+    for (int i = 0; i < segments; i++) {
+      int segX = barX + 4 + i * 4;
+      uint16_t segColor = (i < segments / 2) ? MP3_ACCENT_DARK : MP3_ACCENT_COLOR;
+      gfx->fillRoundRect(segX, y + 6, 3, barH - 12, 1, segColor);
+    }
+
+    // Highlight superiore
+    gfx->drawFastHLine(barX + 4, y + 6, fillW, MP3_ACCENT_GLOW);
+  }
+
+  // Indicatore posizione (knob)
+  int knobX = barX + 4 + fillW;
+  if (knobX > barX + barW - 10) knobX = barX + barW - 10;
+  gfx->fillCircle(knobX, y + barH / 2, 8, MP3_ACCENT_COLOR);
+  gfx->fillCircle(knobX, y + barH / 2, 4, MP3_TEXT_COLOR);
+
+  // Valore numerico in box
+  int valX = barX + barW + 8;
+  gfx->fillRoundRect(valX, y + 4, 36, barH - 8, 6, MP3_BG_CARD);
+  gfx->drawRoundRect(valX, y + 4, 36, barH - 8, 6, MP3_ACCENT_DARK);
+
+  gfx->setFont(u8g2_font_helvB14_tr);
+  gfx->setTextColor(MP3_ACCENT_COLOR);
   String volStr = String(mp3Player.volume);
-  gfx->setCursor(barX + barW + 10, y + 24);
+  int textOffset = (mp3Player.volume < 10) ? 12 : 6;
+  gfx->setCursor(valX + textOffset, y + 26);
   gfx->print(volStr);
 }
 
-// ================== DISEGNA TASTO USCITA ==================
+// ================== DISEGNA TASTO USCITA - DESIGN MODERNO ==================
 void drawMP3ExitButton() {
-  int btnW = 180;
+  int btnW = 140;
   int btnX = 240 - btnW / 2;
+  int y = EXIT_BTN_Y;
 
-  gfx->fillRoundRect(btnX, EXIT_BTN_Y, btnW, EXIT_BTN_H, 10, MP3_STOP_COLOR);
+  // Ombra profonda
+  gfx->fillRoundRect(btnX + 3, y + 3, btnW, EXIT_BTN_H, 14, 0x4000);
+
+  // Sfondo gradiente rosso (simulato)
+  gfx->fillRoundRect(btnX, y, btnW, EXIT_BTN_H, 14, 0xC000);
+  gfx->fillRoundRect(btnX + 4, y + 4, btnW - 8, EXIT_BTN_H - 16, 10, 0xF800);
+
+  // Bordo
+  gfx->drawRoundRect(btnX, y, btnW, EXIT_BTN_H, 14, 0x7800);
+
+  // Highlight superiore
+  gfx->drawFastHLine(btnX + 15, y + 4, btnW - 30, 0xFC00);
+
+  // Icona X
+  int iconX = btnX + 25;
+  int iconY = y + EXIT_BTN_H / 2;
+  gfx->drawLine(iconX - 6, iconY - 6, iconX + 6, iconY + 6, MP3_TEXT_COLOR);
+  gfx->drawLine(iconX - 6, iconY + 6, iconX + 6, iconY - 6, MP3_TEXT_COLOR);
+  gfx->drawLine(iconX - 5, iconY - 6, iconX + 7, iconY + 6, MP3_TEXT_COLOR);
+  gfx->drawLine(iconX - 5, iconY + 6, iconX + 7, iconY - 6, MP3_TEXT_COLOR);
+
+  // Testo EXIT
   gfx->setFont(u8g2_font_helvB18_tr);
   gfx->setTextColor(MP3_TEXT_COLOR);
-  gfx->setCursor(btnX + 60, EXIT_BTN_Y + 34);
-  gfx->print("ESCI");
+  gfx->setCursor(btnX + 48, y + 32);
+  gfx->print("EXIT");
 }
 
 // ================== GESTIONE TOUCH ==================
 bool handleMP3PlayerTouch(int16_t x, int16_t y) {
   if (!mp3Player.initialized) return false;
 
-  // Area tasto ESCI (btnW=180, btnX=150)
+  // Area tasto ESCI (btnW=140, centrato)
+  int exitBtnW = 140;
+  int exitBtnX = 240 - exitBtnW / 2;
   if (y >= EXIT_BTN_Y && y <= EXIT_BTN_Y + EXIT_BTN_H) {
-    if (x >= 150 && x <= 330) {
+    if (x >= exitBtnX && x <= exitBtnX + exitBtnW) {
       Serial.println("[MP3] Tasto ESCI premuto");
       stopMP3Track();
       cleanupMP3Player();
@@ -611,7 +841,7 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y) {
   }
 
   // Area controlli
-  if (y >= CONTROLS_Y && y <= CONTROLS_Y + BTN_SIZE) {
+  if (y >= CONTROLS_Y && y <= CONTROLS_Y + BTN_SIZE + 6) {
     int centerX = 240;
     int totalWidth = 4 * BTN_SIZE + 3 * BTN_SPACING;
     int startX = centerX - totalWidth / 2;
@@ -663,8 +893,8 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y) {
   }
 
   // Area barra volume (touch diretto)
-  int volBarX = 100;
-  int volBarW = 280;
+  int volBarX = 95;
+  int volBarW = 290;
   if (y >= VOLUME_BAR_Y && y <= VOLUME_BAR_Y + VOLUME_BAR_H) {
     if (x >= volBarX && x <= volBarX + volBarW) {
       // Calcola nuovo volume dalla posizione X

@@ -95,6 +95,7 @@
 #define EFFECT_FIRE_TEXT      // Effetto lettere fiammeggianti (orario che brucia)
 #define EFFECT_MP3_PLAYER     // Lettore MP3/WAV da SD card - ABILITATO (conflitto DMA risolto)
 #define EFFECT_WEB_RADIO      // Interfaccia Web Radio a display con controlli touch
+#define EFFECT_RADIO_ALARM    // Radiosveglia con selezione stazione WebRadio
 
 // ================== INCLUSIONE LIBRERIE ==================
 #include <Arduino.h>             // Libreria base per la programmazione di schede Arduino (ESP32).
@@ -443,7 +444,10 @@ enum DisplayMode {
 #ifdef EFFECT_WEB_RADIO
   MODE_WEB_RADIO = 25,      // Interfaccia Web Radio con controlli touch.
 #endif
-  NUM_MODES = 26    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
+#ifdef EFFECT_RADIO_ALARM
+  MODE_RADIO_ALARM = 26,    // Radiosveglia con selezione stazione.
+#endif
+  NUM_MODES = 27    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
 };
 
 // ================== STRUTTURE DATI ==================
@@ -720,6 +724,27 @@ bool handleWebRadioTouch(int16_t x, int16_t y);
 void setup_webradio_webserver(AsyncWebServer* server);
 extern bool webRadioInitialized;
 extern bool webRadioNeedsRedraw;
+#endif
+
+#ifdef EFFECT_RADIO_ALARM
+// Struttura dati radiosveglia (definita in 33_RADIO_ALARM.ino)
+struct RadioAlarmSettings {
+  bool enabled;
+  uint8_t hour;
+  uint8_t minute;
+  uint8_t stationIndex;
+  uint8_t daysMask;
+  uint8_t volume;
+  uint8_t snoozeMinutes;
+};
+extern RadioAlarmSettings radioAlarm;
+void initRadioAlarm();
+void updateRadioAlarm();
+void checkRadioAlarmTrigger();
+void loadRadioAlarmSettings();  // Carica impostazioni da EEPROM
+void setup_radioalarm_webserver(AsyncWebServer* server);
+extern bool radioAlarmInitialized;
+extern bool radioAlarmNeedsRedraw;
 #endif
 
 #ifdef EFFECT_MP3_PLAYER
@@ -2053,6 +2078,11 @@ Serial.println("LittleFS inizializzato correttamente.");
     Serial.println("[WEBSERVER] Web Radio disponibile su /webradio");
     #endif
 
+    #ifdef EFFECT_RADIO_ALARM
+    setup_radioalarm_webserver(clockWebServer);
+    Serial.println("[WEBSERVER] Radio Alarm disponibile su /radioalarm");
+    #endif
+
     clockWebServer->begin();
     Serial.println("[WEBSERVER] Server configurazione avviato su porta 8080");
     Serial.println("[WEBSERVER] Accedi a http://" + WiFi.localIP().toString() + ":8080/");
@@ -2129,6 +2159,14 @@ Serial.println("LittleFS inizializzato correttamente.");
     loadWebRadioStationsFromSD();
     // Carica impostazioni salvate (enabled, volume, stazione) e avvia radio se era attiva
     loadWebRadioSettings();
+
+    // Carica impostazioni radiosveglia da EEPROM (DOPO le stazioni radio!)
+    #ifdef EFFECT_RADIO_ALARM
+    loadRadioAlarmSettings();
+    Serial.printf("[RADIO-ALARM] Impostazioni caricate: %02d:%02d, %s\n",
+                  radioAlarm.hour, radioAlarm.minute,
+                  radioAlarm.enabled ? "ATTIVA" : "DISATTIVA");
+    #endif
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 
   // Annuncio boot DOPO che audio I2S è inizializzato
@@ -2517,6 +2555,11 @@ void loop() {
     retryNTPSync(); // Ritenta sincronizzazione NTP se fallita al boot
     espalexa.loop(); // Gestisce le comunicazioni con Alexa.
     updateRadarServer(); // Gestisce riconnessione radar server remoto
+
+    // Controllo trigger radiosveglia
+    #ifdef EFFECT_RADIO_ALARM
+    checkRadioAlarmTrigger();
+    #endif
 
     
     //audio.loop();
@@ -3086,6 +3129,12 @@ if (currentIsNight != lastWasNightTime) {
 #ifdef EFFECT_WEB_RADIO
         case MODE_WEB_RADIO:
           updateWebRadioUI();  // Gestisce interfaccia Web Radio
+          break;
+#endif
+
+#ifdef EFFECT_RADIO_ALARM
+        case MODE_RADIO_ALARM:
+          updateRadioAlarm();  // Gestisce interfaccia Radiosveglia
           break;
 #endif
 

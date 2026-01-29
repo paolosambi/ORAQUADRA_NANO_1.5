@@ -569,8 +569,8 @@ void handleSettingsConfig(AsyncWebServerRequest *request) {
   json += "  \"enabledModes\": [";
   bool first = true;
   // Lista delle modalità valide (esclude solo 16=GEMINI e 18=MJPEG)
-  // 24=MP3_PLAYER e 25=WEB_RADIO sono modalità valide!
-  const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 24, 25};
+  // 24=MP3_PLAYER, 25=WEB_RADIO e 26=RADIO_ALARM sono modalità valide!
+  const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26};
   const int numValidModes = sizeof(validModes) / sizeof(validModes[0]);
   for (int i = 0; i < numValidModes; i++) {
     int modeId = validModes[i];
