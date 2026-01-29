@@ -28,6 +28,7 @@ void setup_eeprom() {
 
     // Imposta luminosità e annuncio orario di default
     EEPROM.write(EEPROM_HOURLY_ANNOUNCE_ADDR, 1);          // Annuncio orario abilitato
+    EEPROM.write(EEPROM_TTS_ANNOUNCE_ADDR, 0);             // Default: usa MP3 locali (0=MP3, 1=TTS)
     EEPROM.write(EEPROM_BRIGHTNESS_DAY_ADDR, BRIGHTNESS_DAY_DEFAULT);    // Luminosità giorno 250
     EEPROM.write(EEPROM_BRIGHTNESS_NIGHT_ADDR, BRIGHTNESS_NIGHT_DEFAULT); // Luminosità notte 90
 
@@ -208,6 +209,16 @@ void setup_eeprom() {
     hourlyAnnounceEnabled = true;
     EEPROM.write(EEPROM_HOURLY_ANNOUNCE_ADDR, 1);
   }
+
+  // Carica impostazione TTS/MP3 dalla EEPROM
+  uint8_t loadedTTSAnnounce = EEPROM.read(EEPROM_TTS_ANNOUNCE_ADDR);
+  if (loadedTTSAnnounce != 0xFF) {
+    useTTSAnnounce = (loadedTTSAnnounce == 1);
+  } else {
+    useTTSAnnounce = false;  // Default: usa MP3 locali
+    EEPROM.write(EEPROM_TTS_ANNOUNCE_ADDR, 0);
+  }
+  Serial.printf("[EEPROM] Modalità annuncio: %s\n", useTTSAnnounce ? "Google TTS" : "MP3 locali");
 
   // Carica volume audio dalla EEPROM
   uint8_t loadedAudioVolume = EEPROM.read(EEPROM_AUDIO_VOLUME_ADDR);

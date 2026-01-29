@@ -349,6 +349,7 @@ public:
 #define EEPROM_RADAR_BRIGHT_MIN_ADDR 176  // Indirizzo per luminosità minima radar (default 90)
 #define EEPROM_RADAR_BRIGHT_MAX_ADDR 177  // Indirizzo per luminosità massima radar (default 255)
 #define EEPROM_VUMETER_ENABLED_ADDR 178   // Indirizzo per abilitare/disabilitare VU meter durante audio (1=on, 0=off)
+#define EEPROM_TTS_ANNOUNCE_ADDR 179      // Indirizzo per usare Google TTS invece di MP3 locali (1=TTS, 0=MP3)
 #define EEPROM_DAY_START_HOUR_ADDR 4      // Indirizzo per ora inizio giorno (default 8)
 #define EEPROM_NIGHT_START_HOUR_ADDR 5    // Indirizzo per ora inizio notte (default 22)
 #define EEPROM_HOURLY_ANNOUNCE_ADDR 6     // Indirizzo per abilitare/disabilitare annuncio orario (1=on, 0=off)
@@ -1008,6 +1009,7 @@ bool checkIsNightTime(uint8_t hour, uint8_t minute) {
 uint8_t brightnessDay = BRIGHTNESS_DAY_DEFAULT;     // Luminosità giorno (0-255)
 uint8_t brightnessNight = BRIGHTNESS_NIGHT_DEFAULT; // Luminosità notte (0-255)
 bool hourlyAnnounceEnabled = true;                  // Annuncio orario ogni ora abilitato
+bool useTTSAnnounce = false;                        // Usa Google TTS invece di MP3 locali (default: MP3)
 uint8_t audioVolume = 80;                           // Volume audio ESP32C3 (0-100, default 80%)
 
 // Variabili per audio giorno/notte (configurabili da web)

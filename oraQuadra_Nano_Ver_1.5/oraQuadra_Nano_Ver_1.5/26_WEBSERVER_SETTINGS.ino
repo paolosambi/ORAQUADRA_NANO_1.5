@@ -529,6 +529,7 @@ void handleSettingsConfig(AsyncWebServerRequest *request) {
   // Audio
   json += "  \"audioVolume\": " + String(audioVolume) + ",\n";
   json += "  \"hourlyAnnounce\": " + String(hourlyAnnounceEnabled ? "true" : "false") + ",\n";
+  json += "  \"useTTSAnnounce\": " + String(useTTSAnnounce ? "true" : "false") + ",\n";
   json += "  \"touchSounds\": " + String(setupOptions.touchSoundsEnabled ? "true" : "false") + ",\n";
   json += "  \"vuMeterShow\": " + String(setupOptions.vuMeterShowEnabled ? "true" : "false") + ",\n";
   // Audio disponibile: locale (AUDIO) o I2C (audioSlaveConnected)
@@ -922,6 +923,16 @@ void handleSettingsSave(AsyncWebServerRequest *request) {
       EEPROM.write(EEPROM_HOURLY_ANNOUNCE_ADDR, val ? 1 : 0);
       changed = true;
       Serial.printf("[SETTINGS] hourlyAnnounce = %s\n", val ? "ON" : "OFF");
+    }
+  }
+
+  if (request->hasParam("useTTSAnnounce")) {
+    bool val = (request->getParam("useTTSAnnounce")->value().toInt() == 1);
+    if (val != useTTSAnnounce) {
+      useTTSAnnounce = val;
+      EEPROM.write(EEPROM_TTS_ANNOUNCE_ADDR, val ? 1 : 0);
+      changed = true;
+      Serial.printf("[SETTINGS] useTTSAnnounce = %s\n", val ? "Google TTS" : "MP3 locali");
     }
   }
 

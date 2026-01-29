@@ -850,6 +850,16 @@ input[type="number"] {
             <span class="toggle-slider"></span>
           </label>
         </div>
+        <div class="setting-row" id="ttsAnnounceRow">
+          <div class="setting-info">
+            <div class="setting-label">Voce Google TTS</div>
+            <div class="setting-desc">Usa sintesi vocale Google invece di file MP3 locali (richiede WiFi)</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="useTTSAnnounce">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Suoni Touch</div>
@@ -2843,6 +2853,7 @@ function loadSettings() {
 
       // Audio
       document.getElementById('hourlyAnnounce').checked = data.hourlyAnnounce !== false;
+      document.getElementById('useTTSAnnounce').checked = data.useTTSAnnounce === true;
       document.getElementById('touchSounds').checked = data.touchSounds !== false;
       document.getElementById('vuMeterShow').checked = data.vuMeterShow !== false;
 
@@ -3045,6 +3056,7 @@ function saveAllSettings() {
     nightStartHour: document.getElementById('nightStartHour').value,
     nightStartMinute: document.getElementById('nightStartMinute').value,
     hourlyAnnounce: document.getElementById('hourlyAnnounce').checked ? 1 : 0,
+    useTTSAnnounce: document.getElementById('useTTSAnnounce').checked ? 1 : 0,
     touchSounds: document.getElementById('touchSounds').checked ? 1 : 0,
     vuMeterShow: document.getElementById('vuMeterShow').checked ? 1 : 0,
     volumeDay: document.getElementById('volumeDay').value,

@@ -373,7 +373,9 @@ bool announceTimeFixed() {
 
   #ifdef AUDIO
   // ========== AUDIO I2S LOCALE ==========
-  Serial.println("Annuncio ora (Audio unificato)");
+  extern bool useTTSAnnounce;  // Variabile globale per scelta TTS/MP3
+
+  Serial.printf("Annuncio ora (modalità: %s)\n", useTTSAnnounce ? "Google TTS" : "MP3 locali");
 
   isAnnouncing = true;
   announceStartTime = currentTime;
@@ -381,7 +383,8 @@ bool announceTimeFixed() {
   // Abilita VU meter per l'annuncio orario
   vuMeterEnabled = true;
 
-  bool result = announceTimeLocal();
+  // Scegli tra Google TTS e MP3 locali in base alla preferenza utente
+  bool result = useTTSAnnounce ? announceTime() : announceTimeLocal();
 
   // Disabilita VU meter dopo l'annuncio
   vuMeterEnabled = false;
