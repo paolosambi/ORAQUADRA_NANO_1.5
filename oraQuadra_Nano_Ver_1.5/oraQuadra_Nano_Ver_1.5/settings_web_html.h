@@ -891,6 +891,18 @@ input[type="number"] {
           </label>
         </div>
 
+        <!-- Volume Annunci Orari -->
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Volume Annunci Orari</div>
+            <div class="setting-desc">Volume per gli annunci dell'ora (0-21)</div>
+          </div>
+          <div class="range-group">
+            <input type="range" id="announceVolume" min="0" max="21" value="15">
+            <span class="range-value" id="announceVolumeVal">15</span>
+          </div>
+        </div>
+
         <!-- Separatore Volume Giorno/Notte -->
         <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border);">
           <div style="font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
@@ -2874,6 +2886,10 @@ function loadSettings() {
       document.getElementById('touchSounds').checked = data.touchSounds !== false;
       document.getElementById('vuMeterShow').checked = data.vuMeterShow !== false;
 
+      // Volume annunci orari
+      document.getElementById('announceVolume').value = data.announceVolume || 15;
+      document.getElementById('announceVolumeVal').textContent = data.announceVolume || 15;
+
       // Audio giorno/notte
       document.getElementById('volumeDay').value = data.volumeDay || 80;
       document.getElementById('volumeDayVal').textContent = (data.volumeDay || 80) + '%';
@@ -3077,6 +3093,7 @@ function saveAllSettings() {
     ttsVoiceFemale: parseInt(document.getElementById('ttsVoiceFemale').value),
     touchSounds: document.getElementById('touchSounds').checked ? 1 : 0,
     vuMeterShow: document.getElementById('vuMeterShow').checked ? 1 : 0,
+    announceVolume: document.getElementById('announceVolume').value,
     volumeDay: document.getElementById('volumeDay').value,
     volumeNight: document.getElementById('volumeNight').value,
     colorPreset: document.getElementById('colorPreset').value,

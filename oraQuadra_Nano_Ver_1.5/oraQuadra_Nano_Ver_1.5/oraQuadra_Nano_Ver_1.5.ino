@@ -2830,6 +2830,9 @@ void loop() {
   // ========== AGGIORNAMENTO VOLUME AUTOMATICO GIORNO/NOTTE ==========
   extern bool setVolumeViaI2C(uint8_t volume); // Remoto (I2C)
   extern void setVolumeLocal(uint8_t volume);  // Locale (Interno)
+  #ifdef EFFECT_RADIO_ALARM
+  extern bool radioAlarmRinging;  // Sveglia sta suonando
+  #endif
 
 bool currentIsNight = checkIsNightTime(currentHour, currentMinute);
 
@@ -2838,8 +2841,14 @@ if (currentIsNight != lastWasNightTime) {
   lastWasNightTime = currentIsNight;
   uint8_t targetVolume = currentIsNight ? volumeNight : volumeDay;
 
-  if (targetVolume != lastAppliedVolume) {
-    
+  // Non sovrascrivere il volume se la sveglia sta suonando o c'e' un annuncio in corso
+  bool skipVolumeChange = isAnnouncing;
+  #ifdef EFFECT_RADIO_ALARM
+  skipVolumeChange = skipVolumeChange || radioAlarmRinging;
+  #endif
+
+  if (targetVolume != lastAppliedVolume && !skipVolumeChange) {
+
     #ifdef AUDIO
       // Eseguito SEMPRE al cambio fascia oraria, indipendentemente dallo slave
       setVolumeLocal(targetVolume);
