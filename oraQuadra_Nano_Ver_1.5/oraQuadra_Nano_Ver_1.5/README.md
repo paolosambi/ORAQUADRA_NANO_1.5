@@ -16,7 +16,7 @@
 
 <p align="center">
   <strong>Orologio interattivo a matrice LED 16x16 (256 LED virtuali) su display LCD 480x480 pixel basato su ESP32-S3</strong><br>
-  24 modalita di visualizzazione | Touch Control | Alexa Integration | Web Server | Audio I2S
+  27 modalita di visualizzazione | Touch Control | Alexa Integration | Web Server | Audio I2S | Web Radio | Radiosveglia
 </p>
 
 <p align="center">
@@ -51,16 +51,18 @@
 | Funzionalita | Descrizione |
 |:---:|---|
 | **Display** | LCD touch 480x480 pixel a colori con matrice virtuale 16x16 LED |
-| **Modalita** | 24 effetti visuali, giochi arcade, orologi specializzati |
+| **Modalita** | 27 effetti visuali, giochi arcade, orologi specializzati |
 | **Touch** | Controllo a 4 zone interattive con debounce 300ms |
 | **Web Server** | Configurazione completa via browser (porta 8080) |
 | **Alexa** | Integrazione vocale Amazon Alexa (Espalexa) |
 | **Audio I2S** | Annunci orari vocali tramite modulo I2S interno |
+| **Web Radio** | Streaming radio internet con VU meter e lista stazioni configurabile |
+| **Radiosveglia** | Sveglia programmabile con selezione stazione radio, snooze e giorni |
 | **Sensori** | BME280 (temperatura, umidita, pressione) opzionale |
 | **Radar** | LD2410 24GHz per rilevamento presenza e luminosita automatica |
 | **OTA** | Aggiornamento firmware via WiFi (ArduinoOTA) |
 | **EEPROM** | Memorizzazione persistente impostazioni (1024 byte) |
-| **SD Card** | Skin personalizzate orologio analogico (FAT32) |
+| **SD Card** | Skin personalizzate, stazioni radio, brani MP3 (FAT32) |
 | **mDNS** | Accessibile come `oraquadra.local` sulla rete |
 
 ---
@@ -197,6 +199,14 @@ EEPROM Size:      1024 byte
 | 22 | **FIRE** | Effetto fuoco camino (Fire2012) | `EFFECT_FIRE` |
 | 23 | **FIRE TEXT** | Lettere fiammeggianti | `EFFECT_FIRE_TEXT` |
 
+### Multimedia e Audio (MODE 24-26)
+
+| # | Modalita | Descrizione | Define |
+|:---:|---|---|---|
+| 24 | **MP3 PLAYER** | Lettore MP3/WAV da SD card con interfaccia touch | `EFFECT_MP3_PLAYER` |
+| 25 | **WEB RADIO** | Streaming radio internet con VU meter e lista stazioni | `EFFECT_WEB_RADIO` |
+| 26 | **RADIO ALARM** | Radiosveglia con selezione stazione, snooze e programmazione giorni | `EFFECT_RADIO_ALARM` |
+
 ---
 
 ## Controllo Touch
@@ -272,6 +282,8 @@ Accedere via browser a `http://[IP_DISPOSITIVO]:8080` oppure `http://oraquadra.l
 | `/ledring` | Configurazione LED Ring (colori ore/minuti/secondi) |
 | `/analogclock` | Skin e lancette orologio analogico |
 | `/radar` | Calibrazione LD2410 e controllo luminosita automatica |
+| `/webradio` | Gestione stazioni Web Radio con controlli di riproduzione |
+| `/radioalarm` | Programmazione radiosveglia (orario, giorni, stazione, volume) |
 
 ### Servizi di Rete
 
@@ -288,16 +300,27 @@ Accedere via browser a `http://[IP_DISPOSITIVO]:8080` oppure `http://oraquadra.l
 
 ### Audio I2S Interno
 
-Il sistema utilizza un modulo I2S interno per la riproduzione audio:
+Il sistema utilizza la libreria ESP32-audioI2S (Audio.h) per la riproduzione audio:
 
 ```
-Formato:          MP3
-Sorgente:         LittleFS (/data/)
+Formato:          MP3, AAC (streaming)
+Sorgente:         LittleFS (/data/), SD Card, HTTP Stream
 Sample Rate:      44100 Hz
 Bit Depth:        16 bit
 Canali:           Stereo
-Volume Default:   80%
+Volume Default:   80% (range 0-21)
 ```
+
+### Funzionalita Audio
+
+| Funzione | Descrizione |
+|---|---|
+| **Annunci Orari** | Riproduzione vocale dell'ora ogni ora intera |
+| **Annuncio Boot** | Data e ora completa all'avvio del dispositivo |
+| **Web Radio** | Streaming radio internet in tempo reale |
+| **MP3 Player** | Riproduzione brani da SD card |
+| **Google TTS** | Sintesi vocale via Google Translate (opzionale) |
+| **VU Meter** | Indicatore visivo livello audio durante riproduzione |
 
 ### Annunci Orari
 
@@ -305,14 +328,83 @@ Volume Default:   80%
 |---|---|
 | Orario Inizio | 08:00 |
 | Orario Fine | 19:59 |
-| Volume Giorno | 80% |
-| Volume Notte | 30% |
+| Volume Annunci | Configurabile separatamente |
+| Modalita | MP3 locali o Google TTS |
 
 ### File Audio Richiesti
 
-La cartella `/data/` deve contenere:
+La cartella `/data/` (LittleFS) deve contenere:
 - `0.mp3` - `59.mp3` (numeri)
-- File mesi e giorni per annunci completi
+- `sonole.mp3`, `ore.mp3`, `e.mp3`, `minuti.mp3`
+- `mezzanotte.mp3`, `mezzogiorno.mp3`
+- `lunedi.mp3` - `domenica.mp3` (giorni)
+- `gennaio.mp3` - `dicembre.mp3` (mesi)
+- `saluto.mp3` (messaggio benvenuto boot)
+- `H-2024.mp3` - `H-2030.mp3` (anni)
+
+### File SD Card
+
+La SD card (FAT32) puo contenere:
+- Immagini JPG 480x480 per skin orologi
+- File `radio.txt` con lista stazioni radio
+- Brani MP3/WAV per il lettore musicale
+
+---
+
+## Web Radio
+
+La Web Radio permette di ascoltare stazioni radio in streaming direttamente dal dispositivo con un'interfaccia touch moderna.
+
+### Caratteristiche Web Radio
+
+| Funzionalita | Descrizione |
+|---|---|
+| **Streaming** | Supporto stream MP3/AAC via HTTP |
+| **VU Meter** | Indicatori livello audio stereo L/R animati |
+| **Lista Stazioni** | Fino a 50 stazioni configurabili |
+| **Controlli Touch** | Play/Stop, Vol+/-, Prev/Next stazione |
+| **Persistenza** | Ultima stazione e volume salvati in EEPROM |
+
+### Configurazione Stazioni
+
+Le stazioni radio possono essere configurate via web (`/webradio`) o caricando un file `radio.txt` sulla SD card:
+
+```
+Rai Radio 1|http://icestreaming.rai.it/1.mp3
+Rai Radio 2|http://icestreaming.rai.it/2.mp3
+RTL 102.5|http://streaming.rtl.it/rtl1025
+```
+
+---
+
+## Radiosveglia
+
+La radiosveglia permette di programmare una sveglia che si attiva riproducendo una stazione radio selezionata.
+
+### Caratteristiche Radiosveglia
+
+| Funzionalita | Descrizione |
+|---|---|
+| **Programmazione** | Impostazione ora/minuti con controlli touch |
+| **Giorni** | Selezione giorni della settimana (DOM-SAB) |
+| **Stazione** | Scelta stazione dalla lista Web Radio |
+| **Volume** | Volume sveglia indipendente (0-21) |
+| **Snooze** | Posticipo configurabile (5-30 minuti) |
+| **Test** | Prova immediata della sveglia |
+| **Persistenza** | Impostazioni salvate in EEPROM |
+
+### Controlli Radiosveglia
+
+| Azione | Funzione |
+|---|---|
+| Toggle ON/OFF | Attiva/disattiva sveglia o ferma se sta suonando |
+| Frecce Ora | Incrementa/decrementa ora |
+| Frecce Minuti | Incrementa/decrementa minuti |
+| Giorni | Tocca per attivare/disattivare ogni giorno |
+| Frecce Stazione | Cambia stazione radio |
+| Barra Volume | Regola volume sveglia |
+| TEST | Attiva la sveglia per test |
+| SNOOZE | Posticipa (durante sveglia) o cambia durata snooze |
 
 ---
 
@@ -350,10 +442,7 @@ TAMC_GT911                    - Touch screen controller
 Adafruit BME280 Library       - Sensore ambientale
 MyLD2410                      - Radar LD2410
 U8g2                          - Font grafici
-AudioFileSourceLittleFS       - Sorgente audio
-AudioFileSourceBuffer         - Buffer audio
-AudioGeneratorMP3             - Decoder MP3
-AudioOutputI2S                - Output audio I2S
+ESP32-audioI2S (Audio.h)      - Streaming audio, MP3, Web Radio
 ```
 
 #### Impostazioni Board
@@ -388,6 +477,7 @@ oraQuadra_Nano_Ver_1.5/
 |-- 3_EFFETTI.ino                  # Effetti visuali base (Fade, Matrix, Snake, Water)
 |-- 4_MENU.ino                     # Menu di configurazione
 |-- 4_WEBSERVER_CLOCK.ino          # Web server orologio analogico
+|-- 5_AUDIO.ino                    # Sistema audio I2S, VU meter, annunci, TTS
 |-- 5_WEBSERVER_LED_RING.ino       # Web server LED Ring
 |-- 7_AUDIO_WIFI.ino               # Audio WiFi esterno (ESP32C3)
 |-- 8_CLOCK.ino                    # Orologio analogico con subdial meteo
@@ -411,7 +501,9 @@ oraQuadra_Nano_Ver_1.5/
 |-- 28_CHRISTMAS.ino               # Tema natalizio
 |-- 29_FIRE.ino                    # Effetto fuoco
 |-- 30_FIRE_TEXT.ino               # Testo fiammeggiante
-|-- 31_MP3_PLAYER.ino              # Lettore MP3 (disabilitato)
+|-- 31_MP3_PLAYER.ino              # Lettore MP3 da SD card
+|-- 32_WEB_RADIO.ino               # Web Radio streaming con VU meter
+|-- 33_RADIO_ALARM.ino             # Radiosveglia programmabile
 |
 |-- bttf_types.h                   # Struct per modalita BTTF
 |-- bttf_web_html.h                # HTML pagina web BTTF
@@ -464,6 +556,9 @@ Nel file principale `oraQuadra_Nano_Ver_1.5.ino`, commentare o decommentare le d
 #define EFFECT_CHRISTMAS      // Tema natalizio
 #define EFFECT_FIRE           // Effetto fuoco
 #define EFFECT_FIRE_TEXT      // Testo fiammeggiante
+#define EFFECT_MP3_PLAYER     // Lettore MP3/WAV da SD card
+#define EFFECT_WEB_RADIO      // Web Radio streaming con interfaccia touch
+#define EFFECT_RADIO_ALARM    // Radiosveglia con selezione stazione
 ```
 
 ### Configurazione Audio
@@ -500,18 +595,41 @@ Nel file principale `oraQuadra_Nano_Ver_1.5.ino`, commentare o decommentare le d
 | 130-132 | Colore RGB utente |
 | 133 | Stato data orologio |
 | 175 | Controllo luminosita radar |
+| 178 | VU meter abilitato |
+| 179 | Usa Google TTS (1) o MP3 locali (0) |
+| 216 | Web Radio abilitata |
+| 217 | Volume Web Radio (0-21) |
+| 218 | Indice stazione radio |
+| 226-229 | Impostazioni MP3 Player |
+| 230 | Volume annunci orari |
 | 500 | Versione layout EEPROM |
+| 570-577 | Impostazioni Radiosveglia |
 
 ---
 
 ## Changelog
 
-### v1.5 (24/01/2026) - Attuale
-**by Marco Camerani**
-- Attivato modulo interno I2S per audio
-- Riproduzione corretta dell'orario vocale
-- Correzioni e miglioramenti generali
-- Supporto multilingua IT/EN (in sviluppo)
+### v1.5 (30/01/2026) - Attuale
+**by Paolo Sambinello & Marco Camerani**
+- **Web Radio**: Streaming radio internet con interfaccia touch moderna
+  - VU meter stereo animato (L/R)
+  - Lista stazioni configurabile (fino a 50)
+  - Controlli play/stop, volume, cambio stazione
+  - Salvataggio stazioni su SD card
+- **Radiosveglia**: Sveglia programmabile con stazione radio
+  - Selezione giorni della settimana
+  - Volume indipendente
+  - Funzione snooze configurabile (5-30 min)
+  - Test sveglia immediato
+- **MP3 Player**: Lettore MP3/WAV da SD card migliorato
+- **Audio migliorato**:
+  - Nuovo sistema audio basato su libreria Audio.h (ESP32-audioI2S)
+  - VU meter durante riproduzione
+  - Annuncio boot con data e ora completa
+  - Supporto Google TTS e MP3 locali
+  - Gestione pause/resume web radio durante annunci
+- Nuovi endpoint web: `/webradio`, `/radioalarm`
+- Correzioni stabilita generale
 
 ### v1.3.1 (07/11/2025)
 **by Paolo Sambinello**
