@@ -860,6 +860,16 @@ input[type="number"] {
             <span class="toggle-slider"></span>
           </label>
         </div>
+        <div class="setting-row" id="ttsVoiceRow">
+          <div class="setting-info">
+            <div class="setting-label">Tipo Voce TTS</div>
+            <div class="setting-desc">Scegli voce femminile o maschile per Google TTS</div>
+          </div>
+          <select id="ttsVoiceFemale" class="setting-select">
+            <option value="1">Femminile</option>
+            <option value="0">Maschile</option>
+          </select>
+        </div>
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Suoni Touch</div>
@@ -2025,6 +2035,10 @@ function setupAutoSave() {
       if (input.id === 'dayStartHour' || input.id === 'dayStartMinute' || input.id === 'nightStartHour' || input.id === 'nightStartMinute') {
         updateHourlyAnnounceDesc();
       }
+      // Mostra/nascondi opzione voce TTS quando si attiva/disattiva TTS
+      if (input.id === 'useTTSAnnounce') {
+        document.getElementById('ttsVoiceRow').style.display = input.checked ? '' : 'none';
+      }
     });
   });
 }
@@ -2854,6 +2868,9 @@ function loadSettings() {
       // Audio
       document.getElementById('hourlyAnnounce').checked = data.hourlyAnnounce !== false;
       document.getElementById('useTTSAnnounce').checked = data.useTTSAnnounce === true;
+      document.getElementById('ttsVoiceFemale').value = data.ttsVoiceFemale !== false ? '1' : '0';
+      // Mostra/nascondi opzione voce in base a TTS abilitato
+      document.getElementById('ttsVoiceRow').style.display = data.useTTSAnnounce ? '' : 'none';
       document.getElementById('touchSounds').checked = data.touchSounds !== false;
       document.getElementById('vuMeterShow').checked = data.vuMeterShow !== false;
 
@@ -3057,6 +3074,7 @@ function saveAllSettings() {
     nightStartMinute: document.getElementById('nightStartMinute').value,
     hourlyAnnounce: document.getElementById('hourlyAnnounce').checked ? 1 : 0,
     useTTSAnnounce: document.getElementById('useTTSAnnounce').checked ? 1 : 0,
+    ttsVoiceFemale: parseInt(document.getElementById('ttsVoiceFemale').value),
     touchSounds: document.getElementById('touchSounds').checked ? 1 : 0,
     vuMeterShow: document.getElementById('vuMeterShow').checked ? 1 : 0,
     volumeDay: document.getElementById('volumeDay').value,

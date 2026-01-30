@@ -430,6 +430,7 @@ void playTone(int frequency, int duration_ms) {
 // Riproduce un testo tramite sintesi vocale (TTS) utilizzando il servizio di Google Translate.
 bool playTTS(const String& text, const String& language) {
   #ifdef AUDIO
+  extern bool ttsVoiceFemale;  // Variabile globale per scelta voce
   cleanupAudio();
 
   String tempFile = "/tts_temp.mp3";
@@ -438,10 +439,24 @@ bool playTTS(const String& text, const String& language) {
   }
 
   // Costruisce URL per Google TTS
-  String url = "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&q=";
-  url += myUrlEncode(text);
+  // Nota: Google TTS gratuito non ha parametri ufficiali per il genere
+  // Proviamo con client diversi: tw-ob (femminile) vs gtx (può variare)
+  String url = "https://translate.google.com/translate_tts?ie=UTF-8";
+
+  if (ttsVoiceFemale) {
+    // Voce femminile - client standard
+    url += "&client=tw-ob";
+  } else {
+    // Voce maschile - prova client alternativo
+    url += "&client=gtx";
+  }
+
+  url += "&q=" + myUrlEncode(text);
   url += "&tl=" + language;
   url += "&textlen=" + String(text.length());
+
+  // Aggiungi parametro velocità per voce più naturale
+  url += "&ttsspeed=1";
 
   Serial.println("Download TTS: " + text);
 
@@ -567,6 +582,8 @@ bool playMP3Sequence(const String files[], int count) {
   extern Audio audio;
   extern bool webRadioEnabled;
   extern String webRadioUrl;
+  extern uint8_t webRadioVolume;
+  extern uint8_t announceVolume;
 
   bool success = true;
   bool radioWasPlaying = webRadioEnabled;
@@ -577,6 +594,10 @@ bool playMP3Sequence(const String files[], int count) {
     audio.stopSong();
     delay(50);
   }
+
+  // Imposta volume annunci
+  audio.setVolume(announceVolume);
+  Serial.printf("[AUDIO SEQ] Volume annunci: %d\n", announceVolume);
 
   inSequence = true;  // Inizia sequenza - non nascondere VU tra file
 
@@ -593,6 +614,7 @@ bool playMP3Sequence(const String files[], int count) {
   // Riprendi web radio alla fine della sequenza
   if (radioWasPlaying) {
     Serial.println("[AUDIO SEQ] Riprendo web radio...");
+    audio.setVolume(webRadioVolume);  // Ripristina volume web radio
     delay(100);
     audio.connecttohost(webRadioUrl.c_str());
   }
@@ -800,6 +822,8 @@ bool playLocalMP3(const char* filename) {
   extern bool webRadioEnabled;
   extern bool inSequence;
   extern String webRadioUrl;
+  extern uint8_t webRadioVolume;
+  extern uint8_t announceVolume;
   static bool radioWasPlayingForLocal = false;
 
   String filePath = "/" + String(filename);
@@ -816,6 +840,11 @@ bool playLocalMP3(const char* filename) {
     audio.stopSong();
     radioWasPlayingForLocal = true;
     delay(50);
+  }
+
+  // Se non siamo in sequenza, imposta volume annunci (la sequenza lo imposta all'inizio)
+  if (!inSequence) {
+    audio.setVolume(announceVolume);
   }
 
   Serial.printf("[AUDIO] Play: %s\n", filename);
@@ -856,6 +885,7 @@ bool playLocalMP3(const char* filename) {
   // Riprendi web radio se era attiva e non siamo in sequenza
   if (!inSequence && radioWasPlayingForLocal) {
     Serial.println("[AUDIO] Riprendo web radio...");
+    audio.setVolume(webRadioVolume);  // Ripristina volume web radio
     delay(100);
     audio.connecttohost(webRadioUrl.c_str());
     radioWasPlayingForLocal = false;

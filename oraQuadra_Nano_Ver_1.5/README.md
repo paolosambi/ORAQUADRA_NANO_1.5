@@ -5,6 +5,13 @@
   <img src="https://img.shields.io/badge/License-Open%20Source-orange?style=for-the-badge" alt="License">
 </p>
 
+---
+
+<h2 align="center">UN GRANDE RINGRAZIAMENTO A MARCO CAMERANI</h2>
+<h3 align="center">SENZA IL SUO AIUTO QUESTA RELEASE NON SAREBBE NATA</h3>
+
+---
+
 <h1 align="center">OraQuadra Nano v1.5</h1>
 
 <p align="center">
@@ -131,8 +138,7 @@ Flash Size:       16MB
 Partition:        HUGE APP
 PSRAM:            OPI PSRAM
 ESP32 Core:       2.0.17 (obbligatorio)
-GFX Library:      1.6.0  (obbligatorio)
-ESP32-audioI2s    2.0.0  QUELLO IN LIBRERIE (OBBLIGATORIO)
+GFX Library:      1.6.0 (obbligatorio)
 EEPROM Size:      1024 byte
 ```
 

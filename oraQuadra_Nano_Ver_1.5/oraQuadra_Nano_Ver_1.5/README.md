@@ -5,6 +5,13 @@
   <img src="https://img.shields.io/badge/License-Open%20Source-orange?style=for-the-badge" alt="License">
 </p>
 
+---
+
+<h2 align="center">UN GRANDE RINGRAZIAMENTO A MARCO CAMERANI</h2>
+<h3 align="center">SENZA IL SUO AIUTO QUESTA RELEASE NON SAREBBE NATA</h3>
+
+---
+
 <h1 align="center">OraQuadra Nano v1.5</h1>
 
 <p align="center">

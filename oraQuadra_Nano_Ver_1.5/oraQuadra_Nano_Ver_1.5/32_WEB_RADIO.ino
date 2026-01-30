@@ -62,7 +62,7 @@
 #define WR_VU_LEFT_X      0
 #define WR_VU_RIGHT_X     432
 #define WR_VU_WIDTH       48
-#define WR_VU_HEIGHT      410
+#define WR_VU_HEIGHT      400
 #define WR_VU_Y_START     55
 #define WR_VU_SEGMENTS    24
 
@@ -153,7 +153,7 @@ void updateWebRadioUI() {
   if (ts.isTouched) {
     static uint32_t lastTouch = 0;
     uint32_t now = millis();
-    if (now - lastTouch > 300) {
+    if (now - lastTouch > 400) {  // Aumentato da 300 a 400ms
       int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
       int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
 
@@ -297,36 +297,50 @@ void drawWebRadioStatus() {
   int y = WR_STATUS_Y;
 
   if (webRadioEnabled) {
-    // Indicatore LED pulsante (cerchi concentrici)
-    gfx->fillCircle(centerX - 70, y + 18, 8, WR_STATUS_ON);
-    gfx->drawCircle(centerX - 70, y + 18, 11, WR_STATUS_GLOW);
-    gfx->drawCircle(centerX - 70, y + 18, 14, WR_ACCENT_DARK);
+    // 1. INDICATORE LED PULSANTE (Sinistra)
+    // Lo mettiamo a -125 per dare spazio alla parola più lunga
+    gfx->fillCircle(centerX - 125, y + 18, 8, WR_STATUS_ON);
+    gfx->drawCircle(centerX - 125, y + 18, 11, WR_STATUS_GLOW);
+    gfx->drawCircle(centerX - 125, y + 18, 14, WR_ACCENT_DARK);
 
-    // Testo STREAMING
+    // 2. TESTO STREAMING (Centro perfetto)
     gfx->setFont(u8g2_font_helvB18_tr);
     gfx->setTextColor(WR_STATUS_ON);
-    gfx->setCursor(centerX - 50, y + 26);
+    
+    // "STREAMING" è lunga circa 130 pixel.
+    // Per centrarla su 480px: 240 - (130 / 2) = 175.
+    // Rispetto a centerX (240) il cursore deve andare a -65 o -70.
+    // Proviamo -85 per compensare l'ingombro reale del font.
+    gfx->setCursor(centerX - 85, y + 26); 
     gfx->print("STREAMING");
 
-    // Barre audio animate (3 barre)
+    // 3. BARRE AUDIO ANIMATE (Destra)
+    // Le spostiamo a +110 per non toccare la 'G' finale
     for (int i = 0; i < 3; i++) {
       int barH = 8 + (i % 2) * 8;
-      int barX = centerX + 75 + i * 8;
-      gfx->fillRoundRect(barX, y + 22 - barH / 2, 4, barH, 2, WR_STATUS_ON);
+      int barX = centerX + 110 + (i * 10); // Distanziate tra loro
+      gfx->fillRoundRect(barX, y + 22 - barH / 2, 5, barH, 2, WR_STATUS_ON);
     }
-  } else {
     // Indicatore LED spento
-    gfx->fillCircle(centerX - 55, y + 18, 8, WR_STATUS_OFF);
-    gfx->drawCircle(centerX - 55, y + 18, 11, 0x7800);
+    } else {
+    // --- SINISTRA: LED ROSSO ---
+    // Lo allontaniamo a -100 dal centro per dare aria alla scritta
+    gfx->fillCircle(centerX - 100, y + 18, 8, WR_STATUS_OFF);
+    gfx->drawCircle(centerX - 100, y + 18, 11, 0x7800);
 
-    // Testo STOPPED
+    // --- CENTRO: SCRITTA STOPPED ---
     gfx->setFont(u8g2_font_helvB18_tr);
     gfx->setTextColor(WR_STATUS_OFF);
-    gfx->setCursor(centerX - 35, y + 26);
+    
+    // Se prima con -48 era spostata a destra di una lettera, 
+    // la portiamo a -65 per centrarla perfettamente.
+    gfx->setCursor(centerX - 65, y + 26); 
     gfx->print("STOPPED");
 
-    // Icona stop (quadrato)
-    gfx->fillRoundRect(centerX + 60, y + 10, 16, 16, 2, WR_STATUS_OFF);
+    // --- DESTRA: ICONA QUADRATO ---
+    // Lo allontaniamo a +100 dal centro (simmetrico al LED)
+    // Così non sembrerà più attaccato alla 'D'
+    gfx->fillRoundRect(centerX + 85, y + 10, 16, 16, 2, WR_STATUS_OFF);
   }
 }
 
@@ -841,9 +855,16 @@ bool handleWebRadioTouch(int16_t x, int16_t y) {
       return false;
     }
 
-    // PLAY/STOP
+    // PLAY/STOP - debounce lungo per evitare tocchi multipli
     int x2 = x1 + btnW + spacing;
     if (x >= x2 && x <= x2 + btnW) {
+      static uint32_t lastPlayStopTouch = 0;
+      uint32_t now = millis();
+      if (now - lastPlayStopTouch < 700) {
+        return false;  // Ignora tocco troppo ravvicinato
+      }
+      lastPlayStopTouch = now;
+
       Serial.println("[WEBRADIO-UI] PLAY/STOP");
       if (webRadioEnabled) {
         stopWebRadio();

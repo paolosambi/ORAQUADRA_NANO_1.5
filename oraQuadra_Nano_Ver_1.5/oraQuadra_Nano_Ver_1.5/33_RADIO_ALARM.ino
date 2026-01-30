@@ -145,7 +145,7 @@ void updateRadioAlarm() {
   if (ts.isTouched && ts.touches > 0) {
     static uint32_t lastTouch = 0;
     uint32_t now = millis();
-    if (now - lastTouch > 300) {
+    if (now - lastTouch > 400) {  // Aumentato da 300 a 400ms
       int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
       int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
 
@@ -338,7 +338,7 @@ void drawRAHeader() {
 
   // Icona campana a destra del titolo (spostata 3cm a destra)
   int iconX = centerX + 165;
-  int iconY = RA_HEADER_Y + 20;
+  int iconY = RA_HEADER_Y + 15;
   gfx->fillCircle(iconX, iconY, 10, RA_ACCENT_COLOR);
   gfx->fillRect(iconX - 10, iconY + 5, 20, 6, RA_ACCENT_COLOR);
   gfx->fillCircle(iconX, iconY + 15, 4, RA_ACCENT_COLOR);
@@ -354,10 +354,10 @@ void drawRATimeDisplay() {
   int centerX = 240;
 
   // Label
-  gfx->setFont(u8g2_font_helvB12_tr);
-  gfx->setTextColor(RA_ACCENT_COLOR);
-  gfx->setCursor(RA_CENTER_X, y + 17);
-  gfx->print("ORARIO:");
+//  gfx->setFont(u8g2_font_helvB12_tr);
+//  gfx->setTextColor(RA_ACCENT_COLOR);
+//  gfx->setCursor(RA_CENTER_X, y + 17);
+//  gfx->print("ORARIO:");
 
   // Card orario
   int cardW = 220;
@@ -398,10 +398,10 @@ void drawRADaysSelector() {
   int y = RA_DAYS_Y;
   int centerX = 240;
 
-  gfx->setFont(u8g2_font_helvB12_tr);
-  gfx->setTextColor(RA_ACCENT_COLOR);
-  gfx->setCursor(RA_CENTER_X, y);
-  gfx->print("GIORNI:");
+//  gfx->setFont(u8g2_font_helvB12_tr);
+//  gfx->setTextColor(RA_ACCENT_COLOR);
+//  gfx->setCursor(RA_CENTER_X, y);
+//  gfx->print("GIORNI:");
 
   const char* days[] = {"DOM", "LUN", "MAR", "MER", "GIO", "VEN", "SAB"};
   int btnW = 52;
@@ -435,10 +435,10 @@ void drawRAStationSelector() {
   int y = RA_STATION_Y;
   int centerX = 240;
 
-  gfx->setFont(u8g2_font_helvB12_tr);
-  gfx->setTextColor(RA_ACCENT_COLOR);
-  gfx->setCursor(RA_CENTER_X, y);
-  gfx->print("STAZIONE:");
+//  gfx->setFont(u8g2_font_helvB12_tr);
+//  gfx->setTextColor(RA_ACCENT_COLOR);
+//  gfx->setCursor(RA_CENTER_X, y);
+//  gfx->print("STAZIONE:");
 
   // Card stazione
   int cardW = 340;
@@ -488,10 +488,10 @@ void drawRAVolumeBar() {
   int barW = 300;
   int barH = 32;
 
-  gfx->setFont(u8g2_font_helvB12_tr);
-  gfx->setTextColor(RA_ACCENT_COLOR);
-  gfx->setCursor(RA_CENTER_X, y + 12);
-  gfx->print("VOLUME:");
+//  gfx->setFont(u8g2_font_helvB12_tr);
+//  gfx->setTextColor(RA_ACCENT_COLOR);
+//  gfx->setCursor(RA_CENTER_X, y + 12);
+//  gfx->print("VOLUME:");
 
   // Icona speaker
   int spkX = barX - 20;
@@ -651,11 +651,18 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
 
   int centerX = 240;
 
-  // ===== GRANDE BOTTONE TOGGLE ON/OFF =====
+  // ===== GRANDE BOTTONE TOGGLE ON/OFF - debounce lungo =====
   int toggleBtnW = 360;
   int toggleBtnX = centerX - toggleBtnW / 2;  // = 60
   if (y >= RA_TOGGLE_Y && y <= RA_TOGGLE_Y + 55) {
     if (x >= toggleBtnX && x <= toggleBtnX + toggleBtnW) {
+      static uint32_t lastToggleTouch = 0;
+      uint32_t now = millis();
+      if (now - lastToggleTouch < 700) {
+        return false;  // Ignora tocco troppo ravvicinato
+      }
+      lastToggleTouch = now;
+
       if (radioAlarmRinging) {
         // Se sta suonando, ferma tutto
         Serial.println("[RADIO-ALARM] Toggle: STOP sveglia");
@@ -777,8 +784,15 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
   int startX = centerX - totalW / 2;
 
   if (y >= ctrlY - 5 && y <= ctrlY + btnH + 10) {
-    // TEST / STOP (diventa STOP quando suona)
+    // TEST / STOP (diventa STOP quando suona) - debounce lungo
     if (x >= startX && x <= startX + btnW) {
+      static uint32_t lastTestStopTouch = 0;
+      uint32_t now = millis();
+      if (now - lastTestStopTouch < 700) {
+        return false;  // Ignora tocco troppo ravvicinato
+      }
+      lastTestStopTouch = now;
+
       if (radioAlarmRinging) {
         // Se sta suonando, ferma la sveglia (stopRadioAlarm ferma anche la radio)
         Serial.println("[RADIO-ALARM] STOP - Fermo sveglia");
@@ -792,9 +806,16 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
       return false;
     }
 
-    // ON/OFF (ferma anche la sveglia se sta suonando)
+    // ON/OFF (ferma anche la sveglia se sta suonando) - debounce lungo
     int onoffX = startX + btnW + spacing;
     if (x >= onoffX - 5 && x <= onoffX + btnW + 15) {
+      static uint32_t lastOnOffTouch = 0;
+      uint32_t now = millis();
+      if (now - lastOnOffTouch < 700) {
+        return false;  // Ignora tocco troppo ravvicinato
+      }
+      lastOnOffTouch = now;
+
       if (radioAlarmRinging) {
         // Se sta suonando, ferma tutto (stopRadioAlarm ferma anche la radio)
         Serial.println("[RADIO-ALARM] OFF - Fermo sveglia");
@@ -936,18 +957,18 @@ void triggerRadioAlarm() {
       radioAlarm.stationIndex = 0;
     }
 
-    // Imposta volume
-    extern uint8_t webRadioVolume;
-    webRadioVolume = radioAlarm.volume;
-    setWebRadioVolume(radioAlarm.volume);
-
     // Seleziona stazione
     selectWebRadioStation(radioAlarm.stationIndex);
 
-    // Avvia radio
+    // Avvia radio SE non attiva
     if (!webRadioEnabled) {
       startWebRadio();
     }
+
+    // Imposta volume sveglia (dopo avvio, NON modifica webRadioVolume)
+    extern Audio audio;
+    audio.setVolume(radioAlarm.volume);
+    Serial.printf("[RADIO-ALARM] Volume sveglia: %d\n", radioAlarm.volume);
   } else {
     Serial.println("[RADIO-ALARM] Nessuna stazione radio disponibile!");
   }

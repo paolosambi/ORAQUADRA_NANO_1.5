@@ -29,6 +29,7 @@ void setup_eeprom() {
     // Imposta luminosità e annuncio orario di default
     EEPROM.write(EEPROM_HOURLY_ANNOUNCE_ADDR, 1);          // Annuncio orario abilitato
     EEPROM.write(EEPROM_TTS_ANNOUNCE_ADDR, 0);             // Default: usa MP3 locali (0=MP3, 1=TTS)
+    EEPROM.write(EEPROM_TTS_VOICE_FEMALE_ADDR, 1);         // Default: voce femminile (1=femminile, 0=maschile)
     EEPROM.write(EEPROM_BRIGHTNESS_DAY_ADDR, BRIGHTNESS_DAY_DEFAULT);    // Luminosità giorno 250
     EEPROM.write(EEPROM_BRIGHTNESS_NIGHT_ADDR, BRIGHTNESS_NIGHT_DEFAULT); // Luminosità notte 90
 
@@ -218,7 +219,18 @@ void setup_eeprom() {
     useTTSAnnounce = false;  // Default: usa MP3 locali
     EEPROM.write(EEPROM_TTS_ANNOUNCE_ADDR, 0);
   }
-  Serial.printf("[EEPROM] Modalità annuncio: %s\n", useTTSAnnounce ? "Google TTS" : "MP3 locali");
+
+  // Carica impostazione voce TTS dalla EEPROM
+  uint8_t loadedTTSVoice = EEPROM.read(EEPROM_TTS_VOICE_FEMALE_ADDR);
+  if (loadedTTSVoice != 0xFF) {
+    ttsVoiceFemale = (loadedTTSVoice == 1);
+  } else {
+    ttsVoiceFemale = true;  // Default: voce femminile
+    EEPROM.write(EEPROM_TTS_VOICE_FEMALE_ADDR, 1);
+  }
+  Serial.printf("[EEPROM] Modalità annuncio: %s, Voce: %s\n",
+                useTTSAnnounce ? "Google TTS" : "MP3 locali",
+                ttsVoiceFemale ? "Femminile" : "Maschile");
 
   // Carica volume audio dalla EEPROM
   uint8_t loadedAudioVolume = EEPROM.read(EEPROM_AUDIO_VOLUME_ADDR);

@@ -350,6 +350,7 @@ public:
 #define EEPROM_RADAR_BRIGHT_MAX_ADDR 177  // Indirizzo per luminosità massima radar (default 255)
 #define EEPROM_VUMETER_ENABLED_ADDR 178   // Indirizzo per abilitare/disabilitare VU meter durante audio (1=on, 0=off)
 #define EEPROM_TTS_ANNOUNCE_ADDR 179      // Indirizzo per usare Google TTS invece di MP3 locali (1=TTS, 0=MP3)
+#define EEPROM_TTS_VOICE_FEMALE_ADDR 180  // Indirizzo per voce TTS (1=femminile, 0=maschile)
 #define EEPROM_DAY_START_HOUR_ADDR 4      // Indirizzo per ora inizio giorno (default 8)
 #define EEPROM_NIGHT_START_HOUR_ADDR 5    // Indirizzo per ora inizio notte (default 22)
 #define EEPROM_HOURLY_ANNOUNCE_ADDR 6     // Indirizzo per abilitare/disabilitare annuncio orario (1=on, 0=off)
@@ -375,6 +376,8 @@ public:
 #define EEPROM_MP3PLAYER_TRACK_ADDR 226    // Traccia corrente MP3 player (1 byte)
 #define EEPROM_MP3PLAYER_PLAYING_ADDR 227  // Stato riproduzione MP3 (1 byte)
 #define EEPROM_MP3PLAYER_VOLUME_ADDR 228   // Volume MP3 player (1 byte, 0-21)
+#define EEPROM_MP3PLAYER_PLAYALL_ADDR 229  // Modalita' MP3: 0=singolo brano, 1=tutti i brani
+#define EEPROM_ANNOUNCE_VOLUME_ADDR 230    // Volume annunci orari (1 byte, 0-21)
 
 #define EEPROM_BME280_TEMP_OFFSET_ADDR 355  // Offset temperatura (2 byte, int16)
 #define EEPROM_BME280_HUM_OFFSET_ADDR 357   // Offset umidità (2 byte, int16)
@@ -1010,7 +1013,9 @@ uint8_t brightnessDay = BRIGHTNESS_DAY_DEFAULT;     // Luminosità giorno (0-255
 uint8_t brightnessNight = BRIGHTNESS_NIGHT_DEFAULT; // Luminosità notte (0-255)
 bool hourlyAnnounceEnabled = true;                  // Annuncio orario ogni ora abilitato
 bool useTTSAnnounce = false;                        // Usa Google TTS invece di MP3 locali (default: MP3)
+bool ttsVoiceFemale = true;                         // Voce TTS femminile (true) o maschile (false)
 uint8_t audioVolume = 80;                           // Volume audio ESP32C3 (0-100, default 80%)
+uint8_t announceVolume = 15;                        // Volume annunci orari (0-21, default 15)
 
 // Variabili per audio giorno/notte (configurabili da web)
 bool audioDayEnabled = true;                        // Audio abilitato durante il giorno
@@ -2214,11 +2219,17 @@ void loadWebRadioSettings() {
     webRadioUrl = webRadioStations[stationIdx].url;
   }
 
-  audio.setVolume(webRadioVolume);
+  // NON impostare volume qui - verra' impostato all'avvio della radio
+  // audio.setVolume(webRadioVolume);
+
+  // Carica anche volume annunci orari
+  announceVolume = EEPROM.read(EEPROM_ANNOUNCE_VOLUME_ADDR);
+  if (announceVolume > 21) announceVolume = 15;  // Default 15
 
   // Radio NON si avvia automaticamente - utente la attiva dalla pagina dedicata
   Serial.printf("[WEBRADIO] Caricato: volume=%d, station=%d (radio SPENTA al boot)\n",
                 webRadioVolume, webRadioCurrentIndex);
+  Serial.printf("[ANNOUNCE] Volume annunci: %d\n", announceVolume);
 }
 
 // Salva impostazioni web radio in EEPROM
@@ -2231,10 +2242,18 @@ void saveWebRadioSettings() {
                 webRadioEnabled, webRadioVolume, webRadioCurrentIndex);
 }
 
+// Salva volume annunci orari in EEPROM
+void saveAnnounceVolume() {
+  EEPROM.write(EEPROM_ANNOUNCE_VOLUME_ADDR, announceVolume);
+  EEPROM.commit();
+  Serial.printf("[ANNOUNCE] Volume salvato: %d\n", announceVolume);
+}
+
 // Avvia web radio
 void startWebRadio() {
   if (webRadioEnabled) return;
   Serial.println("[WEBRADIO] Avvio streaming...");
+  audio.setVolume(webRadioVolume);  // Imposta volume web radio
   audio.connecttohost(webRadioUrl.c_str());
   webRadioEnabled = true;
   saveWebRadioSettings();
