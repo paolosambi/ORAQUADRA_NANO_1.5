@@ -359,7 +359,7 @@ void drawWebRadioVolumeBar() {
   gfx->fillTriangle(spkX + 2, spkY - 8, spkX + 2, spkY + 8, spkX + 12, spkY, WR_ACCENT_COLOR);
 
   // Onde sonore (in base al volume) - semicerchi a destra
-  if (webRadioVolume > 5) {
+  if (webRadioVolume > 24) {  // ~24% corrisponde a 5/21
     for (int a = -40; a <= 40; a += 8) {
       float rad = a * 3.14159 / 180.0;
       int px = spkX + 16 + cos(rad) * 8;
@@ -368,7 +368,7 @@ void drawWebRadioVolumeBar() {
       gfx->drawPixel(px + 1, py, WR_ACCENT_DARK);
     }
   }
-  if (webRadioVolume > 12) {
+  if (webRadioVolume > 57) {  // ~57% corrisponde a 12/21
     for (int a = -40; a <= 40; a += 6) {
       float rad = a * 3.14159 / 180.0;
       int px = spkX + 16 + cos(rad) * 14;
@@ -383,7 +383,7 @@ void drawWebRadioVolumeBar() {
   gfx->drawRoundRect(barX, y + 2, barW, barH - 4, 10, WR_BUTTON_BORDER);
 
   // Barra di riempimento con gradiente simulato
-  int fillW = map(webRadioVolume, 0, 21, 0, barW - 8);
+  int fillW = map(webRadioVolume, 0, 100, 0, barW - 8);
   if (fillW > 0) {
     // Gradiente: ciano scuro -> ciano brillante
     int segments = fillW / 4;
@@ -848,7 +848,8 @@ bool handleWebRadioTouch(int16_t x, int16_t y) {
     if (x >= x1 && x <= x1 + btnW) {
       Serial.println("[WEBRADIO-UI] VOL-");
       if (webRadioVolume > 0) {
-        webRadioVolume--;
+        if (webRadioVolume >= 5) webRadioVolume -= 5;  // Decremento di 5% per volta
+        else webRadioVolume = 0;
         setWebRadioVolume(webRadioVolume);
       }
       webRadioNeedsRedraw = true;
@@ -879,8 +880,9 @@ bool handleWebRadioTouch(int16_t x, int16_t y) {
     int x3 = x2 + btnW + spacing;
     if (x >= x3 && x <= x3 + btnW) {
       Serial.println("[WEBRADIO-UI] VOL+");
-      if (webRadioVolume < 21) {
-        webRadioVolume++;
+      if (webRadioVolume < 100) {
+        webRadioVolume += 5;  // Incremento di 5% per volta
+        if (webRadioVolume > 100) webRadioVolume = 100;
         setWebRadioVolume(webRadioVolume);
       }
       webRadioNeedsRedraw = true;
@@ -907,13 +909,13 @@ bool handleWebRadioTouch(int16_t x, int16_t y) {
   int volBarH = 36;
   if (y >= WR_VOLUME_Y && y <= WR_VOLUME_Y + volBarH) {
     if (x >= volBarX && x <= volBarX + volBarW) {
-      // Calcola nuovo volume dalla posizione X
-      int newVol = map(x - volBarX, 0, volBarW, 0, 21);
-      newVol = constrain(newVol, 0, 21);
+      // Calcola nuovo volume dalla posizione X (0-100)
+      int newVol = map(x - volBarX, 0, volBarW, 0, 100);
+      newVol = constrain(newVol, 0, 100);
       if (newVol != webRadioVolume) {
         webRadioVolume = newVol;
         setWebRadioVolume(webRadioVolume);
-        Serial.printf("[WEBRADIO-UI] Volume impostato a %d\n", webRadioVolume);
+        Serial.printf("[WEBRADIO-UI] Volume impostato a %d%%\n", webRadioVolume);
         webRadioNeedsRedraw = true;
       }
       return false;

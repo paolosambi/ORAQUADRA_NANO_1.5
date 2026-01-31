@@ -194,7 +194,7 @@ void initMP3Player() {
   mp3Player.currentTrack = 0;
   mp3Player.totalTracks = 0;
   mp3Player.tracks = nullptr;
-  mp3Player.volume = 15;  // Volume default (0-21)
+  mp3Player.volume = 70;  // Volume default (0-100)
   mp3Player.vuLeft = 0;
   mp3Player.vuRight = 0;
   mp3Player.vuPeakLeft = 0;
@@ -745,7 +745,7 @@ void drawMP3VolumeBar() {
   gfx->fillTriangle(spkX + 2, spkY - 8, spkX + 2, spkY + 8, spkX + 12, spkY, MP3_ACCENT_COLOR);
 
   // Onde sonore (in base al volume)
-  if (mp3Player.volume > 5) {
+  if (mp3Player.volume > 24) {  // ~24% corrisponde a 5/21
     for (int a = -40; a <= 40; a += 8) {
       float rad = a * 3.14159 / 180.0;
       int px = spkX + 16 + cos(rad) * 8;
@@ -754,7 +754,7 @@ void drawMP3VolumeBar() {
       gfx->drawPixel(px + 1, py, MP3_ACCENT_DARK);
     }
   }
-  if (mp3Player.volume > 12) {
+  if (mp3Player.volume > 57) {  // ~57% corrisponde a 12/21
     for (int a = -40; a <= 40; a += 6) {
       float rad = a * 3.14159 / 180.0;
       int px = spkX + 16 + cos(rad) * 14;
@@ -769,7 +769,7 @@ void drawMP3VolumeBar() {
   gfx->drawRoundRect(barX, y + 2, barW, barH - 4, 10, MP3_BUTTON_BORDER);
 
   // Barra di riempimento con gradiente simulato
-  int fillW = map(mp3Player.volume, 0, 21, 0, barW - 8);
+  int fillW = map(mp3Player.volume, 0, 100, 0, barW - 8);
   if (fillW > 0) {
     // Gradiente: ciano scuro -> ciano brillante
     int segments = fillW / 4;
@@ -967,17 +967,17 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y) {
   int volBarW = 290;
   if (y >= VOLUME_BAR_Y && y <= VOLUME_BAR_Y + VOLUME_BAR_H) {
     if (x >= volBarX && x <= volBarX + volBarW) {
-      // Calcola nuovo volume dalla posizione X
-      int newVol = map(x - volBarX, 0, volBarW, 0, 21);
-      newVol = constrain(newVol, 0, 21);
+      // Calcola nuovo volume dalla posizione X (0-100)
+      int newVol = map(x - volBarX, 0, volBarW, 0, 100);
+      newVol = constrain(newVol, 0, 100);
       if (newVol != mp3Player.volume) {
         mp3Player.volume = newVol;
         #ifdef AUDIO
         extern Audio audio;
-        audio.setVolume(mp3Player.volume);
+        audio.setVolume(map(mp3Player.volume, 0, 100, 0, 21));  // Converte 0-100 a 0-21
         #endif
         saveMP3PlayerSettings();
-        Serial.printf("[MP3] Volume impostato a %d\n", mp3Player.volume);
+        Serial.printf("[MP3] Volume impostato a %d%%\n", mp3Player.volume);
         mp3Player.needsRedraw = true;
       }
       return false;
@@ -1044,8 +1044,8 @@ void playMP3Track(int index) {
     return;
   }
 
-  // Imposta volume MP3 Player
-  audio.setVolume(mp3Player.volume);
+  // Imposta volume MP3 Player (converte 0-100 a 0-21)
+  audio.setVolume(map(mp3Player.volume, 0, 100, 0, 21));
 
   // Usa audio.connecttoFS con SD
   if (!audio.connecttoFS(SD, fullPath.c_str())) {
@@ -1082,7 +1082,7 @@ void stopMP3Track() {
   // Riprendi web radio se era attiva
   if (webRadioEnabled) {
     Serial.println("[MP3] Riprendo web radio...");
-    audio.setVolume(webRadioVolume);  // Ripristina volume web radio
+    audio.setVolume(map(webRadioVolume, 0, 100, 0, 21));  // Ripristina volume web radio
     delay(100);
     audio.connecttohost(webRadioUrl.c_str());
   }
@@ -1530,8 +1530,8 @@ void loadMP3PlayerSettings() {
   uint8_t savedVolume = EEPROM.read(EEPROM_MP3PLAYER_VOLUME_ADDR);
   uint8_t savedPlayAll = EEPROM.read(EEPROM_MP3PLAYER_PLAYALL_ADDR);
 
-  // Valida volume (0-21)
-  if (savedVolume > 21) savedVolume = 15;  // Default
+  // Valida volume (0-100)
+  if (savedVolume > 100) savedVolume = 70;  // Default
   mp3Player.volume = savedVolume;
 
   // Valida playAll (0 o 1)
@@ -1546,10 +1546,10 @@ void loadMP3PlayerSettings() {
     Serial.printf("[MP3] Traccia ripristinata: %d (non avviata)\n", savedTrack);
   }
 
-  // Applica volume all'audio
+  // Applica volume all'audio (converte 0-100 a 0-21)
   #ifdef AUDIO
   extern Audio audio;
-  audio.setVolume(mp3Player.volume);
+  audio.setVolume(map(mp3Player.volume, 0, 100, 0, 21));
   #endif
 }
 

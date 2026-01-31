@@ -128,7 +128,7 @@ Audio audio; // 'Audio' è la classe della libreria, 'audio' è il nome che usi 
 bool webRadioEnabled = false;  // Stato attuale della web radio (on/off)
 String webRadioUrl = "http://icestreaming.rai.it/1.mp3";  // URL stream radio corrente
 String webRadioName = "Rai Radio 1";  // Nome radio corrente
-uint8_t webRadioVolume = 21;   // Volume radio (0-21)
+uint8_t webRadioVolume = 100;  // Volume radio (0-100)
 int webRadioCurrentIndex = 0; // Indice radio corrente nella lista
 
 // Struttura per una stazione radio
@@ -1015,7 +1015,7 @@ bool hourlyAnnounceEnabled = true;                  // Annuncio orario ogni ora 
 bool useTTSAnnounce = false;                        // Usa Google TTS invece di MP3 locali (default: MP3)
 bool ttsVoiceFemale = true;                         // Voce TTS femminile (true) o maschile (false)
 uint8_t audioVolume = 80;                           // Volume audio ESP32C3 (0-100, default 80%)
-uint8_t announceVolume = 15;                        // Volume annunci orari (0-21, default 15)
+uint8_t announceVolume = 70;                        // Volume annunci orari (0-100, default 70)
 
 // Variabili per audio giorno/notte (configurabili da web)
 bool audioDayEnabled = true;                        // Audio abilitato durante il giorno
@@ -2210,7 +2210,7 @@ void loadWebRadioSettings() {
   webRadioEnabled = false;  // Sempre spenta al boot
 
   webRadioVolume = EEPROM.read(EEPROM_WEBRADIO_VOLUME_ADDR);
-  if (webRadioVolume > 21) webRadioVolume = 21;
+  if (webRadioVolume > 100) webRadioVolume = 100;
 
   uint8_t stationIdx = EEPROM.read(EEPROM_WEBRADIO_STATION_ADDR);
   if (stationIdx < webRadioStationCount) {
@@ -2224,7 +2224,7 @@ void loadWebRadioSettings() {
 
   // Carica anche volume annunci orari
   announceVolume = EEPROM.read(EEPROM_ANNOUNCE_VOLUME_ADDR);
-  if (announceVolume > 21) announceVolume = 15;  // Default 15
+  if (announceVolume > 100) announceVolume = 70;  // Default 70
 
   // Radio NON si avvia automaticamente - utente la attiva dalla pagina dedicata
   Serial.printf("[WEBRADIO] Caricato: volume=%d, station=%d (radio SPENTA al boot)\n",
@@ -2253,7 +2253,7 @@ void saveAnnounceVolume() {
 void startWebRadio() {
   if (webRadioEnabled) return;
   Serial.println("[WEBRADIO] Avvio streaming...");
-  audio.setVolume(webRadioVolume);  // Imposta volume web radio
+  audio.setVolume(map(webRadioVolume, 0, 100, 0, 21));  // Converte 0-100 a 0-21
   audio.connecttohost(webRadioUrl.c_str());
   webRadioEnabled = true;
   saveWebRadioSettings();
@@ -2270,9 +2270,9 @@ void stopWebRadio() {
 
 // Imposta volume web radio
 void setWebRadioVolume(uint8_t vol) {
-  if (vol > 21) vol = 21;
+  if (vol > 100) vol = 100;
   webRadioVolume = vol;
-  audio.setVolume(vol);
+  audio.setVolume(map(vol, 0, 100, 0, 21));  // Converte 0-100 a 0-21
   saveWebRadioSettings();
 }
 

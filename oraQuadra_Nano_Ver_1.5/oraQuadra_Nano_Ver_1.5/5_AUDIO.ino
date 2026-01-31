@@ -595,9 +595,9 @@ bool playMP3Sequence(const String files[], int count) {
     delay(50);
   }
 
-  // Imposta volume annunci
-  audio.setVolume(announceVolume);
-  Serial.printf("[AUDIO SEQ] Volume annunci: %d\n", announceVolume);
+  // Imposta volume annunci (converte 0-100 a 0-21)
+  audio.setVolume(map(announceVolume, 0, 100, 0, 21));
+  Serial.printf("[AUDIO SEQ] Volume annunci: %d%%\n", announceVolume);
 
   inSequence = true;  // Inizia sequenza - non nascondere VU tra file
 
@@ -614,7 +614,7 @@ bool playMP3Sequence(const String files[], int count) {
   // Riprendi web radio alla fine della sequenza
   if (radioWasPlaying) {
     Serial.println("[AUDIO SEQ] Riprendo web radio...");
-    audio.setVolume(webRadioVolume);  // Ripristina volume web radio
+    audio.setVolume(map(webRadioVolume, 0, 100, 0, 21));  // Ripristina volume web radio
     delay(100);
     audio.connecttohost(webRadioUrl.c_str());
   }
@@ -844,7 +844,7 @@ bool playLocalMP3(const char* filename) {
 
   // Se non siamo in sequenza, imposta volume annunci (la sequenza lo imposta all'inizio)
   if (!inSequence) {
-    audio.setVolume(announceVolume);
+    audio.setVolume(map(announceVolume, 0, 100, 0, 21));
   }
 
   Serial.printf("[AUDIO] Play: %s\n", filename);
@@ -885,7 +885,7 @@ bool playLocalMP3(const char* filename) {
   // Riprendi web radio se era attiva e non siamo in sequenza
   if (!inSequence && radioWasPlayingForLocal) {
     Serial.println("[AUDIO] Riprendo web radio...");
-    audio.setVolume(webRadioVolume);  // Ripristina volume web radio
+    audio.setVolume(map(webRadioVolume, 0, 100, 0, 21));  // Ripristina volume web radio
     delay(100);
     audio.connecttohost(webRadioUrl.c_str());
     radioWasPlayingForLocal = false;

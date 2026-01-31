@@ -102,7 +102,7 @@ extern bool webRadioEnabled;
 extern String webRadioUrl;
 extern String webRadioName;
 extern uint8_t webRadioVolume;
-extern uint8_t announceVolume;  // Volume annunci orari (0-21)
+extern uint8_t announceVolume;  // Volume annunci orari (0-100)
 extern int webRadioCurrentIndex;
 extern int webRadioStationCount;
 // Nota: WebRadioStation è definita nel file principale
@@ -921,11 +921,11 @@ void handleSettingsSave(AsyncWebServerRequest *request) {
 
   if (request->hasParam("announceVolume")) {
     uint8_t val = request->getParam("announceVolume")->value().toInt();
-    if (val <= 21 && val != announceVolume) {
+    if (val <= 100 && val != announceVolume) {
       announceVolume = val;
       EEPROM.write(EEPROM_ANNOUNCE_VOLUME_ADDR, announceVolume);
       changed = true;
-      Serial.printf("[SETTINGS] announceVolume = %d\n", announceVolume);
+      Serial.printf("[SETTINGS] announceVolume = %d%%\n", announceVolume);
     }
   }
 

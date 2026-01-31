@@ -895,11 +895,11 @@ input[type="number"] {
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">Volume Annunci Orari</div>
-            <div class="setting-desc">Volume per gli annunci dell'ora (0-21)</div>
+            <div class="setting-desc">Volume per gli annunci dell'ora (0-100)</div>
           </div>
           <div class="range-group">
-            <input type="range" id="announceVolume" min="0" max="21" value="15">
-            <span class="range-value" id="announceVolumeVal">15</span>
+            <input type="range" id="announceVolume" min="0" max="100" value="70">
+            <span class="range-value" id="announceVolumeVal">70</span>
           </div>
         </div>
 

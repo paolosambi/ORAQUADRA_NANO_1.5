@@ -504,7 +504,7 @@ void drawRAVolumeBar() {
   gfx->drawRoundRect(barX, y + 18, barW, barH, 8, RA_BUTTON_BORDER);
 
   // Riempimento gradiente
-  int fillW = map(radioAlarm.volume, 0, 21, 0, barW - 6);
+  int fillW = map(radioAlarm.volume, 0, 100, 0, barW - 6);
   if (fillW > 4) {
     for (int i = 0; i < fillW; i++) {
       // Gradiente da ciano scuro a ciano chiaro
@@ -764,8 +764,8 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
   int volBarW = 300;
   if (y >= RA_VOLUME_Y + 15 && y <= RA_VOLUME_Y + 55) {
     if (x >= volBarX && x <= volBarX + volBarW) {
-      int newVol = map(x - volBarX, 0, volBarW, 0, 21);
-      newVol = constrain(newVol, 0, 21);
+      int newVol = map(x - volBarX, 0, volBarW, 0, 100);
+      newVol = constrain(newVol, 0, 100);
       if (newVol != radioAlarm.volume) {
         radioAlarm.volume = newVol;
         saveRadioAlarmSettings();
@@ -895,7 +895,7 @@ void loadRadioAlarmSettings() {
     if (radioAlarm.hour > 23) radioAlarm.hour = 7;
     if (radioAlarm.minute > 59) radioAlarm.minute = 0;
     if (radioAlarm.stationIndex >= webRadioStationCount) radioAlarm.stationIndex = 0;
-    if (radioAlarm.volume > 21) radioAlarm.volume = 15;
+    if (radioAlarm.volume > 100) radioAlarm.volume = 70;
     if (radioAlarm.snoozeMinutes < 1 || radioAlarm.snoozeMinutes > 60) radioAlarm.snoozeMinutes = 10;
     if (radioAlarm.daysMask == 0) radioAlarm.daysMask = 0x3E; // Lun-Ven default
 
@@ -907,7 +907,7 @@ void loadRadioAlarmSettings() {
     radioAlarm.minute = 0;
     radioAlarm.stationIndex = 0;
     radioAlarm.daysMask = 0x3E;  // Lun-Ven (bit 1-5)
-    radioAlarm.volume = 15;
+    radioAlarm.volume = 70;
     radioAlarm.snoozeMinutes = 10;
 
     Serial.println("[RADIO-ALARM] Impostazioni default");
@@ -967,8 +967,8 @@ void triggerRadioAlarm() {
 
     // Imposta volume sveglia (dopo avvio, NON modifica webRadioVolume)
     extern Audio audio;
-    audio.setVolume(radioAlarm.volume);
-    Serial.printf("[RADIO-ALARM] Volume sveglia: %d\n", radioAlarm.volume);
+    audio.setVolume(map(radioAlarm.volume, 0, 100, 0, 21));  // Converte 0-100 a 0-21
+    Serial.printf("[RADIO-ALARM] Volume sveglia: %d%%\n", radioAlarm.volume);
   } else {
     Serial.println("[RADIO-ALARM] Nessuna stazione radio disponibile!");
   }
