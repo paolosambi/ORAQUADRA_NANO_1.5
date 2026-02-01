@@ -218,7 +218,15 @@ bool initEsp32camStream() {
 
 // ================== CONNESSIONE STREAM ==================
 bool connectEsp32camStream() {
-  Serial.printf("[ESP32-CAM] Connessione a: %s\n", esp32camStreamUrl.c_str());
+  // Assicura che l'URL sia pulito (senza spazi iniziali/finali)
+  esp32camStreamUrl.trim();
+
+  if (esp32camStreamUrl.length() < 15 || !esp32camStreamUrl.startsWith("http")) {
+    Serial.printf("[ESP32-CAM] URL non valido: '%s'\n", esp32camStreamUrl.c_str());
+    return false;
+  }
+
+  Serial.printf("[ESP32-CAM] Connessione a: '%s'\n", esp32camStreamUrl.c_str());
 
   // Chiudi eventuali connessioni precedenti per evitare errore "already connected"
   esp32camHttp.end();
@@ -827,16 +835,19 @@ void loadEsp32camUrlFromEEPROM() {
     url += c;
   }
 
+  url.trim();  // Rimuovi spazi iniziali e finali
   if (url.length() > 10) {  // URL minimo valido
     esp32camStreamUrl = url;
-    Serial.printf("[ESP32-CAM] URL caricato da EEPROM: %s\n", esp32camStreamUrl.c_str());
+    Serial.printf("[ESP32-CAM] URL caricato da EEPROM: '%s'\n", esp32camStreamUrl.c_str());
   }
 }
 
 // ================== SET STREAM URL ==================
 void setEsp32camStreamUrl(const String& url) {
+  // Rimuovi spazi iniziali e finali
   esp32camStreamUrl = url;
-  Serial.printf("[ESP32-CAM] URL impostato: %s\n", esp32camStreamUrl.c_str());
+  esp32camStreamUrl.trim();
+  Serial.printf("[ESP32-CAM] URL impostato: '%s'\n", esp32camStreamUrl.c_str());
 
   // Salva in EEPROM per persistenza
   saveEsp32camUrlToEEPROM();
