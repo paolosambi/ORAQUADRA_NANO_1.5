@@ -55,18 +55,18 @@ void loadMP3PlayerSettings();
 #define MP3_CENTER_W    370
 
 // ================== TEMA MODERNO - PALETTE COLORI ==================
-// Sfondo e base - NERO PURO come da immagine riferimento
-#define MP3_BG_COLOR      0x0000    // Nero puro
+// Sfondo e base
+#define MP3_BG_COLOR      0x0841    // Blu molto scuro
 #define MP3_BG_DARK       0x0000    // Nero puro
-#define MP3_BG_CARD       0x0841    // Blu molto scuro per cards
-#define MP3_PANEL_COLOR   0x0841    // Alias per compatibilità
+#define MP3_BG_CARD       0x1082    // Grigio-blu scuro per cards
+#define MP3_PANEL_COLOR   0x1082    // Alias per compatibilità
 
 // Testo
 #define MP3_TEXT_COLOR    0xFFFF    // Bianco
 #define MP3_TEXT_DIM      0xB5B6    // Grigio chiaro
 #define MP3_TEXT_MUTED    0x7BCF    // Grigio medio
 
-// Accenti - Ciano/Turchese brillante
+// Accenti - Ciano/Turchese moderno
 #define MP3_ACCENT_COLOR  0x07FF    // Ciano brillante
 #define MP3_ACCENT_DARK   0x0575    // Ciano scuro
 #define MP3_ACCENT_GLOW   0x5FFF    // Ciano chiaro (glow)
@@ -76,20 +76,20 @@ void loadMP3PlayerSettings();
 #define MP3_PAUSE_COLOR   0xFD20    // Arancione
 #define MP3_STOP_COLOR    0xF800    // Rosso
 
-// Bottoni - Sfondo scuro con bordi ciano
-#define MP3_BUTTON_COLOR  0x1082    // Grigio-blu molto scuro
-#define MP3_BUTTON_HOVER  0x2104    // Grigio scuro
-#define MP3_BUTTON_BORDER 0x07FF    // Ciano brillante per bordi
-#define MP3_BUTTON_SHADOW 0x0000    // Nero per ombra
+// Bottoni
+#define MP3_BUTTON_COLOR  0x2124    // Grigio scuro
+#define MP3_BUTTON_HOVER  0x3186    // Grigio medio
+#define MP3_BUTTON_BORDER 0x4A69    // Grigio bordo
+#define MP3_BUTTON_SHADOW 0x1082    // Ombra bottone
 
-// VU meter - Gradiente classico verde->giallo->arancione->rosso
+// VU meter - Gradiente moderno
 #define MP3_VU_LOW        0x07E0    // Verde brillante
-#define MP3_VU_LOW2       0x47E0    // Verde chiaro
+#define MP3_VU_LOW2       0x2FE0    // Verde-ciano
 #define MP3_VU_MID        0xFFE0    // Giallo
 #define MP3_VU_MID2       0xFD20    // Arancione
 #define MP3_VU_HIGH       0xF800    // Rosso
-#define MP3_VU_PEAK       0xF800    // Rosso (peak indicator)
-#define MP3_VU_BG         0x0000    // Nero per VU background
+#define MP3_VU_PEAK       0xF81F    // Magenta (peak)
+#define MP3_VU_BG         0x18C3    // Grigio-blu VU background
 
 // ================== STRUTTURE DATI ==================
 enum AudioFileType {
@@ -126,23 +126,10 @@ struct MP3PlayerState {
 // ================== VARIABILI GLOBALI ==================
 MP3PlayerState mp3Player;
 bool mp3PlayerInitialized = false;
+bool mp3VolumeNeedsRedraw = false;
 
-// ================== DOUBLE BUFFERING ==================
-#define MP3_SCREEN_WIDTH  480
-#define MP3_SCREEN_HEIGHT 480
 
-uint16_t *mp3FrameBuffer = nullptr;
-OffscreenGFX *mp3OffscreenGfx = nullptr;
 
-// Macro per selezionare il GFX object (offscreen se disponibile, altrimenti diretto)
-#define MP3_GFX (mp3OffscreenGfx != nullptr ? (Arduino_GFX*)mp3OffscreenGfx : gfx)
-
-// Funzione per trasferire il buffer al display
-inline void mp3FlushBuffer() {
-  if (mp3FrameBuffer != nullptr) {
-    gfx->draw16bitRGBBitmap(0, 0, mp3FrameBuffer, MP3_SCREEN_WIDTH, MP3_SCREEN_HEIGHT);
-  }
-}
 
 // Variabili per VU meter (evita flickering)
 static int8_t prevActiveLeft = -1;
@@ -150,10 +137,6 @@ static int8_t prevActiveRight = -1;
 static int8_t prevPeakLeft = -1;
 static int8_t prevPeakRight = -1;
 static bool vuBackgroundDrawn = false;
-
-// Dancing bars (equalizer animation in preview)
-static uint8_t mp3DancingBars[3] = {8, 12, 6};
-static uint32_t mp3LastDancingUpdate = 0;
 
 // Task audio separato rimosso: audioTask globale (audio.loop()) gestisce tutto
 
@@ -193,6 +176,7 @@ void nextMP3Track();
 void prevMP3Track();
 void updateMP3VUMeters();
 void cleanupMP3Player();
+
 String extractTitle(const char* filename);
 
 // ================== HELPER FUNCTION ==================
@@ -204,21 +188,6 @@ bool isMP3Playing() {
 // ================== INIZIALIZZAZIONE ==================
 void initMP3Player() {
   Serial.println("[MP3] Inizializzazione lettore MP3...");
-
-  // ===== INIZIALIZZAZIONE DOUBLE BUFFERING =====
-  if (mp3FrameBuffer == nullptr) {
-    mp3FrameBuffer = (uint16_t*)heap_caps_malloc(MP3_SCREEN_WIDTH * MP3_SCREEN_HEIGHT * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
-    if (mp3FrameBuffer != nullptr) {
-      Serial.println("[MP3] FrameBuffer allocato in PSRAM");
-    } else {
-      Serial.println("[MP3] ERRORE: Impossibile allocare FrameBuffer!");
-    }
-  }
-
-  if (mp3OffscreenGfx == nullptr && mp3FrameBuffer != nullptr) {
-    mp3OffscreenGfx = new OffscreenGFX(mp3FrameBuffer, MP3_SCREEN_WIDTH, MP3_SCREEN_HEIGHT);
-    Serial.println("[MP3] OffscreenGFX creato");
-  }
 
   // Reset stato
   mp3Player.initialized = false;
@@ -242,13 +211,11 @@ void initMP3Player() {
   // Verifica SD card
   if (!SD.begin(SD_CS_PIN)) {
     Serial.println("[MP3] ERRORE: SD card non trovata!");
-    Arduino_GFX* g = MP3_GFX;
-    g->fillScreen(MP3_BG_COLOR);
-    g->setTextColor(MP3_STOP_COLOR);
-    g->setFont(u8g2_font_helvB18_tr);
-    g->setCursor(100, 240);
-    g->print("SD CARD NON TROVATA");
-    mp3FlushBuffer();
+    gfx->fillScreen(MP3_BG_COLOR);
+    gfx->setTextColor(MP3_STOP_COLOR);
+    gfx->setFont(u8g2_font_helvB18_tr);
+    gfx->setCursor(100, 240);
+    gfx->print("SD CARD NON TROVATA");
     delay(2000);
     return;
   }
@@ -264,15 +231,13 @@ void initMP3Player() {
 
   if (mp3Player.totalTracks == 0) {
     Serial.println("[MP3] Nessun file MP3 trovato!");
-    Arduino_GFX* g = MP3_GFX;
-    g->fillScreen(MP3_BG_COLOR);
-    g->setTextColor(MP3_PAUSE_COLOR);
-    g->setFont(u8g2_font_helvB18_tr);
-    g->setCursor(80, 220);
-    g->print("NESSUN FILE MP3");
-    g->setCursor(60, 260);
-    g->print("Inserisci file in /MP3");
-    mp3FlushBuffer();
+    gfx->fillScreen(MP3_BG_COLOR);
+    gfx->setTextColor(MP3_PAUSE_COLOR);
+    gfx->setFont(u8g2_font_helvB18_tr);
+    gfx->setCursor(80, 220);
+    gfx->print("NESSUN FILE MP3");
+    gfx->setCursor(60, 260);
+    gfx->print("Inserisci file in /MP3");
     delay(2000);
     return;
   }
@@ -386,14 +351,27 @@ String extractTitle(const char* filename) {
 
 // ================== DISEGNA INTERFACCIA COMPLETA ==================
 void drawMP3PlayerUI() {
-  Arduino_GFX* g = MP3_GFX;
+  // Sfondo con gradiente simulato (bande orizzontali)
+  for (int y = 0; y < 480; y += 4) {
+    uint16_t shade = (y < 240) ? MP3_BG_COLOR : MP3_BG_DARK;
+    gfx->fillRect(0, y, 480, 4, shade);
+  }
 
-  // Sfondo nero puro
-  g->fillScreen(MP3_BG_COLOR);
+  // Linee decorative sottili in alto e in basso
+  gfx->drawFastHLine(0, 2, 480, MP3_ACCENT_DARK);
+  gfx->drawFastHLine(0, 477, 480, MP3_ACCENT_DARK);
 
-  // Linee decorative sottili ciano in alto e in basso
-  g->drawFastHLine(0, 2, 480, MP3_ACCENT_COLOR);
-  g->drawFastHLine(0, 477, 480, MP3_ACCENT_COLOR);
+  // --- TASTI VOLUME AI LATI DEL BOTTONE CENTRALE ---
+  gfx->setFont(u8g2_font_helvB12_tr);
+  gfx->setTextColor(MP3_ACCENT_COLOR);
+
+  // VOL - (Posizionato a sinistra del bottone)
+  gfx->setCursor(55, 325); 
+  gfx->print("VOL -");
+
+  // VOL + (Posizionato a destra del bottone)
+  gfx->setCursor(375, 325); 
+  gfx->print("VOL +");
 
   // Header moderno
   drawMP3Header();
@@ -417,173 +395,174 @@ void drawMP3PlayerUI() {
   drawMP3ExitButton();
 
   mp3Player.needsRedraw = false;
-
-  // ===== FLUSH BUFFER AL DISPLAY =====
-  mp3FlushBuffer();
 }
 
 // ================== HEADER MODERNO ==================
 void drawMP3Header() {
-  Arduino_GFX* g = MP3_GFX;
   int centerX = 240;
 
-  // Icona nota musicale sinistra
-  int iconL = 70;
-  g->fillCircle(iconL, 28, 5, MP3_ACCENT_COLOR);
-  g->fillCircle(iconL + 10, 24, 5, MP3_ACCENT_COLOR);
-  g->fillRect(iconL + 3, 10, 2, 18, MP3_ACCENT_COLOR);
-  g->fillRect(iconL + 13, 6, 2, 18, MP3_ACCENT_COLOR);
-  g->fillRect(iconL + 3, 8, 12, 2, MP3_ACCENT_COLOR);
+  // Icona nota musicale sinistra - Abbassata di soli 3px (Y: 28 -> 31)
+  int iconL = 75;
+  int iconY = 32; 
+  gfx->fillCircle(iconL, iconY, 7, MP3_ACCENT_COLOR);
+  gfx->fillCircle(iconL + 14, iconY - 4, 7, MP3_ACCENT_COLOR);
+  gfx->fillRect(iconL + 5, iconY - 20, 3, 20, MP3_ACCENT_COLOR);
+  gfx->fillRect(iconL + 19, iconY - 24, 3, 20, MP3_ACCENT_COLOR);
+  gfx->fillRect(iconL + 5, iconY - 22, 17, 3, MP3_ACCENT_COLOR);
 
-  // Titolo principale "MP3 PLAYER"
-  g->setFont(u8g2_font_helvB24_tr);
-  g->setTextColor(MP3_ACCENT_COLOR);
-  g->setCursor(centerX - 85, 37);
-  g->print("MP3 PLAYER");
+  // Titolo con font originale
+  gfx->setFont(u8g2_font_helvB24_tr);
+  
+  // Centratura calcolata: "MP3 PLAYER" con questo font è largo circa 190px
+  int textWidth = 190;
+  int startX = centerX - (textWidth / 2);
 
-  // Icona nota musicale destra
-  int iconR = 400;
-  g->fillCircle(iconR, 28, 5, MP3_ACCENT_COLOR);
-  g->fillCircle(iconR + 10, 24, 5, MP3_ACCENT_COLOR);
-  g->fillRect(iconR + 3, 10, 2, 18, MP3_ACCENT_COLOR);
-  g->fillRect(iconR + 13, 6, 2, 18, MP3_ACCENT_COLOR);
-  g->fillRect(iconR + 3, 8, 12, 2, MP3_ACCENT_COLOR);
+  // Glow effect (testo sfumato dietro)
+  gfx->setTextColor(MP3_ACCENT_DARK);
+  gfx->setCursor(startX + 1, 38);
+  gfx->print("MP3 PLAYER");
 
-  // Linea separatrice ciano
-  g->drawFastHLine(MP3_CENTER_X, 48, MP3_CENTER_W, MP3_ACCENT_COLOR);
+  // Testo principale
+  gfx->setTextColor(MP3_ACCENT_COLOR);
+  gfx->setCursor(startX, 37);
+  gfx->print("MP3 PLAYER");
+
+  // Linea separatrice originale
+  for (int i = 0; i < 3; i++) {
+    uint16_t lineColor = (i == 1) ? MP3_ACCENT_COLOR : MP3_ACCENT_DARK;
+    gfx->drawFastHLine(MP3_CENTER_X, 48 + i, MP3_CENTER_W, lineColor);
+  }
 }
 
-// ================== DISEGNA PREVIEW BRANO - CARD MODERNA ==================
+// ================== DISEGNA PREVIEW BRANO E STATO ==================
 void drawMP3Preview() {
-  Arduino_GFX* g = MP3_GFX;
-
-  // Card principale con sfondo scuro
-  g->fillRoundRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 8, MP3_BG_CARD);
-
-  // Bordo ciano brillante
-  g->drawRoundRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 8, MP3_ACCENT_COLOR);
-
-  if (mp3Player.totalTracks == 0) {
-    g->setFont(u8g2_font_helvB14_tr);
-    g->setTextColor(MP3_TEXT_DIM);
-    g->setCursor(PREVIEW_X + 100, PREVIEW_Y + 65);
-    g->print("Nessuna traccia");
-    return;
-  }
-
-  // Icona disco/CD animata
-  int discX = PREVIEW_X + 30;
-  int discY = PREVIEW_Y + 55;
-  g->drawCircle(discX, discY, 20, MP3_ACCENT_COLOR);
-  g->drawCircle(discX, discY, 15, MP3_ACCENT_DARK);
-  g->drawCircle(discX, discY, 8, MP3_ACCENT_COLOR);
-  g->fillCircle(discX, discY, 4, MP3_ACCENT_GLOW);
-
-  // Tipo file (MP3/WAV)
-  g->setFont(u8g2_font_helvR10_tr);
-  g->setTextColor(MP3_ACCENT_DARK);
-  const char* typeStr = (mp3Player.tracks[mp3Player.currentTrack].type == AUDIO_TYPE_WAV) ? "WAV" : "MP3";
-  g->setCursor(PREVIEW_X + PREVIEW_W - 45, PREVIEW_Y + 22);
-  g->print(typeStr);
-
-  // Numero traccia
-  g->setFont(u8g2_font_helvB12_tr);
-  g->setTextColor(MP3_ACCENT_COLOR);
-  char trackNum[32];
-  snprintf(trackNum, sizeof(trackNum), "Track %d / %d", mp3Player.currentTrack + 1, mp3Player.totalTracks);
-  g->setCursor(PREVIEW_X + 60, PREVIEW_Y + 22);
-  g->print(trackNum);
-
-  // Titolo brano
-  g->setFont(u8g2_font_helvB18_tr);
-  g->setTextColor(MP3_TEXT_COLOR);
-
-  String title = String(mp3Player.tracks[mp3Player.currentTrack].title);
-  int textWidth = title.length() * 11;
-  int maxWidth = PREVIEW_W - 80;
-
-  if (textWidth <= maxWidth) {
-    int xPos = PREVIEW_X + 60 + (PREVIEW_W - 70 - textWidth) / 2;
-    g->setCursor(xPos, PREVIEW_Y + 60);
-    g->print(title);
-  } else {
-    g->setCursor(PREVIEW_X + 60, PREVIEW_Y + 60);
-    String visiblePart = title.substring(mp3Player.scrollOffset);
-    if (visiblePart.length() > 24) {
-      visiblePart = visiblePart.substring(0, 24);
-    }
-    g->print(visiblePart);
-  }
-
-  // Stato riproduzione con indicatore LED
   int statusY = PREVIEW_Y + 90;
   int centerX = PREVIEW_X + PREVIEW_W / 2;
+  static String lastStatusStr = ""; 
+  static int lastScroll = -1;
 
-  if (mp3Player.playing && !mp3Player.paused) {
-    // LED verde pulsante
-    g->fillCircle(centerX - 65, statusY + 8, 6, MP3_PLAY_COLOR);
-    g->drawCircle(centerX - 65, statusY + 8, 9, 0x2FE4);
+  // 1. DISEGNO CARD E ICONA DISCO (Solo su ridisegno completo - MAI FLICKER)
+  if (mp3Player.needsRedraw) {
+    // Ombra della card
+    gfx->fillRoundRect(PREVIEW_X + 3, PREVIEW_Y + 3, PREVIEW_W, PREVIEW_H, 12, MP3_BUTTON_SHADOW);
 
-    g->setFont(u8g2_font_helvB14_tr);
-    g->setTextColor(MP3_PLAY_COLOR);
-    g->setCursor(centerX - 50, statusY + 14);
-    g->print("PLAY");
+    // Card principale
+    gfx->fillRoundRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 12, MP3_BG_CARD);
 
-    // Barre audio animate (dancing bars)
-    for (int i = 0; i < 3; i++) {
-      int barH = mp3DancingBars[i];
-      if (barH < 4) barH = 4;
-      g->fillRoundRect(centerX + 55 + i * 8, statusY + 10 - barH / 2, 5, barH, 2, MP3_PLAY_COLOR);
+    // Bordo con effetto glow
+    gfx->drawRoundRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, 12, MP3_ACCENT_DARK);
+    gfx->drawRoundRect(PREVIEW_X + 1, PREVIEW_Y + 1, PREVIEW_W - 2, PREVIEW_H - 2, 11, MP3_ACCENT_COLOR);
+
+    // Icona disco/CD animata (RIPRISTINATA)
+    int discX = PREVIEW_X + 30;
+    int discY = PREVIEW_Y + 55;
+    gfx->drawCircle(discX, discY, 20, MP3_ACCENT_COLOR);
+    gfx->drawCircle(discX, discY, 15, MP3_ACCENT_DARK);
+    gfx->drawCircle(discX, discY, 8, MP3_ACCENT_COLOR);
+    gfx->fillCircle(discX, discY, 4, MP3_ACCENT_GLOW);
+
+    // Tipo file (MP3/WAV)
+    gfx->setFont(u8g2_font_helvR10_tr);
+    gfx->setTextColor(MP3_ACCENT_DARK);
+    const char* typeStr = (mp3Player.tracks[mp3Player.currentTrack].type == AUDIO_TYPE_WAV) ? "WAV" : "MP3";
+    gfx->setCursor(PREVIEW_X + PREVIEW_W - 45, PREVIEW_Y + 22);
+    gfx->print(typeStr);
+
+    // Numero traccia
+    gfx->setFont(u8g2_font_helvB12_tr);
+    gfx->setTextColor(MP3_ACCENT_COLOR);
+    char trackNum[32];
+    snprintf(trackNum, sizeof(trackNum), "Track %d / %d", mp3Player.currentTrack + 1, mp3Player.totalTracks);
+    gfx->setCursor(PREVIEW_X + 60, PREVIEW_Y + 22);
+    gfx->print(trackNum);
+
+    lastStatusStr = ""; // Forza ridisegno testi stato
+    lastScroll = -1;    // Forza ridisegno titolo
+  }
+
+  // 2. TITOLO (Ridisegno solo se lo scroll è cambiato - 500ms)
+  if (mp3Player.scrollOffset != lastScroll || mp3Player.needsRedraw) {
+    gfx->fillRect(PREVIEW_X + 55, PREVIEW_Y + 42, PREVIEW_W - 65, 30, MP3_BG_CARD);
+    gfx->setFont(u8g2_font_helvB18_tr);
+    gfx->setTextColor(MP3_TEXT_COLOR);
+
+    String title = String(mp3Player.tracks[mp3Player.currentTrack].title);
+    int textWidth = title.length() * 11;
+    int maxWidth = PREVIEW_W - 80;
+
+    if (textWidth <= maxWidth) {
+      int xPos = PREVIEW_X + 60 + (PREVIEW_W - 70 - textWidth) / 2;
+      gfx->setCursor(xPos, PREVIEW_Y + 62);
+      gfx->print(title);
+    } else {
+      gfx->setCursor(PREVIEW_X + 60, PREVIEW_Y + 62);
+      String visiblePart = title.substring(mp3Player.scrollOffset);
+      if (visiblePart.length() > 24) visiblePart = visiblePart.substring(0, 24);
+      gfx->print(visiblePart);
     }
-  } else if (mp3Player.paused) {
-    // LED arancione
-    g->fillCircle(centerX - 45, statusY + 8, 6, MP3_PAUSE_COLOR);
-    g->drawCircle(centerX - 45, statusY + 8, 9, 0x7A00);
+    lastScroll = mp3Player.scrollOffset;
+  }
 
-    g->setFont(u8g2_font_helvB14_tr);
-    g->setTextColor(MP3_PAUSE_COLOR);
-    g->setCursor(centerX - 30, statusY + 14);
-    g->print("PAUSA ");
+  // 3. STATO E PALLINO SX (Fissi - Ridisegno solo al cambio stato)
+  String currentStatus = mp3Player.playing ? (mp3Player.paused ? "PAUSA" : "PLAY") : "STOP";
+  int dotX = centerX - 75;
 
-    // Icona pausa
-    g->fillRect(centerX + 45, statusY + 2, 5, 12, MP3_PAUSE_COLOR);
-    g->fillRect(centerX + 55, statusY + 2, 5, 12, MP3_PAUSE_COLOR);
-  } else {
-    // LED spento
-    g->fillCircle(centerX - 50, statusY + 8, 6, MP3_TEXT_MUTED);
+  if (currentStatus != lastStatusStr || mp3Player.needsRedraw) {
+    // Pulizia area riga stato (Senza toccare area icona DX animata)
+    gfx->fillRect(dotX - 12, statusY - 5, 125, 25, MP3_BG_CARD); 
+    
+    uint16_t color = (currentStatus == "PLAY") ? MP3_PLAY_COLOR : (currentStatus == "PAUSA" ? MP3_PAUSE_COLOR : MP3_TEXT_DIM);
+    
+    // Pallino SX Fisso
+    gfx->fillCircle(dotX, statusY + 8, 6, color);
+    if (currentStatus != "STOP") {
+      uint16_t ring = (currentStatus == "PLAY") ? 0x2FE4 : 0x7A00;
+      gfx->drawCircle(dotX, statusY + 8, 9, ring);
+    }
 
-    g->setFont(u8g2_font_helvB14_tr);
-    g->setTextColor(MP3_TEXT_DIM);
-    g->setCursor(centerX - 35, statusY + 14);
-    g->print("STOP");
+    // Testo centrato
+    gfx->setFont(u8g2_font_helvB14_tr);
+    gfx->setTextColor(color);
+    int xOff = (currentStatus == "PLAY") ? 20 : (currentStatus == "PAUSA" ? 27 : 22);
+    gfx->setCursor(centerX - xOff, statusY + 14);
+    gfx->print(currentStatus);
 
-    // Icona stop
-    g->fillRoundRect(centerX + 45, statusY + 2, 12, 12, 2, MP3_TEXT_MUTED);
+    // Se STOP, disegna anche il quadratino fisso a destra
+    if (currentStatus == "STOP") {
+      gfx->fillRect(centerX + 60 - 2, statusY - 5, 25, 25, MP3_BG_CARD);
+      gfx->fillRoundRect(centerX + 60, statusY + 2, 12, 12, 2, MP3_TEXT_MUTED);
+    }
+    lastStatusStr = currentStatus;
+  }
+
+  // 4. ICONA DX ANIMATA (Chiamata per disegnare il primo frame o aggiornare)
+  if (currentStatus != "STOP") {
+    drawMP3StatusAnim();
   }
 }
 
 // ================== DISEGNA VU METER VERTICALE - MODERNO ==================
 // Disegna solo lo sfondo dei VU (chiamare una volta)
 void drawVUBackground() {
-  Arduino_GFX* g = MP3_GFX;
+  // VU sinistro - design moderno con bordo doppio
+  gfx->fillRoundRect(VU_LEFT_X + 2, VU_Y_START, VU_WIDTH - 4, VU_HEIGHT, 8, MP3_BG_DARK);
+  gfx->drawRoundRect(VU_LEFT_X + 2, VU_Y_START, VU_WIDTH - 4, VU_HEIGHT, 8, MP3_BUTTON_BORDER);
+  gfx->drawRoundRect(VU_LEFT_X + 4, VU_Y_START + 2, VU_WIDTH - 8, VU_HEIGHT - 4, 6, MP3_ACCENT_DARK);
 
-  // VU sinistro - sfondo nero con bordo ciano
-  g->fillRoundRect(VU_LEFT_X + 2, VU_Y_START, VU_WIDTH - 4, VU_HEIGHT, 4, MP3_BG_DARK);
-  g->drawRoundRect(VU_LEFT_X + 2, VU_Y_START, VU_WIDTH - 4, VU_HEIGHT, 4, MP3_ACCENT_COLOR);
+  // Label "L" - posizionata sotto il VU meter
+  gfx->setFont(u8g2_font_helvB12_tr);
+  gfx->setTextColor(MP3_ACCENT_COLOR);
+  gfx->setCursor(VU_LEFT_X + 18, VU_Y_START + VU_HEIGHT + 15);
+  gfx->print("L");
 
-  // Label "L" - sotto il VU meter
-  g->setFont(u8g2_font_helvB14_tr);
-  g->setTextColor(MP3_ACCENT_COLOR);
-  g->setCursor(VU_LEFT_X + 16, VU_Y_START + VU_HEIGHT + 18);
-  g->print("L");
+  // VU destro
+  gfx->fillRoundRect(VU_RIGHT_X + 2, VU_Y_START, VU_WIDTH - 4, VU_HEIGHT, 8, MP3_BG_DARK);
+  gfx->drawRoundRect(VU_RIGHT_X + 2, VU_Y_START, VU_WIDTH - 4, VU_HEIGHT, 8, MP3_BUTTON_BORDER);
+  gfx->drawRoundRect(VU_RIGHT_X + 4, VU_Y_START + 2, VU_WIDTH - 8, VU_HEIGHT - 4, 6, MP3_ACCENT_DARK);
 
-  // VU destro - sfondo nero con bordo ciano
-  g->fillRoundRect(VU_RIGHT_X + 2, VU_Y_START, VU_WIDTH - 4, VU_HEIGHT, 4, MP3_BG_DARK);
-  g->drawRoundRect(VU_RIGHT_X + 2, VU_Y_START, VU_WIDTH - 4, VU_HEIGHT, 4, MP3_ACCENT_COLOR);
-
-  // Label "R" - sotto il VU meter
-  g->setCursor(VU_RIGHT_X + 16, VU_Y_START + VU_HEIGHT + 18);
-  g->print("R");
+  // Label "R" - posizionata sotto il VU meter
+  gfx->setCursor(VU_RIGHT_X + 18, VU_Y_START + VU_HEIGHT + 15);
+  gfx->print("R");
 
   vuBackgroundDrawn = true;
   prevActiveLeft = -1;
@@ -593,8 +572,6 @@ void drawVUBackground() {
 }
 
 void drawVUMeterVertical(int x, int y, int w, int h, uint8_t level, uint8_t peak, bool leftSide) {
-  Arduino_GFX* g = MP3_GFX;
-
   // Calcola dimensioni segmenti con gap
   int segmentH = (h - 30) / VU_SEGMENTS;
   int segmentW = w - 16;
@@ -645,12 +622,12 @@ void drawVUMeterVertical(int x, int y, int w, int h, uint8_t level, uint8_t peak
 
     if (i < activeSegments) {
       // Segmento acceso con highlight
-      g->fillRoundRect(segmentX, segY, segmentW, segmentH - 3, 3, color);
+      gfx->fillRoundRect(segmentX, segY, segmentW, segmentH - 3, 3, color);
       // Highlight superiore per effetto 3D
-      g->drawFastHLine(segmentX + 2, segY + 1, segmentW - 4, MP3_TEXT_COLOR);
+      gfx->drawFastHLine(segmentX + 2, segY + 1, segmentW - 4, MP3_TEXT_COLOR);
     } else {
       // Segmento spento (visibile ma dim)
-      g->fillRoundRect(segmentX, segY, segmentW, segmentH - 3, 3, dimColor);
+      gfx->fillRoundRect(segmentX, segY, segmentW, segmentH - 3, 3, dimColor);
     }
   }
 
@@ -674,13 +651,13 @@ void drawVUMeterVertical(int x, int y, int w, int h, uint8_t level, uint8_t peak
         else if (ratio < 0.85) oldColor = 0x4100;
         else oldColor = 0x4000;
       }
-      g->fillRoundRect(segmentX, oldPeakY, segmentW, segmentH - 3, 3, oldColor);
+      gfx->fillRoundRect(segmentX, oldPeakY, segmentW, segmentH - 3, 3, oldColor);
     }
 
     // Disegna nuovo picco (magenta brillante)
     int newPeakY = startY - (peakSegment + 1) * segmentH;
-    g->fillRoundRect(segmentX, newPeakY, segmentW, segmentH - 3, 3, MP3_VU_PEAK);
-    g->drawRoundRect(segmentX - 1, newPeakY - 1, segmentW + 2, segmentH - 1, 3, MP3_TEXT_COLOR);
+    gfx->fillRoundRect(segmentX, newPeakY, segmentW, segmentH - 3, 3, MP3_VU_PEAK);
+    gfx->drawRoundRect(segmentX - 1, newPeakY - 1, segmentW + 2, segmentH - 1, 3, MP3_TEXT_COLOR);
   }
 
   // Salva stato corrente
@@ -693,209 +670,232 @@ void drawVUMeterVertical(int x, int y, int w, int h, uint8_t level, uint8_t peak
   }
 }
 
-// ================== DANCING BARS UPDATE ==================
-void updateMP3DancingBars() {
-  uint32_t now = millis();
-
-  // Aggiorna ogni 100ms
-  if (now - mp3LastDancingUpdate < 100) return;
-  mp3LastDancingUpdate = now;
-
-  bool isActive = mp3Player.playing && !mp3Player.paused;
-
-  if (isActive) {
-    // Genera altezze casuali per ogni barra
-    for (int i = 0; i < 3; i++) {
-      mp3DancingBars[i] = random(4, 20);
-    }
-  } else {
-    // Quando non in play, barre a zero
-    for (int i = 0; i < 3; i++) {
-      mp3DancingBars[i] = 0;
-    }
-  }
-}
 
 // ================== HELPER BOTTONE MODERNO ==================
 void drawMP3ModernButton(int bx, int by, int bw, int bh, bool active, uint16_t activeColor) {
-  Arduino_GFX* g = MP3_GFX;
-  // Sfondo scuro
+  // Ombra
+  gfx->fillRoundRect(bx + 2, by + 2, bw, bh, 12, MP3_BUTTON_SHADOW);
+  // Sfondo
   uint16_t bgColor = active ? activeColor : MP3_BUTTON_COLOR;
-  g->fillRoundRect(bx, by, bw, bh, 8, bgColor);
-  // Bordo ciano
-  g->drawRoundRect(bx, by, bw, bh, 8, MP3_ACCENT_COLOR);
+  gfx->fillRoundRect(bx, by, bw, bh, 12, bgColor);
+  // Bordo esterno
+  uint16_t borderColor = active ? activeColor : MP3_BUTTON_BORDER;
+  gfx->drawRoundRect(bx, by, bw, bh, 12, borderColor);
+  // Highlight interno superiore (effetto 3D)
+  if (!active) {
+    gfx->drawFastHLine(bx + 8, by + 4, bw - 16, MP3_BUTTON_HOVER);
+  }
 }
 
 // ================== DISEGNA CONTROLLI - DESIGN MODERNO ==================
 void drawMP3Controls() {
-  Arduino_GFX* g = MP3_GFX;
   int centerX = 240;
   int btnY = CONTROLS_Y;
-  int btnW = 58;
-  int btnH = 48;
-  int spacing = 12;
 
   // Calcola posizioni pulsanti (4 pulsanti: prev, stop, play/pause, next)
-  int totalWidth = 4 * btnW + 3 * spacing;
+  int totalWidth = 4 * BTN_SIZE + 3 * BTN_SPACING;
   int startX = centerX - totalWidth / 2;
 
-  // Pulsante PREV (|<) - triangolo punta a SINISTRA
+  // Pulsante PREV (<<)
   int prevX = startX;
-  drawMP3ModernButton(prevX, btnY, btnW, btnH, false, 0);
-  int cx = prevX + btnW / 2;
-  int cy = btnY + btnH / 2;
-  // Linea verticale a sinistra + triangolo che punta a sinistra
-  g->fillRect(cx - 12, cy - 10, 3, 20, MP3_TEXT_COLOR);
-  g->fillTriangle(cx - 6, cy, cx + 10, cy - 10, cx + 10, cy + 10, MP3_TEXT_COLOR);
+  drawMP3ModernButton(prevX, btnY, BTN_SIZE, BTN_SIZE, false, 0);
+  // Icona freccia doppia sinistra
+  int cx = prevX + BTN_SIZE / 2;
+  int cy = btnY + BTN_SIZE / 2;
+  gfx->fillTriangle(cx - 5, cy, cx + 5, cy - 10, cx + 5, cy + 10, MP3_ACCENT_COLOR);
+  gfx->fillTriangle(cx - 15, cy, cx - 5, cy - 10, cx - 5, cy + 10, MP3_ACCENT_COLOR);
 
-  // Pulsante STOP (quadrato)
-  int stopX = startX + btnW + spacing;
-  drawMP3ModernButton(stopX, btnY, btnW, btnH, false, 0);
-  cx = stopX + btnW / 2;
-  cy = btnY + btnH / 2;
-  // Icona stop (quadrato bianco)
-  g->fillRect(cx - 8, cy - 8, 16, 16, MP3_TEXT_COLOR);
+  // Pulsante STOP
+  int stopX = startX + BTN_SIZE + BTN_SPACING;
+  drawMP3ModernButton(stopX, btnY, BTN_SIZE, BTN_SIZE, false, 0);
+  // Icona stop (quadrato)
+  cx = stopX + BTN_SIZE / 2;
+  cy = btnY + BTN_SIZE / 2;
+  gfx->fillRoundRect(cx - 10, cy - 10, 20, 20, 3, MP3_STOP_COLOR);
 
-  // Pulsante PLAY/PAUSE (centrale)
-  int playX = startX + 2 * (btnW + spacing);
+  // Pulsante PLAY/PAUSE (centrale - più grande)
+  int playX = startX + 2 * (BTN_SIZE + BTN_SPACING);
+  int playBtnW = BTN_SIZE + 4;
   bool isPlaying = mp3Player.playing && !mp3Player.paused;
   uint16_t playColor = isPlaying ? MP3_PAUSE_COLOR : MP3_PLAY_COLOR;
-  drawMP3ModernButton(playX, btnY, btnW, btnH, true, playColor);
-  cx = playX + btnW / 2;
-  cy = btnY + btnH / 2;
+  drawMP3ModernButton(playX - 2, btnY - 3, playBtnW, BTN_SIZE + 6, true, playColor);
+
+  cx = playX + BTN_SIZE / 2;
+  cy = btnY + BTN_SIZE / 2;
   if (isPlaying) {
     // Icona pausa ||
-    g->fillRect(cx - 10, cy - 10, 6, 20, MP3_TEXT_COLOR);
-    g->fillRect(cx + 4, cy - 10, 6, 20, MP3_TEXT_COLOR);
+    gfx->fillRoundRect(cx - 12, cy - 12, 8, 24, 2, MP3_TEXT_COLOR);
+    gfx->fillRoundRect(cx + 4, cy - 12, 8, 24, 2, MP3_TEXT_COLOR);
   } else {
     // Icona play (triangolo)
-    g->fillTriangle(cx - 8, cy - 12, cx - 8, cy + 12, cx + 12, cy, MP3_TEXT_COLOR);
+    gfx->fillTriangle(cx - 8, cy - 14, cx - 8, cy + 14, cx + 14, cy, MP3_TEXT_COLOR);
   }
 
-  // Pulsante NEXT (>|) - triangolo punta a DESTRA
-  int nextX = startX + 3 * (btnW + spacing);
-  drawMP3ModernButton(nextX, btnY, btnW, btnH, false, 0);
-  cx = nextX + btnW / 2;
-  cy = btnY + btnH / 2;
-  // Triangolo che punta a destra + linea verticale a destra
-  g->fillTriangle(cx + 6, cy, cx - 10, cy - 10, cx - 10, cy + 10, MP3_TEXT_COLOR);
-  g->fillRect(cx + 9, cy - 10, 3, 20, MP3_TEXT_COLOR);
+  // Pulsante NEXT (>>)
+  int nextX = startX + 3 * (BTN_SIZE + BTN_SPACING);
+  drawMP3ModernButton(nextX, btnY, BTN_SIZE, BTN_SIZE, false, 0);
+  // Icona freccia doppia destra
+  cx = nextX + BTN_SIZE / 2;
+  cy = btnY + BTN_SIZE / 2;
+  gfx->fillTriangle(cx + 5, cy, cx - 5, cy - 10, cx - 5, cy + 10, MP3_ACCENT_COLOR);
+  gfx->fillTriangle(cx + 15, cy, cx + 5, cy - 10, cx + 5, cy + 10, MP3_ACCENT_COLOR);
 }
 
 // ================== DISEGNA BARRA VOLUME - DESIGN MODERNO ==================
+// ================== DISEGNA BARRA VOLUME - DESIGN MODERNO ==================
 void drawMP3VolumeBar() {
-  Arduino_GFX* g = MP3_GFX;
   int barX = 95;
-  int barW = 260;
-  int barH = 28;
+  int barW = 280; // Ridotto da 290 a 280 per non sbordare nel VU Meter destro
+  int barH = 30; // Altezza fissa per le tacchette
   int y = VOLUME_BAR_Y;
+  int numSteps = 21; // Numero di tacchette
 
-  // Sfondo barra nero con bordo ciano
-  g->fillRoundRect(barX, y + 4, barW, barH, 6, MP3_BG_DARK);
-  g->drawRoundRect(barX, y + 4, barW, barH, 6, MP3_ACCENT_COLOR);
+  // 1. PULIZIA AREA (Larghezza ricalcolata per non toccare i VU Meter laterali)
+  gfx->fillRect(barX - 45, y - 5, barW + 82, barH + 10, MP3_BG_COLOR);
 
-  // Barra di riempimento ciano solido
-  int fillW = map(mp3Player.volume, 0, 100, 0, barW - 6);
-  if (fillW > 0) {
-    g->fillRoundRect(barX + 3, y + 7, fillW, barH - 6, 4, MP3_ACCENT_COLOR);
+  // 2. ICONA SPEAKER (Stile Web Radio)
+  int spkX = barX - 35;
+  int spkY = y + (barH / 2);
+  gfx->fillRect(spkX, spkY - 4, 5, 8, MP3_ACCENT_COLOR);
+  gfx->fillTriangle(spkX + 5, spkY - 8, spkX + 5, spkY + 8, spkX + 12, spkY, MP3_ACCENT_COLOR);
+  gfx->drawFastVLine(spkX + 15, spkY - 3, 6, MP3_ACCENT_COLOR);
+  gfx->drawFastVLine(spkX + 18, spkY - 6, 12, MP3_ACCENT_COLOR);
+
+  // 3. DISEGNO TACCHETTE
+  // Converte il volume 0-100 nel numero di tacchette 0-21
+  int activeSteps = map(mp3Player.volume, 0, 100, 0, numSteps);
+  int spacing = barW / numSteps;
+
+  for (int i = 1; i <= numSteps; i++) {
+    int tickH = map(i, 1, numSteps, 4, barH); // Tacchette che crescono in altezza
+    int tickX = barX + (i - 1) * spacing;
+    int tickY = y + barH - tickH;
+
+    uint16_t color = (i <= activeSteps) ? MP3_ACCENT_COLOR : MP3_BG_CARD;
+    gfx->fillRect(tickX, tickY, 3, tickH, color);
   }
 
-  // Valore percentuale a destra
-  int valX = barX + barW + 12;
-  g->setFont(u8g2_font_helvB14_tr);
-  g->setTextColor(MP3_ACCENT_COLOR);
-  String volStr = String(mp3Player.volume) + "%";
-  g->setCursor(valX, y + 24);
-  g->print(volStr);
+  // 4. VALORE NUMERICO
+  int valX = barX + barW + 10;
+  gfx->setFont(u8g2_font_helvB14_tr);
+  gfx->setTextColor(MP3_ACCENT_COLOR);
+  
+  String volStr = String(mp3Player.volume);
+  // Allineamento ottimizzato per 1, 2 o 3 cifre per evitare di toccare il VU meter
+  int textOffset = (mp3Player.volume < 10) ? 10 : (mp3Player.volume == 100 ? -5 : 0);
+  gfx->setCursor(valX + textOffset, y + barH - 2);
+  gfx->print(volStr);
 }
 
 // ================== DISEGNA PULSANTE MODALITA' - SINGOLO/TUTTI ==================
 void drawMP3ModeButton() {
-  Arduino_GFX* g = MP3_GFX;
-  int btnW = 280;
+  int btnW = 280; // Ripristinato larghezza originale
   int btnX = 240 - btnW / 2;
-  int y = MODE_BTN_Y;
+  int y = 360;    // Posizionato sotto l'area dove ora metterai i tasti Volume
 
-  // Sfondo scuro con bordo ciano
-  g->fillRoundRect(btnX, y, btnW, MODE_BTN_H, 8, MP3_BG_CARD);
-  g->drawRoundRect(btnX, y, btnW, MODE_BTN_H, 8, MP3_ACCENT_COLOR);
+  // Ombra
+  gfx->fillRoundRect(btnX + 2, y + 2, btnW, MODE_BTN_H, 12, MP3_BUTTON_SHADOW);
+
+  // Sfondo pulsante
+  uint16_t bgColor = mp3Player.playAll ? MP3_PLAY_COLOR : MP3_ACCENT_DARK;
+  gfx->fillRoundRect(btnX, y, btnW, MODE_BTN_H, 12, bgColor);
+
+  // Bordo
+  gfx->drawRoundRect(btnX, y, btnW, MODE_BTN_H, 12, mp3Player.playAll ? 0x2FE4 : MP3_ACCENT_COLOR);
+
+  // Highlight superiore
+  gfx->drawFastHLine(btnX + 10, y + 3, btnW - 20, mp3Player.playAll ? 0x5FE0 : MP3_ACCENT_GLOW);
 
   // Icona e testo
-  g->setFont(u8g2_font_helvB14_tr);
-  g->setTextColor(MP3_TEXT_COLOR);
+  gfx->setFont(u8g2_font_helvB14_tr);
+  gfx->setTextColor(MP3_TEXT_COLOR);
 
   if (mp3Player.playAll) {
-    // Icona repeat all
+    // Icona repeat all (due frecce circolari)
     int iconX = btnX + 25;
     int iconY = y + MODE_BTN_H / 2;
-    g->drawCircle(iconX, iconY, 8, MP3_ACCENT_COLOR);
-    g->fillTriangle(iconX + 6, iconY - 2, iconX + 6, iconY + 4, iconX + 12, iconY + 1, MP3_ACCENT_COLOR);
+    gfx->drawCircle(iconX, iconY, 8, MP3_TEXT_COLOR);
+    gfx->fillTriangle(iconX + 6, iconY - 2, iconX + 6, iconY + 4, iconX + 12, iconY + 1, MP3_TEXT_COLOR);
 
-    g->setCursor(btnX + 55, y + 28);
-    g->print("TUTTI I BRANI");
+    gfx->setCursor(btnX + 55, y + 28);
+    gfx->print("TUTTI I BRANI");
   } else {
     // Icona singolo (nota musicale)
     int iconX = btnX + 25;
     int iconY = y + MODE_BTN_H / 2;
-    g->fillCircle(iconX, iconY + 4, 5, MP3_ACCENT_COLOR);
-    g->fillRect(iconX + 3, iconY - 8, 2, 14, MP3_ACCENT_COLOR);
+    gfx->fillCircle(iconX, iconY + 4, 5, MP3_TEXT_COLOR);
+    gfx->fillRect(iconX + 3, iconY - 8, 2, 14, MP3_TEXT_COLOR);
 
-    g->setCursor(btnX + 55, y + 28);
-    g->print("SINGOLO BRANO");
+    gfx->setCursor(btnX + 55, y + 28);
+    gfx->print("SINGOLO BRANO");
   }
 
-  // Indicatore stato a destra (verde se attivo)
+  // Indicatore stato a destra
   int indX = btnX + btnW - 35;
   int indY = y + MODE_BTN_H / 2;
-  g->fillCircle(indX, indY, 8, mp3Player.playAll ? MP3_PLAY_COLOR : MP3_TEXT_MUTED);
+  gfx->fillCircle(indX, indY, 8, mp3Player.playAll ? MP3_PLAY_COLOR : MP3_TEXT_MUTED);
+  gfx->drawCircle(indX, indY, 10, MP3_TEXT_COLOR);
 }
 
 // ================== DISEGNA TASTO USCITA - DESIGN MODERNO ==================
 void drawMP3ExitButton() {
-  Arduino_GFX* g = MP3_GFX;
-  int btnW = 100;
-  int btnH = 38;
+  int btnW = 140;
   int btnX = 240 - btnW / 2;
   int y = EXIT_BTN_Y;
 
-  // Sfondo arancione/rosso
-  g->fillRoundRect(btnX, y, btnW, btnH, 8, 0xFB20);  // Arancione
+  // Ombra profonda
+  gfx->fillRoundRect(btnX + 3, y + 3, btnW, EXIT_BTN_H, 14, 0x4000);
 
-  // Testo EXIT centrato
-  g->setFont(u8g2_font_helvB14_tr);
-  g->setTextColor(MP3_TEXT_COLOR);
-  g->setCursor(btnX + 30, y + 26);
-  g->print("EXIT");
+  // Sfondo gradiente rosso (simulato)
+  gfx->fillRoundRect(btnX, y, btnW, EXIT_BTN_H, 14, 0xC000);
+  gfx->fillRoundRect(btnX + 4, y + 4, btnW - 8, EXIT_BTN_H - 16, 10, 0xF800);
+
+  // Bordo
+  gfx->drawRoundRect(btnX, y, btnW, EXIT_BTN_H, 14, 0x7800);
+
+  // Highlight superiore
+  gfx->drawFastHLine(btnX + 15, y + 4, btnW - 30, 0xFC00);
+
+  // Icona X
+  int iconX = btnX + 25;
+  int iconY = y + EXIT_BTN_H / 2;
+  gfx->drawLine(iconX - 6, iconY - 6, iconX + 6, iconY + 6, MP3_TEXT_COLOR);
+  gfx->drawLine(iconX - 6, iconY + 6, iconX + 6, iconY - 6, MP3_TEXT_COLOR);
+  gfx->drawLine(iconX - 5, iconY - 6, iconX + 7, iconY + 6, MP3_TEXT_COLOR);
+  gfx->drawLine(iconX - 5, iconY + 6, iconX + 7, iconY - 6, MP3_TEXT_COLOR);
+
+  // Testo EXIT
+  gfx->setFont(u8g2_font_helvB18_tr);
+  gfx->setTextColor(MP3_TEXT_COLOR);
+  gfx->setCursor(btnX + 48, y + 32);
+  gfx->print("EXIT");
 }
 
 // ================== GESTIONE TOUCH ==================
 bool handleMP3PlayerTouch(int16_t x, int16_t y) {
   if (!mp3Player.initialized) return false;
 
-  // Area tasto ESCI (btnW=100, centrato)
-  int exitBtnW = 100;
-  int exitBtnH = 38;
+  // Area tasto ESCI (btnW=140, centrato)
+  int exitBtnW = 140;
   int exitBtnX = 240 - exitBtnW / 2;
-  if (y >= EXIT_BTN_Y && y <= EXIT_BTN_Y + exitBtnH) {
+  if (y >= EXIT_BTN_Y && y <= EXIT_BTN_Y + EXIT_BTN_H) {
     if (x >= exitBtnX && x <= exitBtnX + exitBtnW) {
       Serial.println("[MP3] Tasto ESCI premuto");
       stopMP3Track();
+      saveMP3PlayerSettings();
       cleanupMP3Player();
       return true;  // Segnala di uscire dalla modalita'
     }
   }
 
   // Area controlli
-  int btnW = 58;
-  int btnH = 48;
-  int spacing = 12;
-  if (y >= CONTROLS_Y && y <= CONTROLS_Y + btnH + 6) {
+  if (y >= CONTROLS_Y && y <= CONTROLS_Y + BTN_SIZE + 6) {
     int centerX = 240;
-    int totalWidth = 4 * btnW + 3 * spacing;
+    int totalWidth = 4 * BTN_SIZE + 3 * BTN_SPACING;
     int startX = centerX - totalWidth / 2;
 
     // PREV
-    if (x >= startX && x <= startX + btnW) {
+    if (x >= startX && x <= startX + BTN_SIZE) {
       Serial.println("[MP3] Tasto PREV premuto");
       prevMP3Track();
       // NO playTouchSound() - interferirebbe con la riproduzione MP3
@@ -903,8 +903,8 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y) {
     }
 
     // STOP
-    int stopX = startX + btnW + spacing;
-    if (x >= stopX && x <= stopX + btnW) {
+    int stopX = startX + BTN_SIZE + BTN_SPACING;
+    if (x >= stopX && x <= stopX + BTN_SIZE) {
       Serial.println("[MP3] Tasto STOP premuto");
       stopMP3Track();
       // NO playTouchSound() - interferirebbe con la riproduzione MP3
@@ -913,8 +913,8 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y) {
     }
 
     // PLAY/PAUSE - debounce lungo per evitare tocchi multipli
-    int playX = startX + 2 * (btnW + spacing);
-    if (x >= playX && x <= playX + btnW) {
+    int playX = startX + 2 * (BTN_SIZE + BTN_SPACING);
+    if (x >= playX && x <= playX + BTN_SIZE) {
       static uint32_t lastPlayPauseTouch = 0;
       uint32_t now = millis();
       if (now - lastPlayPauseTouch < 700) {
@@ -939,19 +939,56 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y) {
     }
 
     // NEXT
-    int nextX = startX + 3 * (btnW + spacing);
-    if (x >= nextX && x <= nextX + btnW) {
+    int nextX = startX + 3 * (BTN_SIZE + BTN_SPACING);
+    if (x >= nextX && x <= nextX + BTN_SIZE) {
       Serial.println("[MP3] Tasto NEXT premuto");
       nextMP3Track();
       // NO playTouchSound() - interferirebbe con la riproduzione MP3
       return false;
     }
   }
+    int volStep = 5; // Corrisponde a una tacchetta della barra da 21 step
+
+    // Area VOL - (Sinistra del selettore)
+    if (x > 40 && x < 120 && y > 300 && y < 350) {
+        if (mp3Player.volume >= volStep) {
+            mp3Player.volume -= volStep;
+        } else {
+            mp3Player.volume = 0;
+        }
+       #ifdef AUDIO
+        extern Audio audio;
+        // Sincronizza l'hardware: mappa il volume 0-100 sulla scala 0-21
+        audio.setVolume(map(mp3Player.volume, 0, 100, 0, 21));
+        #endif
+
+        Serial.printf("[MP3] Volume ridotto a %d%%\n", mp3Player.volume);
+        mp3VolumeNeedsRedraw = true;
+        return false;
+    }
+
+    // Area VOL + (Destra del selettore)
+    if (x > 360 && x < 440 && y > 300 && y < 350) {
+        if (mp3Player.volume <= (100 - volStep)) {
+            mp3Player.volume += volStep;
+        } else {
+            mp3Player.volume = 100;
+        }
+        #ifdef AUDIO
+        extern Audio audio;
+        // Sincronizza l'hardware: mappa il volume 0-100 sulla scala 0-21
+        audio.setVolume(map(mp3Player.volume, 0, 100, 0, 21));
+        #endif
+
+        Serial.printf("[MP3] Volume aumentato a %d%%\n", mp3Player.volume);
+        mp3VolumeNeedsRedraw = true;
+        return false;
+    }
 
   // Area barra volume (touch diretto)
   int volBarX = 95;
-  int volBarW = 260;
-  if (y >= VOLUME_BAR_Y && y <= VOLUME_BAR_Y + 36) {
+  int volBarW = 290;
+  if (y >= VOLUME_BAR_Y && y <= VOLUME_BAR_Y + VOLUME_BAR_H) {
     if (x >= volBarX && x <= volBarX + volBarW) {
       // Calcola nuovo volume dalla posizione X (0-100)
       int newVol = map(x - volBarX, 0, volBarW, 0, 100);
@@ -962,23 +999,24 @@ bool handleMP3PlayerTouch(int16_t x, int16_t y) {
         extern Audio audio;
         audio.setVolume(map(mp3Player.volume, 0, 100, 0, 21));  // Converte 0-100 a 0-21
         #endif
-        saveMP3PlayerSettings();
+        //saveMP3PlayerSettings();
         Serial.printf("[MP3] Volume impostato a %d%%\n", mp3Player.volume);
-        mp3Player.needsRedraw = true;
+        mp3VolumeNeedsRedraw = true;
       }
       return false;
     }
   }
 
-  // Area pulsante modalita' (SINGOLO/TUTTI)
+// Area pulsante modalita' (SINGOLO/TUTTI)
   int modeBtnW = 280;
   int modeBtnX = 240 - modeBtnW / 2;
-  if (y >= MODE_BTN_Y && y <= MODE_BTN_Y + MODE_BTN_H) {
+  int targetY = 360; // La nuova coordinata Y che abbiamo scelto
+  if (y >= targetY && y <= targetY + MODE_BTN_H) {
     if (x >= modeBtnX && x <= modeBtnX + modeBtnW) {
       // Toggle modalita'
       mp3Player.playAll = !mp3Player.playAll;
       Serial.printf("[MP3] Modalita' cambiata: %s\n", mp3Player.playAll ? "TUTTI I BRANI" : "SINGOLO BRANO");
-      saveMP3PlayerSettings();
+      //saveMP3PlayerSettings();
       mp3Player.needsRedraw = true;
       return false;
     }
@@ -1042,7 +1080,7 @@ void playMP3Track(int index) {
   mp3Player.playing = true;
   mp3Player.paused = false;
   isPlaying = true;
-  saveMP3PlayerSettings();
+  //saveMP3PlayerSettings();
   mp3Player.needsRedraw = true;
   #endif
 }
@@ -1063,7 +1101,7 @@ void stopMP3Track() {
   mp3Player.vuRight = 0;
   mp3Player.vuPeakLeft = 0;
   mp3Player.vuPeakRight = 0;
-  saveMP3PlayerSettings();
+  //saveMP3PlayerSettings();
 
   // Riprendi web radio se era attiva
   if (webRadioEnabled) {
@@ -1083,7 +1121,7 @@ void pauseMP3Track() {
   if (mp3Player.playing && !mp3Player.paused) {
     audio.pauseResume();  // Audio.h supporta pause nativo
     mp3Player.paused = true;
-    saveMP3PlayerSettings();
+    //saveMP3PlayerSettings();
     Serial.println("[MP3] Riproduzione in pausa");
   }
   #endif
@@ -1095,7 +1133,7 @@ void resumeMP3Track() {
   if (mp3Player.paused) {
     audio.pauseResume();
     mp3Player.paused = false;
-    saveMP3PlayerSettings();
+    //saveMP3PlayerSettings();
     Serial.println("[MP3] Riproduzione ripresa");
   }
   #endif
@@ -1206,17 +1244,14 @@ void updateMP3VUMeters() {
 // Variabili statiche per throttling display
 static uint32_t lastDisplayUpdate = 0;
 static uint32_t lastVUUpdate = 0;
-#define DISPLAY_UPDATE_INTERVAL 200   // Aggiorna display ogni 200ms
+#define DISPLAY_UPDATE_INTERVAL 500   // Aggiorna display ogni 200ms
 #define VU_UPDATE_INTERVAL 80         // Aggiorna VU ogni 80ms
 
 void updateMP3Player() {
-  // Traccia ultimo modo per forzare ridisegno al rientro
   static int lastActiveMode = -1;
-
-  // Forza ridisegno quando si entra nella modalità da un'altra
   if (lastActiveMode != MODE_MP3_PLAYER) {
     mp3Player.needsRedraw = true;
-    mp3Player.initialized = false;  // Re-inizializza
+    mp3Player.initialized = false;
   }
   lastActiveMode = currentMode;
 
@@ -1227,151 +1262,115 @@ void updateMP3Player() {
 
   uint32_t now = millis();
 
-  #ifdef AUDIO
-  extern Audio audio;
-
-  // ========== GESTIONE FINE TRACCIA ==========
-  // Controlla se una traccia e' appena terminata (flag impostato da audio_eof_mp3)
-  if (mp3Player.trackEnded) {
-    mp3Player.trackEnded = false;
-
-    if (mp3Player.playAll) {
-      // Modalita' "Tutti i brani": passa automaticamente alla traccia successiva
-      Serial.println("[MP3] Traccia terminata - passo alla prossima (modalita' TUTTI)");
-      nextMP3Track();
-      if (mp3Player.totalTracks > 0) {
-        playMP3Track(mp3Player.currentTrack);
+  // 1. GESTIONE SCROLL (Deve essere fuori dai blocchi if playing/paused)
+  // Lo facciamo ogni 500ms come hai richiesto
+  static uint32_t lastScrollTime = 0;
+  if (now - lastScrollTime >= 500) { 
+    if (mp3Player.totalTracks > 0) {
+      String title = String(mp3Player.tracks[mp3Player.currentTrack].title);
+      // Se il titolo è lungo, sposta l'offset e ridisegna la preview
+      if (title.length() > 20) {
+        mp3Player.scrollOffset++;
+        if (mp3Player.scrollOffset > (int)(title.length() - 15)) {
+          mp3Player.scrollOffset = 0;
+        }
+        drawMP3Preview(); // Aggiorna il titolo che scorre
       }
-    } else {
-      // Modalita' "Singolo brano": fermati
-      Serial.println("[MP3] Traccia terminata - stop (modalita' SINGOLO)");
-      mp3Player.needsRedraw = true;
     }
-    return;
+    lastScrollTime = now;
   }
 
-  // ========== GESTIONE RIPRODUZIONE AUDIO ==========
-  if (mp3Player.playing && !mp3Player.paused) {
-    // audio.loop() e' chiamato da audioTask - qui controlliamo solo stato
-    if (!audio.isRunning() && !mp3Player.paused) {
-      // Traccia terminata - il flag trackEnded dovrebbe gia' essere impostato
-      // Questo e' un fallback di sicurezza
-      mp3Player.trackEnded = true;
-      return;
+  // 2. GESTIONE AUDIO (EOF e Track Ended)
+  #ifdef AUDIO
+  extern Audio audio;
+  if (mp3Player.trackEnded) {
+    mp3Player.trackEnded = false;
+    if (mp3Player.playAll) {
+      nextMP3Track();
+      if (mp3Player.totalTracks > 0) playMP3Track(mp3Player.currentTrack);
+    } else {
+      mp3Player.needsRedraw = true;
     }
-
-    // Touch per controlli durante riproduzione
-    ts.read();
-    if (ts.isTouched) {
-      static uint32_t lastTouchPlay = 0;
-      if (now - lastTouchPlay > 500) {  // Aumentato da 400 a 500ms
-        int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
-        int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
-        if (handleMP3PlayerTouch(x, y)) {
-          // Passa alla modalità successiva nel ciclo (non direttamente a FADE)
-          handleModeChange();
-          return;
-        }
-        lastTouchPlay = now;
-      }
-    }
-
-    // Ridisegna UI se necessario
-    if (mp3Player.needsRedraw) {
-      drawMP3PlayerUI();
-      mp3Player.needsRedraw = false;
-    }
-
-    // Aggiorna VU meters e dancing bars durante riproduzione
-    static uint32_t lastVUUpdatePlay = 0;
-    if (now - lastVUUpdatePlay >= 100) {
-      Arduino_GFX* g = MP3_GFX;
-
-      updateMP3VUMeters();
-      drawVUMeterVertical(VU_LEFT_X, VU_Y_START, VU_WIDTH, VU_HEIGHT,
-                          mp3Player.vuLeft, mp3Player.vuPeakLeft, true);
-      drawVUMeterVertical(VU_RIGHT_X, VU_Y_START, VU_WIDTH, VU_HEIGHT,
-                          mp3Player.vuRight, mp3Player.vuPeakRight, false);
-
-      // Aggiorna dancing bars e ridisegna solo quella parte
-      updateMP3DancingBars();
-      // Ridisegna area barre nel preview
-      int statusY = PREVIEW_Y + 90;
-      int centerX = PREVIEW_X + PREVIEW_W / 2;
-      g->fillRect(centerX + 53, statusY + 2, 30, 18, MP3_BG_CARD);  // Cancella area
-      for (int i = 0; i < 3; i++) {
-        int barH = mp3DancingBars[i];
-        if (barH < 4) barH = 4;
-        g->fillRoundRect(centerX + 55 + i * 8, statusY + 10 - barH / 2, 5, barH, 2, MP3_PLAY_COLOR);
-      }
-
-      // ===== FLUSH BUFFER AL DISPLAY =====
-      mp3FlushBuffer();
-
-      lastVUUpdatePlay = now;
-    }
-
-    return;
   }
   #endif
 
-  // ========== QUANDO NON IN RIPRODUZIONE ==========
+  // 3. TOUCH (Comune a tutti gli stati)
   ts.read();
   if (ts.isTouched) {
     static uint32_t lastTouch = 0;
-    if (now - lastTouch > 400) {  // Aumentato da 300 a 400ms
+    if (now - lastTouch > 400) {
       int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
       int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
-
       if (handleMP3PlayerTouch(x, y)) {
-        // Passa alla modalità successiva nel ciclo (non direttamente a FADE)
         handleModeChange();
-        return;
+        return; 
       }
       lastTouch = now;
     }
   }
 
-  // Ridisegno completo se necessario
+  // 4. RIDISEGNO COMPLETO (Solo se necessario)
   if (mp3Player.needsRedraw) {
     drawMP3PlayerUI();
-    lastDisplayUpdate = now;
-    lastVUUpdate = now;
-    return;
+    mp3Player.needsRedraw = false;
+    mp3VolumeNeedsRedraw = false;
+    // Disegniamo la preview la prima volta
+    drawMP3Preview();
   }
 
-  // Aggiorna VU meters
-  if (now - lastVUUpdate >= VU_UPDATE_INTERVAL) {
+  if (mp3VolumeNeedsRedraw) {
+    drawMP3VolumeBar();
+    mp3VolumeNeedsRedraw = false;
+  }
+
+  // 5. ANIMAZIONE SIMBOLI (Solo in Play o Pausa)
+  static uint32_t lastStatusAnim = 0;
+  if ((mp3Player.playing || mp3Player.paused) && (now - lastStatusAnim >= 50)) {
+    drawMP3StatusAnim(); // Aggiorna solo le icone che pulsano
+    lastStatusAnim = now;
+  }
+
+  // 6. VU METERS (Solo se in play)
+  static uint32_t lastVUUpdate = 0;
+  if (mp3Player.playing && !mp3Player.paused && (now - lastVUUpdate >= 100)) {
     updateMP3VUMeters();
-    drawVUMeterVertical(VU_LEFT_X, VU_Y_START, VU_WIDTH, VU_HEIGHT,
-                        mp3Player.vuLeft, mp3Player.vuPeakLeft, true);
-    drawVUMeterVertical(VU_RIGHT_X, VU_Y_START, VU_WIDTH, VU_HEIGHT,
-                        mp3Player.vuRight, mp3Player.vuPeakRight, false);
-
-    // ===== FLUSH BUFFER AL DISPLAY =====
-    mp3FlushBuffer();
-
+    drawVUMeterVertical(VU_LEFT_X, VU_Y_START, VU_WIDTH, VU_HEIGHT, mp3Player.vuLeft, mp3Player.vuPeakLeft, true);
+    drawVUMeterVertical(VU_RIGHT_X, VU_Y_START, VU_WIDTH, VU_HEIGHT, mp3Player.vuRight, mp3Player.vuPeakRight, false);
     lastVUUpdate = now;
-  }
-
-  // Aggiorna display (preview, scroll)
-  if (now - lastDisplayUpdate >= DISPLAY_UPDATE_INTERVAL) {
-    if (mp3Player.totalTracks > 0) {
-      String title = String(mp3Player.tracks[mp3Player.currentTrack].title);
-      if (title.length() > 25) {
-        mp3Player.scrollOffset++;
-        if (mp3Player.scrollOffset > (int)(title.length() - 20)) {
-          mp3Player.scrollOffset = 0;
-        }
-        drawMP3Preview();
-        // ===== FLUSH BUFFER AL DISPLAY =====
-        mp3FlushBuffer();
-      }
-    }
-    lastDisplayUpdate = now;
   }
 }
 
+void drawMP3StatusAnim() {
+  int statusY = PREVIEW_Y + 90;
+  int centerX = PREVIEW_X + PREVIEW_W / 2;
+  int iconX = centerX + 60;
+
+  float breath = 0.5 + 0.5 * sin(2.0 * 3.14159 * (millis() % 1500) / 1500.0);
+  uint8_t s = (uint8_t)(50 + 205 * breath); // Minimo 50 per non farlo sparire del tutto
+
+  // --- SOLUZIONE: NON USARE fillRect QUI! ---
+  // Se non cancelli lo sfondo, il flicker sparisce.
+  
+  if (mp3Player.playing && !mp3Player.paused) {
+    uint8_t r = (uint8_t)((MP3_PLAY_COLOR >> 11) & 0x1F);
+    uint8_t g = (uint8_t)((MP3_PLAY_COLOR >> 5) & 0x3F);
+    uint8_t b = (uint8_t)(MP3_PLAY_COLOR & 0x1F);
+    uint16_t bColor = ((uint16_t)(r * s / 255) << 11) | ((uint16_t)(g * s / 255) << 5) | ((uint16_t)(b * s / 255));
+    
+    // Disegna il triangolo direttamente. 
+    // Il nuovo colore coprirà il vecchio senza passare dal nero.
+    gfx->fillTriangle(iconX, statusY + 2, iconX, statusY + 14, iconX + 12, statusY + 8, bColor);
+  } 
+  else if (mp3Player.paused) {
+    uint8_t r = (uint8_t)((MP3_PAUSE_COLOR >> 11) & 0x1F);
+    uint8_t g = (uint8_t)((MP3_PAUSE_COLOR >> 5) & 0x3F);
+    uint8_t b = (uint8_t)(MP3_PAUSE_COLOR & 0x1F);
+    uint16_t bColor = ((uint16_t)(r * s / 255) << 11) | ((uint16_t)(g * s / 255) << 5) | ((uint16_t)(b * s / 255));
+    
+    gfx->fillRect(iconX, statusY + 2, 5, 12, bColor);
+    gfx->fillRect(iconX + 8, statusY + 2, 5, 12, bColor);
+  }
+}
 // ================== CLEANUP ==================
 void cleanupMP3Player() {
   stopMP3Track();
@@ -1617,7 +1616,7 @@ void setup_mp3player_webserver(AsyncWebServer* server) {
       else if (action == "setmode" && request->hasParam("playall")) {
         int mode = request->getParam("playall")->value().toInt();
         mp3Player.playAll = (mode == 1);
-        saveMP3PlayerSettings();
+        //saveMP3PlayerSettings();
         Serial.printf("[MP3-WEB] Modalita' cambiata: %s\n", mp3Player.playAll ? "TUTTI" : "SINGOLO");
       }
     }

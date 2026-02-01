@@ -443,7 +443,7 @@ input[type="number"] {
     <a href="/ledring" class="nav-link">LED Ring</a>
     <a href="/bttf" class="nav-link">BTTF Time Circuits</a>
     <a href="/fluxcap" class="nav-link">⚡ Flux Capacitor</a>
-    <a href="#" class="nav-link" id="espcamConfigLink" style="display:none;" target="_blank">📷 ESP-CAM Config</a>
+    <a href="/espcam" class="nav-link" id="espcamConfigLink" style="display:none;">📷 ESP-CAM Config</a>
   </div>
 
   <!-- SEZIONE RIASSUNTO STATO - LED INDICATORI (sempre aperta) -->
@@ -1374,12 +1374,12 @@ function toggleMode(modeId, enabled) {
 // Variabile globale per URL webcam
 var esp32camWebUrl = '';
 
-// Aggiorna visibilità link ESP-CAM
+// Aggiorna visibilità link ESP-CAM Config
 function updateEspCamLink() {
   var camLink = document.getElementById('espcamConfigLink');
+  if (!camLink) return;
   var espCamModeEnabled = enabledModes[19] === true; // 19 = MODE_ESP32CAM
-  if (espCamModeEnabled && esp32camWebUrl && esp32camWebUrl.length > 5) {
-    camLink.href = esp32camWebUrl;
+  if (espCamModeEnabled) {
     camLink.style.display = 'inline-block';
   } else {
     camLink.style.display = 'none';
@@ -3192,6 +3192,8 @@ let apiKeySaveTimeout = null;
 function saveApiKeys() {
   setStatus('saving', 'Salvataggio impostazioni...');
   const cityValue = document.getElementById('openweatherCity').value;
+  const cityValid = cityValue.length >= 2;
+  const wasWeatherEnabled = hasWeatherApiKey;
   const params = new URLSearchParams({
     openweatherCity: cityValue
   });
@@ -3202,12 +3204,14 @@ function saveApiKeys() {
         setStatus('online', 'Impostazioni salvate!');
         document.getElementById('apiKeysStatus').style.display = 'flex';
         document.getElementById('lastSave').textContent = 'Salvato: ' + new Date().toLocaleTimeString();
-        // Aggiorna visibilità modalità Weather in base alla città (Open-Meteo non richiede API key)
-        const cityValid = cityValue.length >= 2;
-        if (cityValid && !hasWeatherApiKey) {
-          hasWeatherApiKey = true;
-          renderModes();
+        // Aggiorna visibilità modalità Weather in base alla città
+        hasWeatherApiKey = cityValid;
+        // Se lo stato Weather è cambiato, fai refresh della pagina per aggiornare immediatamente
+        if (wasWeatherEnabled !== cityValid) {
+          setTimeout(() => location.reload(), 500);
+          return;
         }
+        renderModes();
         // Ricarica le impostazioni
         loadApiKeys();
         setTimeout(() => {
@@ -3470,8 +3474,12 @@ function refreshStatusNow() {
     .catch(err => console.error('[REFRESH] Errore:', err));
 }
 
+// Variabili globali per gestire gli interval
+let statusIntervalId = null;
+let radarIntervalId = null;
+
 function startAutoRefresh() {
-  setInterval(() => {
+  statusIntervalId = setInterval(() => {
     fetch('/settings/status')
       .then(r => r.json())
       .then(data => {
@@ -3680,13 +3688,29 @@ function startAutoRefresh() {
   }, 2000);
 
   // Check stato radar server ogni 10 secondi (se abilitato)
-  setInterval(() => {
+  radarIntervalId = setInterval(() => {
     const radarEnabled = document.getElementById('radarServerEnabled');
     if (radarEnabled && radarEnabled.checked) {
       checkRadarServerStatus();
     }
   }, 10000);
 }
+
+// Ferma gli interval quando l'utente lascia la pagina per evitare sovraccarico ESP32
+function stopAutoRefresh() {
+  if (statusIntervalId) {
+    clearInterval(statusIntervalId);
+    statusIntervalId = null;
+  }
+  if (radarIntervalId) {
+    clearInterval(radarIntervalId);
+    radarIntervalId = null;
+  }
+}
+
+// Ferma gli interval prima di navigare via dalla pagina
+window.addEventListener('beforeunload', stopAutoRefresh);
+window.addEventListener('pagehide', stopAutoRefresh);
 
 // ================== CALIBRAZIONE BME280 ==================
 function saveBME280Calibration() {

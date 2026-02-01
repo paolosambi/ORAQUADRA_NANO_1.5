@@ -15,12 +15,23 @@
 
 #ifdef EFFECT_ESP32CAM
 
+// ================== EXTERN PER GESTIONE CONNESSIONI SIMULTANEE ==================
+extern bool webRadioEnabled;
+extern void stopWebRadio();
+extern void startWebRadio();
+extern bool radarServerEnabled;
+
+// Stato salvato per ripristino dopo uscita da ESP32-CAM
+static bool esp32camSavedWebRadioState = false;
+static bool esp32camSavedRadarState = false;
+static bool esp32camServicesSuspended = false;
+
 // ================== CONFIGURAZIONE STREAMING ==================
-#define ESPCAM_JPEG_BUFFER_SIZE 120000   // Buffer per singolo frame JPEG (120KB)
+#define ESPCAM_JPEG_BUFFER_SIZE 300000   // Buffer per singolo frame JPEG (300KB) - supporta fino a 1600x1200
 #define ESPCAM_RECONNECT_DELAY 2000      // Delay tra tentativi di riconnessione (ms)
-#define ESPCAM_FRAME_TIMEOUT 5000        // Timeout per frame singolo (ms)
+#define ESPCAM_FRAME_TIMEOUT 15000       // Timeout per frame singolo (ms) - aumentato per reti lente
 #define ESPCAM_CONNECTION_TIMEOUT 10000  // Timeout connessione stream (ms)
-#define ESPCAM_READ_BUFFER_SIZE 4096     // Buffer lettura TCP (4KB)
+#define ESPCAM_READ_BUFFER_SIZE 8192     // Buffer lettura TCP (8KB) - più veloce per frame grandi
 #define ESPCAM_DISPLAY_SIZE 480          // Dimensione display (480x480)
 #define ESPCAM_FRAME_BUFFER_SIZE (ESPCAM_DISPLAY_SIZE * ESPCAM_DISPLAY_SIZE) // 480x480 pixels
 
@@ -64,6 +75,7 @@ JPEGDEC esp32camDecoder;
 
 // ================== CALLBACK JPEG CON DOUBLE BUFFER E SCALING ==================
 // Scrive i pixel nel frame buffer con scaling per fullscreen
+// Usa approccio "source-driven" per evitare gap/righe durante lo scaling
 int esp32camDrawCallbackBuffered(JPEGDRAW *pDraw) {
   if (esp32camFrameBuffer == nullptr) return 0;
 
@@ -73,29 +85,42 @@ int esp32camDrawCallbackBuffered(JPEGDRAW *pDraw) {
   int srcH = pDraw->iHeight;
 
   if (esp32camFullscreen && esp32camScale != 1.0f) {
-    // Scaling nel frame buffer
-    int dstX = (int)(srcX * esp32camScale) + esp32camOffsetX;
-    int dstY = (int)(srcY * esp32camScale) + esp32camOffsetY;
-    int dstW = (int)(srcW * esp32camScale);
-    int dstH = (int)(srcH * esp32camScale);
+    // Approccio SOURCE-DRIVEN: per ogni pixel sorgente, riempi i pixel destinazione
+    // Questo evita gap sia in upscaling che downscaling
 
-    // Clipping
-    int startDstX = (dstX < 0) ? 0 : dstX;
-    int startDstY = (dstY < 0) ? 0 : dstY;
-    int endDstX = (dstX + dstW > ESPCAM_DISPLAY_SIZE) ? ESPCAM_DISPLAY_SIZE : dstX + dstW;
-    int endDstY = (dstY + dstH > ESPCAM_DISPLAY_SIZE) ? ESPCAM_DISPLAY_SIZE : dstY + dstH;
+    for (int sy = 0; sy < srcH; sy++) {
+      // Calcola range Y destinazione per questo pixel sorgente
+      int dstY1 = (int)((srcY + sy) * esp32camScale) + esp32camOffsetY;
+      int dstY2 = (int)((srcY + sy + 1) * esp32camScale) + esp32camOffsetY;
+      if (dstY2 <= dstY1) dstY2 = dstY1 + 1;  // Almeno 1 pixel
 
-    // Scaling con nearest neighbor ottimizzato
-    for (int dy = startDstY; dy < endDstY; dy++) {
-      int sy = (int)((dy - dstY) / esp32camScale);
-      if (sy >= srcH) sy = srcH - 1;
+      // Clipping Y
+      if (dstY2 <= 0 || dstY1 >= ESPCAM_DISPLAY_SIZE) continue;
+      if (dstY1 < 0) dstY1 = 0;
+      if (dstY2 > ESPCAM_DISPLAY_SIZE) dstY2 = ESPCAM_DISPLAY_SIZE;
+
       uint16_t *srcRow = &pDraw->pPixels[sy * srcW];
-      uint16_t *dstRow = &esp32camFrameBuffer[dy * ESPCAM_DISPLAY_SIZE];
 
-      for (int dx = startDstX; dx < endDstX; dx++) {
-        int sx = (int)((dx - dstX) / esp32camScale);
-        if (sx >= srcW) sx = srcW - 1;
-        dstRow[dx] = srcRow[sx];
+      for (int sx = 0; sx < srcW; sx++) {
+        // Calcola range X destinazione per questo pixel sorgente
+        int dstX1 = (int)((srcX + sx) * esp32camScale) + esp32camOffsetX;
+        int dstX2 = (int)((srcX + sx + 1) * esp32camScale) + esp32camOffsetX;
+        if (dstX2 <= dstX1) dstX2 = dstX1 + 1;  // Almeno 1 pixel
+
+        // Clipping X
+        if (dstX2 <= 0 || dstX1 >= ESPCAM_DISPLAY_SIZE) continue;
+        if (dstX1 < 0) dstX1 = 0;
+        if (dstX2 > ESPCAM_DISPLAY_SIZE) dstX2 = ESPCAM_DISPLAY_SIZE;
+
+        uint16_t pixel = srcRow[sx];
+
+        // Riempi tutti i pixel destinazione coperti da questo pixel sorgente
+        for (int dy = dstY1; dy < dstY2; dy++) {
+          uint16_t *dstRow = &esp32camFrameBuffer[dy * ESPCAM_DISPLAY_SIZE];
+          for (int dx = dstX1; dx < dstX2; dx++) {
+            dstRow[dx] = pixel;
+          }
+        }
       }
     }
   } else {
@@ -122,6 +147,28 @@ int esp32camDrawCallbackBuffered(JPEGDRAW *pDraw) {
 // ================== INIZIALIZZAZIONE ==================
 bool initEsp32camStream() {
   Serial.println("[ESP32-CAM] Inizializzazione con DOUBLE BUFFERING...");
+
+  // ========== SOSPENDI SERVIZI CHE USANO CONNESSIONI HTTP ==========
+  // Questo libera banda WiFi e connessioni per lo streaming video
+  if (!esp32camServicesSuspended) {
+    // Salva stato Web Radio
+    esp32camSavedWebRadioState = webRadioEnabled;
+    if (webRadioEnabled) {
+      Serial.println("[ESP32-CAM] Sospendo Web Radio per liberare banda...");
+      stopWebRadio();
+      delay(100);  // Attendi chiusura connessione
+    }
+
+    // Salva stato Radar Remote
+    esp32camSavedRadarState = radarServerEnabled;
+    if (radarServerEnabled) {
+      Serial.println("[ESP32-CAM] Sospendo Radar Remote...");
+      radarServerEnabled = false;  // Disabilita temporaneamente
+    }
+
+    esp32camServicesSuspended = true;
+    Serial.println("[ESP32-CAM] Servizi sospesi - connessioni liberate");
+  }
 
   // Alloca buffer JPEG in PSRAM
   if (esp32camJpegBuffer == nullptr) {
@@ -173,9 +220,15 @@ bool initEsp32camStream() {
 bool connectEsp32camStream() {
   Serial.printf("[ESP32-CAM] Connessione a: %s\n", esp32camStreamUrl.c_str());
 
+  // Chiudi eventuali connessioni precedenti per evitare errore "already connected"
+  esp32camHttp.end();
+  esp32camWifiClient.stop();
+  delay(100);  // Piccola pausa per assicurare chiusura completa
+
   // Configura HTTPClient
   esp32camHttp.begin(esp32camWifiClient, esp32camStreamUrl);
   esp32camHttp.setTimeout(ESPCAM_CONNECTION_TIMEOUT);
+  esp32camHttp.setReuse(false);  // Non riusare connessioni - evita errore -2
 
   // Aggiungi header per raccogliere Content-Type
   const char* headerKeys[] = {"Content-Type"};
@@ -203,11 +256,10 @@ bool connectEsp32camStream() {
 
 // ================== DISCONNESSIONE STREAM ==================
 void disconnectEsp32camStream() {
-  if (esp32camStreaming) {
-    esp32camHttp.end();
-    esp32camStreaming = false;
-    Serial.println("[ESP32-CAM] Stream disconnesso");
-  }
+  esp32camHttp.end();
+  esp32camWifiClient.stop();
+  esp32camStreaming = false;
+  Serial.println("[ESP32-CAM] Stream disconnesso");
 }
 
 // ================== LETTURA FRAME MJPEG ==================
@@ -274,6 +326,9 @@ int readEsp32camFrame() {
   return 0;  // Timeout o frame incompleto
 }
 
+// Variabile per scaling hardware del decoder
+static int esp32camHwScale = 0;  // 0=none, JPEG_SCALE_HALF, JPEG_SCALE_QUARTER, JPEG_SCALE_EIGHTH
+
 // ================== DECODIFICA E VISUALIZZA FRAME CON DOUBLE BUFFER ==================
 bool decodeAndDisplayEsp32camFrame(uint8_t* jpegData, int jpegSize) {
   if (esp32camFrameBuffer == nullptr) return false;
@@ -283,7 +338,7 @@ bool decodeAndDisplayEsp32camFrame(uint8_t* jpegData, int jpegSize) {
     return false;
   }
 
-  // Ottieni dimensioni immagine
+  // Ottieni dimensioni immagine ORIGINALI
   int imgWidth = esp32camDecoder.getWidth();
   int imgHeight = esp32camDecoder.getHeight();
 
@@ -292,8 +347,41 @@ bool decodeAndDisplayEsp32camFrame(uint8_t* jpegData, int jpegSize) {
     esp32camImageWidth = imgWidth;
     esp32camImageHeight = imgHeight;
 
+    // ========== CALCOLA SCALING HARDWARE OTTIMALE ==========
+    // Strategia: scalare HW fino ad avere un'immagine <= 480 su almeno un lato
+    // Poi fare UPSCALING software (che non salta pixel e non crea righe)
+    int maxDim = max(imgWidth, imgHeight);
+
+    if (maxDim > 1600) {
+      // Per risoluzioni molto alte (es. 1920x1080): scala 1/4
+      esp32camHwScale = JPEG_SCALE_QUARTER;
+      imgWidth /= 4;
+      imgHeight /= 4;
+      Serial.printf("[ESP32-CAM] Usando HW scale 1/4: %dx%d -> %dx%d\n",
+                    esp32camImageWidth, esp32camImageHeight, imgWidth, imgHeight);
+    } else if (maxDim > 960) {
+      // Per 1600x1200, 1280x720, 1024x768: scala 1/4 -> risultato ~400x300
+      // L'upscaling a 480 è più pulito del downscaling
+      esp32camHwScale = JPEG_SCALE_QUARTER;
+      imgWidth /= 4;
+      imgHeight /= 4;
+      Serial.printf("[ESP32-CAM] Usando HW scale 1/4: %dx%d -> %dx%d\n",
+                    esp32camImageWidth, esp32camImageHeight, imgWidth, imgHeight);
+    } else if (maxDim > 640) {
+      // Per 800x600, 640x480: scala 1/2 -> risultato ~400x300
+      esp32camHwScale = JPEG_SCALE_HALF;
+      imgWidth /= 2;
+      imgHeight /= 2;
+      Serial.printf("[ESP32-CAM] Usando HW scale 1/2: %dx%d -> %dx%d\n",
+                    esp32camImageWidth, esp32camImageHeight, imgWidth, imgHeight);
+    } else {
+      // Per risoluzioni <= 640: nessuno scaling hardware
+      esp32camHwScale = 0;
+    }
+
     if (esp32camFullscreen && (imgWidth != ESPCAM_DISPLAY_SIZE || imgHeight != ESPCAM_DISPLAY_SIZE)) {
-      // Calcola scala per riempire il display (fill, non fit)
+      // Calcola scala SOFTWARE per riempire il display (fill, non fit)
+      // Ora imgWidth/imgHeight sono già scalati dall'HW
       float scaleX = (float)ESPCAM_DISPLAY_SIZE / imgWidth;
       float scaleY = (float)ESPCAM_DISPLAY_SIZE / imgHeight;
       // Usa la scala maggiore per riempire tutto (crop ai bordi)
@@ -305,13 +393,13 @@ bool decodeAndDisplayEsp32camFrame(uint8_t* jpegData, int jpegSize) {
       esp32camOffsetX = (ESPCAM_DISPLAY_SIZE - scaledW) / 2;
       esp32camOffsetY = (ESPCAM_DISPLAY_SIZE - scaledH) / 2;
 
-      Serial.printf("[ESP32-CAM] Immagine %dx%d -> scala %.2f, offset (%d,%d)\n",
-                    imgWidth, imgHeight, esp32camScale, esp32camOffsetX, esp32camOffsetY);
+      Serial.printf("[ESP32-CAM] Immagine %dx%d (HW:%d) -> SW scala %.2f, offset (%d,%d)\n",
+                    imgWidth, imgHeight, esp32camHwScale, esp32camScale, esp32camOffsetX, esp32camOffsetY);
 
       // Pulisci il frame buffer quando cambiano le dimensioni
       memset(esp32camFrameBuffer, 0, ESPCAM_FRAME_BUFFER_SIZE * sizeof(uint16_t));
     } else {
-      // Nessuno scaling, centra solo
+      // Nessuno scaling software, centra solo
       esp32camScale = 1.0;
       esp32camOffsetX = (ESPCAM_DISPLAY_SIZE - imgWidth) / 2;
       esp32camOffsetY = (ESPCAM_DISPLAY_SIZE - imgHeight) / 2;
@@ -325,13 +413,13 @@ bool decodeAndDisplayEsp32camFrame(uint8_t* jpegData, int jpegSize) {
 
   esp32camDecoder.close();
 
-  // Decodifica nel frame buffer
+  // Decodifica nel frame buffer CON SCALING HARDWARE
   if (!esp32camDecoder.openRAM(jpegData, jpegSize, esp32camDrawCallbackBuffered)) {
     return false;
   }
 
   esp32camDecoder.setPixelType(RGB565_LITTLE_ENDIAN);
-  esp32camDecoder.decode(0, 0, 0);
+  esp32camDecoder.decode(0, 0, esp32camHwScale);  // Usa scaling hardware!
   esp32camDecoder.close();
 
   // ========== DOUBLE BUFFER: Copia il frame buffer sul display in un colpo solo ==========
@@ -520,6 +608,9 @@ void showEsp32camConnectionError() {
 
 // ================== UPDATE PRINCIPALE ESP32-CAM ==================
 void updateEsp32camStream() {
+  // Controlla se c'è un URL da salvare in EEPROM (differito dal web handler)
+  esp32camCheckPendingSave();
+
   static unsigned long lastConnectAttempt = 0;
 
   // Inizializza se necessario
@@ -624,6 +715,25 @@ void cleanupEsp32camStream() {
   esp32camImageWidth = 0;
   esp32camImageHeight = 0;
 
+  // ========== RIPRISTINA SERVIZI SOSPESI ==========
+  if (esp32camServicesSuspended) {
+    // Ripristina Radar Remote
+    if (esp32camSavedRadarState) {
+      Serial.println("[ESP32-CAM] Ripristino Radar Remote...");
+      radarServerEnabled = true;
+    }
+
+    // Ripristina Web Radio
+    if (esp32camSavedWebRadioState) {
+      Serial.println("[ESP32-CAM] Ripristino Web Radio...");
+      delay(200);  // Attendi che le connessioni si chiudano
+      startWebRadio();
+    }
+
+    esp32camServicesSuspended = false;
+    Serial.println("[ESP32-CAM] Servizi ripristinati");
+  }
+
   Serial.println("[ESP32-CAM] Cleanup completato");
 }
 
@@ -651,10 +761,85 @@ void handleEsp32camTouch(int x, int y) {
   }
 }
 
+// ================== INDIRIZZI EEPROM PER URL ==================
+#define EEPROM_ESPCAM_URL_ADDR 850      // Indirizzo inizio URL (100 byte: 850-949)
+#define EEPROM_ESPCAM_URL_LEN 100       // Lunghezza massima URL
+#define EEPROM_ESPCAM_URL_VALID 949     // Marker validità (0xCA = valido)
+#define EEPROM_ESPCAM_URL_VALID_VALUE 0xCA
+
+// ================== SALVA URL IN EEPROM ==================
+// Flag per salvare in modo differito (evita crash nel context asincrono)
+static bool esp32camUrlNeedsSave = false;
+
+void saveEsp32camUrlToEEPROM() {
+  // Segnala che occorre salvare - verra' fatto nel loop principale
+  esp32camUrlNeedsSave = true;
+  Serial.println("[ESP32-CAM] URL schedulato per salvataggio EEPROM");
+}
+
+// Chiamare questa funzione dal loop principale
+void esp32camCheckPendingSave() {
+  if (!esp32camUrlNeedsSave) return;
+  esp32camUrlNeedsSave = false;
+
+  // Salva lunghezza e caratteri dell'URL
+  int len = esp32camStreamUrl.length();
+  if (len > EEPROM_ESPCAM_URL_LEN - 2) len = EEPROM_ESPCAM_URL_LEN - 2;
+
+  // Scrivi lunghezza
+  EEPROM.write(EEPROM_ESPCAM_URL_ADDR, (uint8_t)len);
+  yield();  // Previene watchdog
+
+  // Scrivi caratteri
+  for (int i = 0; i < len; i++) {
+    EEPROM.write(EEPROM_ESPCAM_URL_ADDR + 1 + i, esp32camStreamUrl[i]);
+    if (i % 20 == 0) yield();  // Previene watchdog ogni 20 caratteri
+  }
+
+  // Scrivi marker validità
+  EEPROM.write(EEPROM_ESPCAM_URL_VALID, EEPROM_ESPCAM_URL_VALID_VALUE);
+  yield();
+
+  EEPROM.commit();
+
+  Serial.printf("[ESP32-CAM] URL salvato in EEPROM: %s\n", esp32camStreamUrl.c_str());
+}
+
+// ================== CARICA URL DA EEPROM ==================
+void loadEsp32camUrlFromEEPROM() {
+  // Verifica marker validità
+  if (EEPROM.read(EEPROM_ESPCAM_URL_VALID) != EEPROM_ESPCAM_URL_VALID_VALUE) {
+    Serial.println("[ESP32-CAM] Nessun URL salvato in EEPROM, uso default");
+    return;
+  }
+
+  // Leggi lunghezza
+  int len = EEPROM.read(EEPROM_ESPCAM_URL_ADDR);
+  if (len <= 0 || len > EEPROM_ESPCAM_URL_LEN - 2) {
+    Serial.println("[ESP32-CAM] Lunghezza URL non valida in EEPROM");
+    return;
+  }
+
+  // Leggi caratteri
+  String url = "";
+  for (int i = 0; i < len; i++) {
+    char c = EEPROM.read(EEPROM_ESPCAM_URL_ADDR + 1 + i);
+    url += c;
+  }
+
+  if (url.length() > 10) {  // URL minimo valido
+    esp32camStreamUrl = url;
+    Serial.printf("[ESP32-CAM] URL caricato da EEPROM: %s\n", esp32camStreamUrl.c_str());
+  }
+}
+
 // ================== SET STREAM URL ==================
 void setEsp32camStreamUrl(const String& url) {
   esp32camStreamUrl = url;
   Serial.printf("[ESP32-CAM] URL impostato: %s\n", esp32camStreamUrl.c_str());
+
+  // Salva in EEPROM per persistenza
+  saveEsp32camUrlToEEPROM();
 
   // Se in streaming, disconnetti per usare nuovo URL
   if (esp32camStreaming) {

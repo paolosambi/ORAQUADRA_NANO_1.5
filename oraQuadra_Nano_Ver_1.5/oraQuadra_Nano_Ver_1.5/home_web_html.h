@@ -369,7 +369,8 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
 
     const MODES = ['Fade','Slow','Fast','Matrix','Matrix2','Snake','Water','Mario',
                    'Tron','Galaga','Flux','FlipClock','BTTF','LED Ring','Weather','Radar',
-                   'Gemini','Galaga2','MJPEG','ESP32CAM','FluxCap','Christmas','Fire','FireText'];
+                   'Gemini','Galaga2','MJPEG','ESP32CAM','FluxCap','Christmas','Fire','FireText',
+                   'MP3 Player','Web Radio','Radio Alarm'];
 
     let currentMode = 0;
     let currentColor = '#00ff00';
@@ -610,6 +611,9 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
       else if(currentMode === 20) showFluxCapacitor();
       else if(currentMode === 21) showChristmas();
       else if(currentMode === 22 || currentMode === 23) showFire();
+      else if(currentMode === 24) showSpecial('🎵', 'MP3 Player', 'Music Player');
+      else if(currentMode === 25) showSpecial('📻', 'Web Radio', 'Internet Radio');
+      else if(currentMode === 26) showSpecial('⏰', 'Radio Alarm', 'Sveglia Radio');
       else showSpecial('⏰', MODES[currentMode]||'Mode '+currentMode, '');
     }
 
@@ -645,10 +649,22 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
       }catch(e){console.error(e)}
     }
 
+    let homeIntervalId = null;
+
+    function stopHomeRefresh() {
+      if (homeIntervalId) {
+        clearInterval(homeIntervalId);
+        homeIntervalId = null;
+      }
+    }
+
+    window.addEventListener('beforeunload', stopHomeRefresh);
+    window.addEventListener('pagehide', stopHomeRefresh);
+
     initWordGrid();
     loadStatus();
     checkPages();
-    setInterval(loadStatus, 1500);
+    homeIntervalId = setInterval(loadStatus, 1500);
   </script>
 </body>
 </html>

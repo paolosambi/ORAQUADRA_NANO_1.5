@@ -610,12 +610,24 @@ function updatePresentTime() {
     });
 }
 
+let bttfIntervalId = null;
+
+function stopBttfRefresh() {
+  if (bttfIntervalId) {
+    clearInterval(bttfIntervalId);
+    bttfIntervalId = null;
+  }
+}
+
+window.addEventListener('beforeunload', stopBttfRefresh);
+window.addEventListener('pagehide', stopBttfRefresh);
+
 setupInputListeners('dest');
 setupInputListeners('last');
 setupAlarmCheckboxListeners();
 loadConfig();
 updatePresentTime();
-setInterval(updatePresentTime, 1000);
+bttfIntervalId = setInterval(updatePresentTime, 1000);
 </script>
 </body>
 </html>

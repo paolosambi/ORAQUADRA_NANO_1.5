@@ -418,6 +418,7 @@ void initSetupOptions() {
   setupOptions.radarBrightnessEnabled = true;  // Radar brightness ABILITATO di default
   setupOptions.vuMeterShowEnabled = true;      // VU meter ABILITATO di default
   setupOptions.defaultDisplayMode = MODE_FAST;
+  setupOptions.touchSoundsVolume = 15;  // Volume predefinito per suoni touch (0-21)
   setupOptions.wifiEnabled = true;   // Impostato sempre a true in questa implementazione.
   setupOptions.ntpEnabled = true;    // Impostato sempre a true in questa implementazione.
   setupOptions.alexaEnabled = true;  // Impostato sempre a true in questa implementazione.
@@ -439,6 +440,10 @@ void initSetupOptions() {
     setupOptions.touchSoundsEnabled = (touchSoundsVal == 0xFF) ? true : (touchSoundsVal == 1);
     setupOptions.powerSaveEnabled = (powerSaveVal == 0xFF) ? false : (powerSaveVal == 1);
     setupOptions.defaultDisplayMode = EEPROM.read(EEPROM_SETUP_OPTIONS_ADDR + 7);
+
+    // Carica volume touch sounds dalla EEPROM
+    uint8_t touchVolVal = EEPROM.read(EEPROM_TOUCH_SOUNDS_VOLUME_ADDR);
+    setupOptions.touchSoundsVolume = (touchVolVal == 0xFF || touchVolVal > 21) ? 15 : touchVolVal;
 
     // Carica l'opzione per il controllo luminosità radar (aggiunta con MyLD2410)
     if (EEPROM_SIZE >= 178) {

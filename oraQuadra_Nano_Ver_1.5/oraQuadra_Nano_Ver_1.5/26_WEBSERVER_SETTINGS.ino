@@ -1738,6 +1738,12 @@ void setup_settings_webserver(AsyncWebServer* server) {
   // Carica API keys da LittleFS all'avvio
   loadApiKeysFromLittleFS();
 
+  // Carica URL ESP32-CAM da EEPROM all'avvio
+  #ifdef EFFECT_ESP32CAM
+  extern void loadEsp32camUrlFromEEPROM();
+  loadEsp32camUrlFromEEPROM();
+  #endif
+
   // Pagina principale (deve essere l'ultima)
   server->on("/settings", HTTP_GET, handleSettingsPage);
   Serial.println("[SETTINGS WEB] ✓ GET /settings (pagina principale)");

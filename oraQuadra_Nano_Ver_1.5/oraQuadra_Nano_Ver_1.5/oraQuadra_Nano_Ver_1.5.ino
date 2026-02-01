@@ -96,7 +96,7 @@
 #define EFFECT_MP3_PLAYER     // Lettore MP3/WAV da SD card - ABILITATO (conflitto DMA risolto)
 #define EFFECT_WEB_RADIO      // Interfaccia Web Radio a display con controlli touch
 #define EFFECT_RADIO_ALARM    // Radiosveglia con selezione stazione WebRadio
-#define EFFECT_WEB_TV         // Web TV streaming MJPEG da server Python (richiede StreamServer)
+#define EFFECT_WEB_TV         // Streaming TV da server Python via MJPEG
 
 // ================== INCLUSIONE LIBRERIE ==================
 #include <Arduino.h>             // Libreria base per la programmazione di schede Arduino (ESP32).
@@ -379,7 +379,7 @@ public:
 #define EEPROM_MP3PLAYER_VOLUME_ADDR 228   // Volume MP3 player (1 byte, 0-21)
 #define EEPROM_MP3PLAYER_PLAYALL_ADDR 229  // Modalita' MP3: 0=singolo brano, 1=tutti i brani
 #define EEPROM_ANNOUNCE_VOLUME_ADDR 230    // Volume annunci orari (1 byte, 0-21)
-#define EEPROM_TOUCH_SOUNDS_VOLUME_ADDR 231 // Volume suoni touch (1 byte, 0-100)
+#define EEPROM_TOUCH_SOUNDS_VOLUME_ADDR 231  // Volume suoni touch (1 byte, 0-21)
 
 #define EEPROM_BME280_TEMP_OFFSET_ADDR 355  // Offset temperatura (2 byte, int16)
 #define EEPROM_BME280_HUM_OFFSET_ADDR 357   // Offset umidità (2 byte, int16)
@@ -454,7 +454,7 @@ enum DisplayMode {
   MODE_RADIO_ALARM = 26,    // Radiosveglia con selezione stazione.
 #endif
 #ifdef EFFECT_WEB_TV
-  MODE_WEB_TV = 27,         // Web TV streaming MJPEG da server Python.
+  MODE_WEB_TV = 27,         // Streaming TV da server Python via MJPEG.
 #endif
   NUM_MODES = 28    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
 };
@@ -756,14 +756,6 @@ extern bool radioAlarmInitialized;
 extern bool radioAlarmNeedsRedraw;
 #endif
 
-#ifdef EFFECT_WEB_TV
-void initWebTV();
-void updateWebTV();
-void setup_webtv_webserver(AsyncWebServer* server);
-extern bool webTVInitialized;
-extern bool webTVNeedsRedraw;
-#endif
-
 #ifdef EFFECT_MP3_PLAYER
 void setup_mp3player_webserver(AsyncWebServer* server);
 #endif
@@ -865,7 +857,7 @@ struct SetupMenuItem {
 struct SetupOptions {
   bool autoNightModeEnabled;    // Stato (abilitato/disabilitato) della modalità notte automatica (basata sull'ora).
   bool touchSoundsEnabled;      // Stato (abilitato/disabilitato) dei suoni al tocco dello schermo.
-  uint8_t touchSoundsVolume;    // Volume dei suoni touch (0-100).
+  uint8_t touchSoundsVolume;    // Volume dei suoni touch (0-21).
   bool powerSaveEnabled;        // Stato (abilitato/disabilitato) della modalità di risparmio energetico.
   uint8_t defaultDisplayMode;   // Valore che rappresenta la modalità di visualizzazione predefinita all'avvio. Fa riferimento ai valori definiti nell'enum `DisplayMode`.
   bool wifiEnabled;             // Stato (abilitato/disabilitato) del Wi-Fi (potrebbe essere sempre true in questo progetto).
@@ -2104,11 +2096,6 @@ Serial.println("LittleFS inizializzato correttamente.");
     Serial.println("[WEBSERVER] Radio Alarm disponibile su /radioalarm");
     #endif
 
-    #ifdef EFFECT_WEB_TV
-    setup_webtv_webserver(clockWebServer);
-    Serial.println("[WEBSERVER] Web TV disponibile su /webtv");
-    #endif
-
     clockWebServer->begin();
     Serial.println("[WEBSERVER] Server configurazione avviato su porta 8080");
     Serial.println("[WEBSERVER] Accedi a http://" + WiFi.localIP().toString() + ":8080/");
@@ -2245,15 +2232,10 @@ void loadWebRadioSettings() {
   announceVolume = EEPROM.read(EEPROM_ANNOUNCE_VOLUME_ADDR);
   if (announceVolume > 100) announceVolume = 70;  // Default 70
 
-  // Carica volume suoni touch
-  setupOptions.touchSoundsVolume = EEPROM.read(EEPROM_TOUCH_SOUNDS_VOLUME_ADDR);
-  if (setupOptions.touchSoundsVolume > 100) setupOptions.touchSoundsVolume = 50;  // Default 50
-
   // Radio NON si avvia automaticamente - utente la attiva dalla pagina dedicata
   Serial.printf("[WEBRADIO] Caricato: volume=%d, station=%d (radio SPENTA al boot)\n",
                 webRadioVolume, webRadioCurrentIndex);
   Serial.printf("[ANNOUNCE] Volume annunci: %d\n", announceVolume);
-  Serial.printf("[TOUCH] Volume suoni touch: %d\n", setupOptions.touchSoundsVolume);
 }
 
 // Salva impostazioni web radio in EEPROM
@@ -2280,7 +2262,7 @@ void startWebRadio() {
   audio.setVolume(map(webRadioVolume, 0, 100, 0, 21));  // Converte 0-100 a 0-21
   audio.connecttohost(webRadioUrl.c_str());
   webRadioEnabled = true;
-  saveWebRadioSettings();
+  
 }
 
 // Ferma web radio
@@ -2289,7 +2271,7 @@ void stopWebRadio() {
   Serial.println("[WEBRADIO] Stop streaming...");
   audio.stopSong();
   webRadioEnabled = false;
-  saveWebRadioSettings();
+  
 }
 
 // Imposta volume web radio
@@ -2297,7 +2279,7 @@ void setWebRadioVolume(uint8_t vol) {
   if (vol > 100) vol = 100;
   webRadioVolume = vol;
   audio.setVolume(map(vol, 0, 100, 0, 21));  // Converte 0-100 a 0-21
-  saveWebRadioSettings();
+  
 }
 
 // Seleziona stazione radio
@@ -2316,7 +2298,7 @@ void selectWebRadioStation(int index) {
     audio.connecttohost(webRadioUrl.c_str());
   }
 
-  saveWebRadioSettings();
+  
 }
 
 // Inizializza radio di default
@@ -2625,6 +2607,12 @@ void loop() {
       webForceDisplayUpdate = false;
       forceDisplayUpdate(); // Aggiorna il display con il nuovo preset/colore
     }
+
+    // Salvataggio differito URL ESP32-CAM in EEPROM (dal web handler asincrono)
+    #ifdef EFFECT_ESP32CAM
+    extern void esp32camCheckPendingSave();
+    esp32camCheckPendingSave();
+    #endif
   } else {
     // WiFi disconnesso - tenta reconnect
     static uint32_t lastReconnectAttempt = 0;
@@ -3189,12 +3177,6 @@ if (currentIsNight != lastWasNightTime) {
 #ifdef EFFECT_RADIO_ALARM
         case MODE_RADIO_ALARM:
           updateRadioAlarm();  // Gestisce interfaccia Radiosveglia
-          break;
-#endif
-
-#ifdef EFFECT_WEB_TV
-        case MODE_WEB_TV:
-          updateWebTV();  // Gestisce interfaccia Web TV streaming
           break;
 #endif
 
