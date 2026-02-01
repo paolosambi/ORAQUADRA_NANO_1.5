@@ -33,10 +33,10 @@ int webRadioStationCount = 0;
 #endif
 
 // ================== TEMA MODERNO - PALETTE COLORI ==================
-// Sfondo e base
-#define RA_BG_COLOR       0x0841  // Blu molto scuro
+// Sfondo e base (NERO PURO come WebRadio/MP3Player)
+#define RA_BG_COLOR       0x0000  // Nero puro
 #define RA_BG_DARK        0x0000  // Nero puro
-#define RA_BG_CARD        0x1082  // Grigio-blu scuro per cards
+#define RA_BG_CARD        0x0841  // Blu molto scuro per cards
 
 // Testo
 #define RA_TEXT_COLOR     0xFFFF  // Bianco
@@ -48,12 +48,12 @@ int webRadioStationCount = 0;
 #define RA_ACCENT_DARK    0x0575  // Ciano scuro
 #define RA_ACCENT_GLOW    0x5FFF  // Ciano chiaro (glow)
 
-// Bottoni
-#define RA_BUTTON_COLOR   0x2124  // Grigio scuro
-#define RA_BUTTON_HOVER   0x3186  // Grigio medio
+// Bottoni (coerente con WebRadio/MP3Player)
+#define RA_BUTTON_COLOR   0x1082  // Grigio-blu molto scuro
+#define RA_BUTTON_HOVER   0x2124  // Grigio scuro
 #define RA_BUTTON_ACTIVE  0x0575  // Ciano scuro (attivo)
-#define RA_BUTTON_BORDER  0x4A69  // Grigio bordo
-#define RA_BUTTON_SHADOW  0x1082  // Ombra bottone
+#define RA_BUTTON_BORDER  0x07FF  // Ciano brillante per bordi
+#define RA_BUTTON_SHADOW  0x0841  // Ombra bottone
 
 // Colori speciali
 #define RA_ALARM_ON       0x07E0  // Verde (sveglia attiva)
@@ -180,15 +180,14 @@ void updateRadioAlarm() {
 
 // ================== DISEGNO UI COMPLETA ==================
 void drawRadioAlarmUI() {
-  // Sfondo con gradiente
-  for (int y = 0; y < 480; y += 4) {
-    uint16_t shade = (y < 240) ? RA_BG_COLOR : RA_BG_DARK;
-    gfx->fillRect(0, y, 480, 4, shade);
-  }
+  // Sfondo nero puro (coerente con WebRadio/MP3Player)
+  gfx->fillScreen(RA_BG_COLOR);
 
-  // Linee decorative
-  gfx->drawFastHLine(0, 2, 480, RA_ACCENT_DARK);
-  gfx->drawFastHLine(0, 477, 480, RA_ACCENT_DARK);
+  // Bordi ciano sottili
+  gfx->drawFastHLine(0, 0, 480, RA_ACCENT_COLOR);
+  gfx->drawFastHLine(0, 479, 480, RA_ACCENT_COLOR);
+  gfx->drawFastVLine(0, 0, 480, RA_ACCENT_COLOR);
+  gfx->drawFastVLine(479, 0, 480, RA_ACCENT_COLOR);
 
   drawRAHeader();
   yield();
@@ -234,15 +233,11 @@ void drawRAToggleButton() {
     textColor = RA_ALARM_OFF;
   }
 
-  // Ombra
-  gfx->fillRoundRect(btnX + 3, y + 3, btnW, btnH, 12, RA_BUTTON_SHADOW);
+  // Sfondo bottone (stile semplificato)
+  gfx->fillRoundRect(btnX, y, btnW, btnH, 10, bgColor);
 
-  // Sfondo bottone
-  gfx->fillRoundRect(btnX, y, btnW, btnH, 12, bgColor);
-
-  // Bordo
-  gfx->drawRoundRect(btnX, y, btnW, btnH, 12, borderColor);
-  gfx->drawRoundRect(btnX + 1, y + 1, btnW - 2, btnH - 2, 11, borderColor);
+  // Bordo singolo
+  gfx->drawRoundRect(btnX, y, btnW, btnH, 10, borderColor);
 
   // Icona campana semplice
   int iconX = btnX + 40;
@@ -323,29 +318,19 @@ void drawRAToggleButton() {
 void drawRAHeader() {
   int centerX = 240;
 
-  // Titolo con icona
-  gfx->setFont(u8g2_font_helvB24_tr);
-
-  // Ombra
-  gfx->setTextColor(RA_ACCENT_DARK);
-  gfx->setCursor(centerX - 115 + 1, RA_HEADER_Y + 32);
-  gfx->print("RADIOSVEGLIA");
-
-  // Testo principale
+  // Titolo stile )) RADIOSVEGLIA (( come WebRadio/MP3Player
+  gfx->setFont(u8g2_font_helvB18_tr);
   gfx->setTextColor(RA_ACCENT_COLOR);
-  gfx->setCursor(centerX - 115, RA_HEADER_Y + 31);
-  gfx->print("RADIOSVEGLIA");
 
-  // Icona campana a destra del titolo (spostata 3cm a destra)
-  int iconX = centerX + 165;
-  int iconY = RA_HEADER_Y + 15;
-  gfx->fillCircle(iconX, iconY, 10, RA_ACCENT_COLOR);
-  gfx->fillRect(iconX - 10, iconY + 5, 20, 6, RA_ACCENT_COLOR);
-  gfx->fillCircle(iconX, iconY + 15, 4, RA_ACCENT_COLOR);
+  // Calcola larghezza testo per centrare
+  const char* title = ")) RADIOSVEGLIA ((";
+  int textW = 210;  // Larghezza approssimativa
+  gfx->setCursor(centerX - textW/2, RA_HEADER_Y + 28);
+  gfx->print(title);
 
-  // Linea separatrice sottile
-  gfx->drawFastHLine(50, RA_HEADER_Y + 42, 380, RA_ACCENT_DARK);
-  gfx->drawFastHLine(50, RA_HEADER_Y + 43, 380, RA_ACCENT_COLOR);
+  // Linea separatrice ciano
+  gfx->drawFastHLine(30, RA_HEADER_Y + 40, 420, RA_ACCENT_DARK);
+  gfx->drawFastHLine(30, RA_HEADER_Y + 41, 420, RA_ACCENT_COLOR);
 }
 
 // ================== DISPLAY ORARIO ==================
@@ -353,20 +338,13 @@ void drawRATimeDisplay() {
   int y = RA_TIME_Y;
   int centerX = 240;
 
-  // Label
-//  gfx->setFont(u8g2_font_helvB12_tr);
-//  gfx->setTextColor(RA_ACCENT_COLOR);
-//  gfx->setCursor(RA_CENTER_X, y + 17);
-//  gfx->print("ORARIO:");
-
-  // Card orario
+  // Card orario con bordo ciano
   int cardW = 220;
   int cardH = 60;
   int cardX = centerX - cardW / 2;
 
-  gfx->fillRoundRect(cardX + 2, y + 17, cardW, cardH, 12, RA_BUTTON_SHADOW);
-  gfx->fillRoundRect(cardX, y + 15, cardW, cardH, 12, RA_BG_CARD);
-  gfx->drawRoundRect(cardX, y + 15, cardW, cardH, 12, RA_ACCENT_DARK);
+  gfx->fillRoundRect(cardX, y + 15, cardW, cardH, 10, RA_BG_CARD);
+  gfx->drawRoundRect(cardX, y + 15, cardW, cardH, 10, RA_ACCENT_COLOR);
 
   // Orario grande centrato
   gfx->setFont(u8g2_font_logisoso42_tn);
@@ -414,13 +392,13 @@ void drawRADaysSelector() {
     int bx = startX + i * (btnW + spacing);
     bool active = (radioAlarm.daysMask & (1 << i)) != 0;
 
-    // Bottone giorno
+    // Bottone giorno con stile ciano
     if (active) {
-      gfx->fillRoundRect(bx, y + 18, btnW, btnH, 8, RA_ACCENT_DARK);
-      gfx->drawRoundRect(bx, y + 18, btnW, btnH, 8, RA_ACCENT_COLOR);
+      gfx->fillRoundRect(bx, y + 18, btnW, btnH, 6, RA_ACCENT_DARK);
+      gfx->drawRoundRect(bx, y + 18, btnW, btnH, 6, RA_ACCENT_COLOR);
     } else {
-      gfx->fillRoundRect(bx, y + 18, btnW, btnH, 8, RA_BUTTON_COLOR);
-      gfx->drawRoundRect(bx, y + 18, btnW, btnH, 8, RA_BUTTON_BORDER);
+      gfx->fillRoundRect(bx, y + 18, btnW, btnH, 6, RA_BUTTON_COLOR);
+      gfx->drawRoundRect(bx, y + 18, btnW, btnH, 6, RA_ACCENT_COLOR);  // Bordo ciano anche se inattivo
     }
 
     gfx->setFont(u8g2_font_helvB10_tr);
@@ -435,21 +413,13 @@ void drawRAStationSelector() {
   int y = RA_STATION_Y;
   int centerX = 240;
 
-//  gfx->setFont(u8g2_font_helvB12_tr);
-//  gfx->setTextColor(RA_ACCENT_COLOR);
-//  gfx->setCursor(RA_CENTER_X, y);
-//  gfx->print("STAZIONE:");
-
-  // Card stazione
+  // Card stazione con bordo ciano
   int cardW = 340;
   int cardH = 48;
   int cardX = centerX - cardW / 2;
 
-  gfx->fillRoundRect(cardX + 2, y + 16, cardW, cardH, 10, RA_BUTTON_SHADOW);
-  gfx->fillRoundRect(cardX, y + 14, cardW, cardH, 10, RA_BG_CARD);
-
-  bool highlight = (radioAlarmEditField == 2);
-  gfx->drawRoundRect(cardX, y + 14, cardW, cardH, 10, highlight ? RA_ACCENT_COLOR : RA_BUTTON_BORDER);
+  gfx->fillRoundRect(cardX, y + 14, cardW, cardH, 8, RA_BG_CARD);
+  gfx->drawRoundRect(cardX, y + 14, cardW, cardH, 8, RA_ACCENT_COLOR);
 
   // Freccia sinistra
   int arrowX = cardX + 20;
@@ -458,7 +428,7 @@ void drawRAStationSelector() {
 
   // Nome stazione
   gfx->setFont(u8g2_font_helvB14_tr);
-  gfx->setTextColor(highlight ? RA_ACCENT_GLOW : RA_TEXT_COLOR);
+  gfx->setTextColor(RA_TEXT_COLOR);
 
   String stationName = getRAStationName(radioAlarm.stationIndex);
   if (stationName.length() > 26) {
@@ -488,20 +458,15 @@ void drawRAVolumeBar() {
   int barW = 300;
   int barH = 32;
 
-//  gfx->setFont(u8g2_font_helvB12_tr);
-//  gfx->setTextColor(RA_ACCENT_COLOR);
-//  gfx->setCursor(RA_CENTER_X, y + 12);
-//  gfx->print("VOLUME:");
-
-  // Icona speaker
+  // Icona speaker ciano
   int spkX = barX - 20;
   int spkY = y + 28;
   gfx->fillRect(spkX - 4, spkY - 3, 6, 6, RA_ACCENT_COLOR);
   gfx->fillTriangle(spkX + 2, spkY - 6, spkX + 2, spkY + 6, spkX + 10, spkY, RA_ACCENT_COLOR);
 
-  // Barra volume
-  gfx->fillRoundRect(barX, y + 18, barW, barH, 8, RA_BG_DARK);
-  gfx->drawRoundRect(barX, y + 18, barW, barH, 8, RA_BUTTON_BORDER);
+  // Barra volume con bordo ciano
+  gfx->fillRoundRect(barX, y + 18, barW, barH, 6, RA_BG_CARD);
+  gfx->drawRoundRect(barX, y + 18, barW, barH, 6, RA_ACCENT_COLOR);
 
   // Riempimento gradiente
   int fillW = map(radioAlarm.volume, 0, 100, 0, barW - 6);
@@ -603,35 +568,28 @@ void drawRAControls() {
 
 // ================== HELPER BOTTONE MODERNO ==================
 void drawRAModernButton(int bx, int by, int bw, int bh, bool active, uint16_t activeColor) {
-  gfx->fillRoundRect(bx + 2, by + 2, bw, bh, 12, RA_BUTTON_SHADOW);
+  // Stile semplificato coerente con WebRadio/MP3Player
   uint16_t bgColor = active ? activeColor : RA_BUTTON_COLOR;
-  gfx->fillRoundRect(bx, by, bw, bh, 12, bgColor);
+  gfx->fillRoundRect(bx, by, bw, bh, 8, bgColor);
+
+  // Bordo ciano (o colore attivo se premuto)
   uint16_t borderColor = active ? activeColor : RA_BUTTON_BORDER;
-  gfx->drawRoundRect(bx, by, bw, bh, 12, borderColor);
-  if (!active) {
-    gfx->drawFastHLine(bx + 8, by + 4, bw - 16, RA_BUTTON_HOVER);
-  }
+  gfx->drawRoundRect(bx, by, bw, bh, 8, borderColor);
 }
 
 // ================== EXIT BUTTON ==================
 void drawRAExitButton() {
-  int btnW = 120;
+  int btnW = 100;
   int btnX = 240 - btnW / 2;
   int y = RA_EXIT_Y;
-  int btnH = 40;
+  int btnH = 38;
 
-  // Ombra
-  gfx->fillRoundRect(btnX + 2, y + 2, btnW, btnH, 10, 0x4000);
-
-  // Sfondo rosso
-  gfx->fillRoundRect(btnX, y, btnW, btnH, 10, RA_ALARM_OFF);
-  gfx->drawRoundRect(btnX, y, btnW, btnH, 10, 0x7800);
-
-  // Highlight
-  gfx->drawFastHLine(btnX + 10, y + 3, btnW - 20, 0xFC00);
+  // Sfondo arancione (coerente con WebRadio/MP3Player)
+  gfx->fillRoundRect(btnX, y, btnW, btnH, 8, 0xFB20);  // Arancione
+  gfx->drawRoundRect(btnX, y, btnW, btnH, 8, 0xFD60);  // Bordo arancione chiaro
 
   // Icona X
-  int iconX = btnX + 22;
+  int iconX = btnX + 20;
   int iconY = y + btnH / 2;
   gfx->drawLine(iconX - 5, iconY - 5, iconX + 5, iconY + 5, RA_TEXT_COLOR);
   gfx->drawLine(iconX - 5, iconY + 5, iconX + 5, iconY - 5, RA_TEXT_COLOR);
@@ -639,10 +597,10 @@ void drawRAExitButton() {
   gfx->drawLine(iconX - 4, iconY + 5, iconX + 6, iconY - 5, RA_TEXT_COLOR);
 
   // Testo
-  gfx->setFont(u8g2_font_helvB14_tr);
+  gfx->setFont(u8g2_font_helvB12_tr);
   gfx->setTextColor(RA_TEXT_COLOR);
-  gfx->setCursor(btnX + 42, y + 27);
-  gfx->print("ESCI");
+  gfx->setCursor(btnX + 38, y + 25);
+  gfx->print("EXIT");
 }
 
 // ================== GESTIONE TOUCH ==================
@@ -852,9 +810,9 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
   }
 
   // ===== EXIT =====
-  int exitBtnW = 120;
+  int exitBtnW = 100;
   int exitX = centerX - exitBtnW / 2;
-  if (y >= RA_EXIT_Y && y <= RA_EXIT_Y + 40) {
+  if (y >= RA_EXIT_Y && y <= RA_EXIT_Y + 38) {
     if (x >= exitX && x <= exitX + exitBtnW) {
       Serial.println("[RADIO-ALARM] EXIT");
       return true;

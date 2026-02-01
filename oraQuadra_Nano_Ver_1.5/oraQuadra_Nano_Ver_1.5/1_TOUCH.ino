@@ -650,8 +650,16 @@ void playTouchSound() {
     return; // Cooldown post-annuncio
   }
 
+  // Salva il volume annunci corrente e imposta il volume touch
+  extern uint8_t announceVolume;
+  uint8_t savedVolume = announceVolume;
+  announceVolume = setupOptions.touchSoundsVolume;
+
   // Audio locale - riproduce beep.mp3
   playLocalMP3("beep.mp3");
+
+  // Ripristina il volume annunci
+  announceVolume = savedVolume;
 }
 
 // ====================== MOSTRA QR CODE PAGINA SETTINGS ======================

@@ -850,7 +850,8 @@ input[type="number"] {
             <span class="toggle-slider"></span>
           </label>
         </div>
-        <div class="setting-row" id="ttsAnnounceRow">
+        <!-- Voce Google TTS - NASCOSTA -->
+        <div class="setting-row" id="ttsAnnounceRow" style="display:none;">
           <div class="setting-info">
             <div class="setting-label">Voce Google TTS</div>
             <div class="setting-desc">Usa sintesi vocale Google invece di file MP3 locali (richiede WiFi)</div>
@@ -860,7 +861,8 @@ input[type="number"] {
             <span class="toggle-slider"></span>
           </label>
         </div>
-        <div class="setting-row" id="ttsVoiceRow">
+        <!-- Tipo Voce TTS - NASCOSTA -->
+        <div class="setting-row" id="ttsVoiceRow" style="display:none;">
           <div class="setting-info">
             <div class="setting-label">Tipo Voce TTS</div>
             <div class="setting-desc">Scegli voce femminile o maschile per Google TTS</div>
@@ -879,6 +881,17 @@ input[type="number"] {
             <input type="checkbox" id="touchSounds" checked>
             <span class="toggle-slider"></span>
           </label>
+        </div>
+        <!-- Volume Suoni Touch -->
+        <div class="setting-row" id="touchSoundsVolumeRow">
+          <div class="setting-info">
+            <div class="setting-label">Volume Suoni Touch</div>
+            <div class="setting-desc">Regola il volume dei suoni al tocco (0-100)</div>
+          </div>
+          <div class="range-group">
+            <input type="range" id="touchSoundsVolume" min="0" max="100" value="50">
+            <span class="range-value" id="touchSoundsVolumeVal">50</span>
+          </div>
         </div>
         <div class="setting-row">
           <div class="setting-info">
@@ -2047,9 +2060,13 @@ function setupAutoSave() {
       if (input.id === 'dayStartHour' || input.id === 'dayStartMinute' || input.id === 'nightStartHour' || input.id === 'nightStartMinute') {
         updateHourlyAnnounceDesc();
       }
-      // Mostra/nascondi opzione voce TTS quando si attiva/disattiva TTS
-      if (input.id === 'useTTSAnnounce') {
-        document.getElementById('ttsVoiceRow').style.display = input.checked ? '' : 'none';
+      // Voce TTS nascosta permanentemente - non mostrare mai
+      // if (input.id === 'useTTSAnnounce') {
+      //   document.getElementById('ttsVoiceRow').style.display = input.checked ? '' : 'none';
+      // }
+      // Mostra/nascondi slider volume suoni touch quando si attiva/disattiva suoni touch
+      if (input.id === 'touchSounds') {
+        document.getElementById('touchSoundsVolumeRow').style.display = input.checked ? '' : 'none';
       }
     });
   });
@@ -2881,9 +2898,13 @@ function loadSettings() {
       document.getElementById('hourlyAnnounce').checked = data.hourlyAnnounce !== false;
       document.getElementById('useTTSAnnounce').checked = data.useTTSAnnounce === true;
       document.getElementById('ttsVoiceFemale').value = data.ttsVoiceFemale !== false ? '1' : '0';
-      // Mostra/nascondi opzione voce in base a TTS abilitato
-      document.getElementById('ttsVoiceRow').style.display = data.useTTSAnnounce ? '' : 'none';
+      // Voce TTS nascosta permanentemente - non mostrare mai
+      // document.getElementById('ttsVoiceRow').style.display = data.useTTSAnnounce ? '' : 'none';
       document.getElementById('touchSounds').checked = data.touchSounds !== false;
+      document.getElementById('touchSoundsVolume').value = data.touchSoundsVolume || 50;
+      document.getElementById('touchSoundsVolumeVal').textContent = data.touchSoundsVolume || 50;
+      // Mostra/nascondi slider volume in base a touchSounds abilitato
+      document.getElementById('touchSoundsVolumeRow').style.display = data.touchSounds !== false ? '' : 'none';
       document.getElementById('vuMeterShow').checked = data.vuMeterShow !== false;
 
       // Volume annunci orari
@@ -3092,6 +3113,7 @@ function saveAllSettings() {
     useTTSAnnounce: document.getElementById('useTTSAnnounce').checked ? 1 : 0,
     ttsVoiceFemale: parseInt(document.getElementById('ttsVoiceFemale').value),
     touchSounds: document.getElementById('touchSounds').checked ? 1 : 0,
+    touchSoundsVolume: document.getElementById('touchSoundsVolume').value,
     vuMeterShow: document.getElementById('vuMeterShow').checked ? 1 : 0,
     announceVolume: document.getElementById('announceVolume').value,
     volumeDay: document.getElementById('volumeDay').value,

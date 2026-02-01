@@ -534,6 +534,7 @@ void handleSettingsConfig(AsyncWebServerRequest *request) {
   json += "  \"useTTSAnnounce\": " + String(useTTSAnnounce ? "true" : "false") + ",\n";
   json += "  \"ttsVoiceFemale\": " + String(ttsVoiceFemale ? "true" : "false") + ",\n";
   json += "  \"touchSounds\": " + String(setupOptions.touchSoundsEnabled ? "true" : "false") + ",\n";
+  json += "  \"touchSoundsVolume\": " + String(setupOptions.touchSoundsVolume) + ",\n";
   json += "  \"vuMeterShow\": " + String(setupOptions.vuMeterShowEnabled ? "true" : "false") + ",\n";
   // Audio disponibile: locale (AUDIO) o I2C (audioSlaveConnected)
   #ifdef AUDIO
@@ -965,6 +966,18 @@ void handleSettingsSave(AsyncWebServerRequest *request) {
       setupOptions.touchSoundsEnabled = val;
       changed = true;
       Serial.printf("[SETTINGS] touchSounds = %s\n", val ? "ON" : "OFF");
+    }
+  }
+
+  if (request->hasParam("touchSoundsVolume")) {
+    uint8_t val = (uint8_t)request->getParam("touchSoundsVolume")->value().toInt();
+    if (val > 100) val = 100;
+    if (val != setupOptions.touchSoundsVolume) {
+      setupOptions.touchSoundsVolume = val;
+      EEPROM.write(EEPROM_TOUCH_SOUNDS_VOLUME_ADDR, val);
+      EEPROM.commit();
+      changed = true;
+      Serial.printf("[SETTINGS] touchSoundsVolume = %d\n", val);
     }
   }
 

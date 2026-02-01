@@ -278,6 +278,21 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
           <h3>MP3 Player</h3>
           <p>Play music from SD card</p>
         </a>
+        <a href="/webradio" class="nav-card audio" id="card-webradio" style="display:none">
+          <span class="icon">&#128251;</span>
+          <h3>Web Radio</h3>
+          <p>Internet radio streaming</p>
+        </a>
+        <a href="/radioalarm" class="nav-card audio" id="card-radioalarm" style="display:none">
+          <span class="icon">&#9200;</span>
+          <h3>Radio Alarm</h3>
+          <p>Wake up with your favorite station</p>
+        </a>
+        <a href="/webtv" class="nav-card video" id="card-webtv" style="display:none">
+          <span class="icon">&#128250;</span>
+          <h3>Web TV</h3>
+          <p>Italian TV streaming</p>
+        </a>
       </div>
     </div>
 
@@ -610,7 +625,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     }
 
     async function checkPages(){
-      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player'];
+      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player','webradio','radioalarm','webtv'];
       for(const p of pages){
         try{
           const r = await fetch('/'+p,{method:'HEAD'});
