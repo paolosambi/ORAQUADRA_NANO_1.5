@@ -15,6 +15,28 @@
 
 #ifdef EFFECT_ESP32CAM
 
+// ================== LISTA CAMERE ESP32-CAM ==================
+// Struttura per memorizzare nome e URL di ogni camera
+struct Esp32Camera {
+  char name[33];   // Nome descrittivo (max 32 caratteri)
+  char url[101];   // URL stream (max 100 caratteri)
+};
+
+#define MAX_ESP32_CAMERAS 10
+#define ESP32CAM_CAMERAS_FILE "/espcam_cameras.json"
+
+Esp32Camera esp32Cameras[MAX_ESP32_CAMERAS];
+int esp32CameraCount = 0;
+int esp32CameraSelected = 0;
+
+// Dichiarazioni forward per funzioni di gestione camere
+void loadCamerasFromLittleFS();
+void saveCamerasToLittleFS();
+bool addEsp32Camera(const char* name, const char* url);
+bool removeEsp32Camera(int index);
+bool selectEsp32Camera(int index);
+void clearAllEsp32Cameras();
+
 // ================== EXTERN PER GESTIONE CONNESSIONI SIMULTANEE ==================
 extern bool webRadioEnabled;
 extern void stopWebRadio();
@@ -779,17 +801,8 @@ void handleEsp32camTouch(int x, int y) {
 // Flag per salvare in modo differito (evita crash nel context asincrono)
 static bool esp32camUrlNeedsSave = false;
 
-void saveEsp32camUrlToEEPROM() {
-  // Segnala che occorre salvare - verra' fatto nel loop principale
-  esp32camUrlNeedsSave = true;
-  Serial.println("[ESP32-CAM] URL schedulato per salvataggio EEPROM");
-}
-
-// Chiamare questa funzione dal loop principale
-void esp32camCheckPendingSave() {
-  if (!esp32camUrlNeedsSave) return;
-  esp32camUrlNeedsSave = false;
-
+// Salvataggio SINCRONO dell'URL in EEPROM (chiamato direttamente)
+void saveEsp32camUrlToEEPROMNow() {
   // Salva lunghezza e caratteri dell'URL
   int len = esp32camStreamUrl.length();
   if (len > EEPROM_ESPCAM_URL_LEN - 2) len = EEPROM_ESPCAM_URL_LEN - 2;
@@ -811,6 +824,19 @@ void esp32camCheckPendingSave() {
   EEPROM.commit();
 
   Serial.printf("[ESP32-CAM] URL salvato in EEPROM: %s\n", esp32camStreamUrl.c_str());
+}
+
+void saveEsp32camUrlToEEPROM() {
+  // Salva IMMEDIATAMENTE invece di schedulare per il loop
+  // Questo garantisce che l'URL sia persistito anche se il sistema viene riavviato subito
+  saveEsp32camUrlToEEPROMNow();
+}
+
+// Mantenuto per compatibilità - ora chiama direttamente il salvataggio se necessario
+void esp32camCheckPendingSave() {
+  if (!esp32camUrlNeedsSave) return;
+  esp32camUrlNeedsSave = false;
+  saveEsp32camUrlToEEPROMNow();
 }
 
 // ================== CARICA URL DA EEPROM ==================
@@ -861,6 +887,271 @@ void setEsp32camStreamUrl(const String& url) {
 // ================== GET STREAM URL ==================
 String getEsp32camStreamUrl() {
   return esp32camStreamUrl;
+}
+
+// ================== GESTIONE LISTA CAMERE CON LITTLEFS ==================
+
+// Carica la lista delle camere da LittleFS
+void loadCamerasFromLittleFS() {
+  esp32CameraCount = 0;
+  esp32CameraSelected = 0;
+
+  if (!LittleFS.exists(ESP32CAM_CAMERAS_FILE)) {
+    Serial.println("[ESP32-CAM] File camere non trovato, controllo migrazione da EEPROM...");
+
+    // Migrazione: se c'è un URL in EEPROM, importalo come prima camera
+    if (EEPROM.read(EEPROM_ESPCAM_URL_VALID) == EEPROM_ESPCAM_URL_VALID_VALUE) {
+      int len = EEPROM.read(EEPROM_ESPCAM_URL_ADDR);
+      if (len > 0 && len < EEPROM_ESPCAM_URL_LEN - 2) {
+        String url = "";
+        for (int i = 0; i < len; i++) {
+          url += (char)EEPROM.read(EEPROM_ESPCAM_URL_ADDR + 1 + i);
+        }
+        url.trim();
+        if (url.length() > 10) {
+          strncpy(esp32Cameras[0].name, "Camera 1", 32);
+          esp32Cameras[0].name[32] = '\0';
+          strncpy(esp32Cameras[0].url, url.c_str(), 100);
+          esp32Cameras[0].url[100] = '\0';
+          esp32CameraCount = 1;
+          esp32CameraSelected = 0;
+          esp32camStreamUrl = url;
+          saveCamerasToLittleFS();
+          Serial.printf("[ESP32-CAM] Migrata camera da EEPROM: %s\n", url.c_str());
+        }
+      }
+    }
+    return;
+  }
+
+  File file = LittleFS.open(ESP32CAM_CAMERAS_FILE, "r");
+  if (!file) {
+    Serial.println("[ESP32-CAM] Errore apertura file camere");
+    return;
+  }
+
+  // Leggi contenuto file
+  String content = file.readString();
+  file.close();
+
+  Serial.printf("[ESP32-CAM] File camere letto: %d bytes\n", content.length());
+
+  // Parse JSON manualmente (ArduinoJson non disponibile)
+  // Formato: {"cameras":[{"name":"...","url":"..."},...],"selected":N}
+
+  // Estrai selected
+  int selIdx = content.indexOf("\"selected\":");
+  if (selIdx >= 0) {
+    int selStart = selIdx + 11;
+    int selEnd = content.indexOf("}", selStart);
+    if (selEnd < 0) selEnd = content.length();
+    String selStr = content.substring(selStart, selEnd);
+    selStr.trim();
+    // Rimuovi eventuali caratteri non numerici
+    int endNum = 0;
+    while (endNum < selStr.length() && (selStr[endNum] >= '0' && selStr[endNum] <= '9')) endNum++;
+    selStr = selStr.substring(0, endNum);
+    esp32CameraSelected = selStr.toInt();
+  }
+
+  // Estrai array cameras
+  int arrStart = content.indexOf("\"cameras\":[");
+  if (arrStart < 0) {
+    Serial.println("[ESP32-CAM] Array cameras non trovato");
+    return;
+  }
+  arrStart += 11;  // salta "cameras":[
+
+  int arrEnd = content.indexOf("]", arrStart);
+  if (arrEnd < 0) arrEnd = content.length();
+
+  String camerasStr = content.substring(arrStart, arrEnd);
+
+  // Parse ogni oggetto camera
+  int pos = 0;
+  while (esp32CameraCount < MAX_ESP32_CAMERAS) {
+    int objStart = camerasStr.indexOf("{", pos);
+    if (objStart < 0) break;
+
+    int objEnd = camerasStr.indexOf("}", objStart);
+    if (objEnd < 0) break;
+
+    String camObj = camerasStr.substring(objStart, objEnd + 1);
+
+    // Estrai name
+    int nameStart = camObj.indexOf("\"name\":\"");
+    if (nameStart >= 0) {
+      nameStart += 8;
+      int nameEnd = camObj.indexOf("\"", nameStart);
+      if (nameEnd > nameStart) {
+        String name = camObj.substring(nameStart, nameEnd);
+        strncpy(esp32Cameras[esp32CameraCount].name, name.c_str(), 32);
+        esp32Cameras[esp32CameraCount].name[32] = '\0';
+      }
+    }
+
+    // Estrai url
+    int urlStart = camObj.indexOf("\"url\":\"");
+    if (urlStart >= 0) {
+      urlStart += 7;
+      int urlEnd = camObj.indexOf("\"", urlStart);
+      if (urlEnd > urlStart) {
+        String url = camObj.substring(urlStart, urlEnd);
+        strncpy(esp32Cameras[esp32CameraCount].url, url.c_str(), 100);
+        esp32Cameras[esp32CameraCount].url[100] = '\0';
+      }
+    }
+
+    esp32CameraCount++;
+    pos = objEnd + 1;
+  }
+
+  // Valida selected
+  if (esp32CameraSelected >= esp32CameraCount) {
+    esp32CameraSelected = 0;
+  }
+
+  // Imposta URL attivo dalla camera selezionata
+  if (esp32CameraCount > 0) {
+    esp32camStreamUrl = String(esp32Cameras[esp32CameraSelected].url);
+  }
+
+  Serial.printf("[ESP32-CAM] Caricate %d camere, selezionata: %d\n", esp32CameraCount, esp32CameraSelected);
+}
+
+// Salva la lista delle camere su LittleFS
+void saveCamerasToLittleFS() {
+  File file = LittleFS.open(ESP32CAM_CAMERAS_FILE, "w");
+  if (!file) {
+    Serial.println("[ESP32-CAM] Errore apertura file camere per scrittura");
+    return;
+  }
+
+  // Costruisci JSON manualmente
+  String json = "{\"cameras\":[";
+
+  for (int i = 0; i < esp32CameraCount; i++) {
+    if (i > 0) json += ",";
+    json += "{\"name\":\"";
+    json += esp32Cameras[i].name;
+    json += "\",\"url\":\"";
+    json += esp32Cameras[i].url;
+    json += "\"}";
+  }
+
+  json += "],\"selected\":";
+  json += String(esp32CameraSelected);
+  json += "}";
+
+  file.print(json);
+  file.close();
+
+  Serial.printf("[ESP32-CAM] Salvate %d camere su LittleFS\n", esp32CameraCount);
+}
+
+// Aggiunge una nuova camera alla lista
+bool addEsp32Camera(const char* name, const char* url) {
+  if (esp32CameraCount >= MAX_ESP32_CAMERAS) {
+    Serial.println("[ESP32-CAM] Lista camere piena!");
+    return false;
+  }
+
+  if (strlen(name) == 0 || strlen(url) < 10) {
+    Serial.println("[ESP32-CAM] Nome o URL non validi");
+    return false;
+  }
+
+  strncpy(esp32Cameras[esp32CameraCount].name, name, 32);
+  esp32Cameras[esp32CameraCount].name[32] = '\0';
+  strncpy(esp32Cameras[esp32CameraCount].url, url, 100);
+  esp32Cameras[esp32CameraCount].url[100] = '\0';
+
+  esp32CameraCount++;
+  saveCamerasToLittleFS();
+
+  // Sincronizza anche con EEPROM se è la prima camera o quella selezionata
+  if (esp32CameraCount == 1) {
+    esp32CameraSelected = 0;
+    esp32camStreamUrl = String(url);
+    saveEsp32camUrlToEEPROM();
+  }
+
+  Serial.printf("[ESP32-CAM] Aggiunta camera '%s': %s\n", name, url);
+  return true;
+}
+
+// Rimuove una camera dalla lista
+bool removeEsp32Camera(int index) {
+  if (index < 0 || index >= esp32CameraCount) {
+    Serial.println("[ESP32-CAM] Indice camera non valido");
+    return false;
+  }
+
+  Serial.printf("[ESP32-CAM] Rimozione camera %d: '%s'\n", index, esp32Cameras[index].name);
+
+  // Sposta le camere successive
+  for (int i = index; i < esp32CameraCount - 1; i++) {
+    memcpy(&esp32Cameras[i], &esp32Cameras[i + 1], sizeof(Esp32Camera));
+  }
+
+  esp32CameraCount--;
+
+  // Aggiusta l'indice selezionato
+  if (esp32CameraCount == 0) {
+    esp32CameraSelected = 0;
+    esp32camStreamUrl = "";
+  } else {
+    if (esp32CameraSelected >= esp32CameraCount) {
+      esp32CameraSelected = esp32CameraCount - 1;
+    } else if (esp32CameraSelected > index) {
+      esp32CameraSelected--;
+    }
+    // Aggiorna URL attivo
+    esp32camStreamUrl = String(esp32Cameras[esp32CameraSelected].url);
+    saveEsp32camUrlToEEPROM();
+  }
+
+  saveCamerasToLittleFS();
+  return true;
+}
+
+// Cancella tutte le camere
+void clearAllEsp32Cameras() {
+  Serial.println("[ESP32-CAM] Cancellazione di tutte le camere");
+
+  esp32CameraCount = 0;
+  esp32CameraSelected = 0;
+  esp32camStreamUrl = "";
+
+  // Cancella il file
+  if (LittleFS.exists(ESP32CAM_CAMERAS_FILE)) {
+    LittleFS.remove(ESP32CAM_CAMERAS_FILE);
+  }
+
+  Serial.println("[ESP32-CAM] Tutte le camere cancellate");
+}
+
+// Seleziona una camera come attiva
+bool selectEsp32Camera(int index) {
+  if (index < 0 || index >= esp32CameraCount) {
+    Serial.println("[ESP32-CAM] Indice camera non valido per selezione");
+    return false;
+  }
+
+  esp32CameraSelected = index;
+  esp32camStreamUrl = String(esp32Cameras[index].url);
+
+  // Salva selezione e aggiorna EEPROM
+  saveCamerasToLittleFS();
+  saveEsp32camUrlToEEPROM();
+
+  // Se in streaming, disconnetti per usare il nuovo URL
+  if (esp32camStreaming) {
+    disconnectEsp32camStream();
+  }
+
+  Serial.printf("[ESP32-CAM] Selezionata camera %d: '%s'\n", index, esp32Cameras[index].name);
+  return true;
 }
 
 #endif // EFFECT_ESP32CAM

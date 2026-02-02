@@ -32,46 +32,46 @@ extern void selectWebRadioStation(int index);
 int webRadioStationCount = 0;
 #endif
 
-// ================== TEMA MODERNO - PALETTE COLORI ==================
-// Sfondo e base (NERO PURO come WebRadio/MP3Player)
-#define RA_BG_COLOR       0x0000  // Nero puro
-#define RA_BG_DARK        0x0000  // Nero puro
-#define RA_BG_CARD        0x0841  // Blu molto scuro per cards
+// ================== TEMA MODERNO - IDENTICO A WEBRADIO ==================
+// Sfondo e base
+#define RA_BG_COLOR       0x0841  // Blu molto scuro (come WebRadio)
+#define RA_BG_DARK        0x0000  // Nero puro per contrasto
+#define RA_BG_CARD        0x1082  // Grigio-blu scuro per cards
 
 // Testo
 #define RA_TEXT_COLOR     0xFFFF  // Bianco
 #define RA_TEXT_DIM       0xB5B6  // Grigio chiaro
 #define RA_TEXT_MUTED     0x7BCF  // Grigio medio
 
-// Accenti - Ciano/Turchese moderno
+// Accenti - Ciano/Turchese moderno (identico a WebRadio)
 #define RA_ACCENT_COLOR   0x07FF  // Ciano brillante
 #define RA_ACCENT_DARK    0x0575  // Ciano scuro
 #define RA_ACCENT_GLOW    0x5FFF  // Ciano chiaro (glow)
 
-// Bottoni (coerente con WebRadio/MP3Player)
-#define RA_BUTTON_COLOR   0x1082  // Grigio-blu molto scuro
-#define RA_BUTTON_HOVER   0x2124  // Grigio scuro
+// Bottoni (coerente con WebRadio)
+#define RA_BUTTON_COLOR   0x2124  // Grigio scuro
+#define RA_BUTTON_HOVER   0x3186  // Grigio medio
 #define RA_BUTTON_ACTIVE  0x0575  // Ciano scuro (attivo)
-#define RA_BUTTON_BORDER  0x07FF  // Ciano brillante per bordi
-#define RA_BUTTON_SHADOW  0x0841  // Ombra bottone
+#define RA_BUTTON_BORDER  0x4A69  // Grigio bordo
+#define RA_BUTTON_SHADOW  0x1082  // Ombra bottone
 
 // Colori speciali
 #define RA_ALARM_ON       0x07E0  // Verde (sveglia attiva)
 #define RA_ALARM_OFF      0xF800  // Rosso (sveglia spenta)
 #define RA_SNOOZE_COLOR   0xFD20  // Arancione (snooze)
 
-// ================== LAYOUT 480x480 ==================
-#define RA_HEADER_Y       5
-#define RA_TOGGLE_Y       55      // Grande bottone ON/OFF
-#define RA_TIME_Y         125     // Orario
-#define RA_DAYS_Y         200     // Giorni
-#define RA_STATION_Y      260     // Stazione
-#define RA_VOLUME_Y       325     // Volume
-#define RA_CONTROLS_Y     375     // TEST e SNOOZE
-#define RA_EXIT_Y         435
+// ================== LAYOUT 480x480 - SPAZIATURA CORRETTA ==================
+#define RA_HEADER_Y       5       // Header con titolo
+#define RA_TOGGLE_Y       55      // Bottone ON/OFF (H=48)
+#define RA_TIME_Y         115     // Orario sveglia (H=65)
+#define RA_DAYS_Y         190     // Giorni settimana (H=45)
+#define RA_STATION_Y      245     // Stazione radio (H=50)
+#define RA_VOLUME_Y       305     // Volume (H=45)
+#define RA_CONTROLS_Y     360     // TEST/SNOOZE (H=50)
+#define RA_EXIT_Y         425     // Exit button (H=40)
 
-#define RA_CENTER_X       30
-#define RA_CENTER_W       420
+#define RA_CENTER_X       20      // Margine laterale
+#define RA_CENTER_W       440     // Larghezza area centrale
 
 // ================== VARIABILI GLOBALI ==================
 // (Struttura RadioAlarmSettings definita nel file principale)
@@ -171,6 +171,15 @@ void updateRadioAlarm() {
     }
   }
 
+  // Aggiorna continuamente se la sveglia sta suonando (effetto lampeggiante)
+  if (radioAlarmRinging) {
+    static uint32_t lastRingingUpdate = 0;
+    if (millis() - lastRingingUpdate > 100) {  // 10 fps per animazione fluida
+      lastRingingUpdate = millis();
+      radioAlarmNeedsRedraw = true;
+    }
+  }
+
   // Ridisegna se necessario
   if (radioAlarmNeedsRedraw) {
     drawRadioAlarmUI();
@@ -178,213 +187,271 @@ void updateRadioAlarm() {
   }
 }
 
+// ================== SCHERMATA ALLARME ATTIVO (FULLSCREEN) ==================
+void drawAlarmRingingScreen() {
+  // Sfondo rosso/arancione lampeggiante
+  static bool flashState = false;
+  static uint32_t lastFlash = 0;
+
+  if (millis() - lastFlash > 500) {
+    flashState = !flashState;
+    lastFlash = millis();
+  }
+
+  uint16_t bgColor = flashState ? 0x8000 : 0x4000;  // Rosso scuro alternato
+  gfx->fillScreen(bgColor);
+
+  // Bordo arancione brillante
+  for (int i = 0; i < 5; i++) {
+    gfx->drawRect(i, i, 480 - i*2, 480 - i*2, RA_SNOOZE_COLOR);
+  }
+
+  // Grande icona campana al centro
+  int centerX = 240;
+  int centerY = 180;
+
+  // Campana grande
+  gfx->fillCircle(centerX, centerY - 20, 50, RA_TEXT_COLOR);
+  gfx->fillRect(centerX - 50, centerY + 25, 100, 20, RA_TEXT_COLOR);
+  gfx->fillCircle(centerX, centerY + 55, 15, RA_TEXT_COLOR);
+
+  // Onde sonore
+  if (flashState) {
+    gfx->drawCircle(centerX, centerY, 70, RA_SNOOZE_COLOR);
+    gfx->drawCircle(centerX, centerY, 85, RA_SNOOZE_COLOR);
+    gfx->drawCircle(centerX, centerY, 100, RA_SNOOZE_COLOR);
+  }
+
+  // Testo "SVEGLIA!"
+  gfx->setFont(u8g2_font_helvB24_tr);
+  gfx->setTextColor(RA_TEXT_COLOR);
+  gfx->setCursor(145, 300);
+  gfx->print("SVEGLIA!");
+
+  // Orario corrente grande
+  gfx->setFont(u8g2_font_logisoso42_tn);
+  gfx->setTextColor(RA_SNOOZE_COLOR);
+  char timeStr[6];
+  snprintf(timeStr, sizeof(timeStr), "%02d:%02d", myTZ.hour(), myTZ.minute());
+  gfx->setCursor(140, 370);
+  gfx->print(timeStr);
+
+  // Istruzioni chiare
+  gfx->setFont(u8g2_font_helvB18_tr);
+  gfx->setTextColor(RA_TEXT_COLOR);
+  gfx->setCursor(60, 430);
+  gfx->print("TOCCA OVUNQUE PER FERMARE");
+
+  // Nome stazione in basso
+  gfx->setFont(u8g2_font_helvR12_tr);
+  gfx->setTextColor(RA_TEXT_DIM);
+  String station = getRAStationName(radioAlarm.stationIndex);
+  if (station.length() > 35) station = station.substring(0, 32) + "...";
+  int stW = station.length() * 7;
+  gfx->setCursor(centerX - stW/2, 465);
+  gfx->print(station);
+}
+
 // ================== DISEGNO UI COMPLETA ==================
 void drawRadioAlarmUI() {
-  // Sfondo nero puro (coerente con WebRadio/MP3Player)
-  gfx->fillScreen(RA_BG_COLOR);
+  // Se la sveglia sta suonando, mostra schermata fullscreen dedicata
+  if (radioAlarmRinging) {
+    drawAlarmRingingScreen();
+    return;
+  }
 
-  // Bordi ciano sottili
-  gfx->drawFastHLine(0, 0, 480, RA_ACCENT_COLOR);
-  gfx->drawFastHLine(0, 479, 480, RA_ACCENT_COLOR);
-  gfx->drawFastVLine(0, 0, 480, RA_ACCENT_COLOR);
-  gfx->drawFastVLine(479, 0, 480, RA_ACCENT_COLOR);
+  // Sfondo con gradiente simulato (identico a WebRadio)
+  for (int y = 0; y < 480; y += 4) {
+    uint16_t shade = (y < 240) ? RA_BG_COLOR : RA_BG_DARK;
+    gfx->fillRect(0, y, 480, 4, shade);
+  }
+
+  // Linee decorative sottili in alto e in basso
+  gfx->drawFastHLine(0, 2, 480, RA_ACCENT_DARK);
+  gfx->drawFastHLine(0, 477, 480, RA_ACCENT_DARK);
 
   drawRAHeader();
   yield();
-  drawRAToggleButton();  // Grande bottone ON/OFF
+  drawRAToggleButton();
+  yield();
   drawRATimeDisplay();
   yield();
   drawRADaysSelector();
+  yield();
   drawRAStationSelector();
   yield();
   drawRAVolumeBar();
+  yield();
   drawRAControls();
   drawRAExitButton();
   yield();
 }
 
-// ================== GRANDE BOTTONE TOGGLE ON/OFF ==================
+// ================== TOGGLE ON/OFF - CARD STILE WEBRADIO ==================
 void drawRAToggleButton() {
   int y = RA_TOGGLE_Y;
-  int centerX = 240;
-  int btnW = 360;
-  int btnH = 55;
-  int btnX = centerX - btnW / 2;
+  int btnX = RA_CENTER_X;
+  int btnW = RA_CENTER_W;
+  int btnH = 48;
 
   // Colori in base allo stato
-  uint16_t bgColor, borderColor, textColor;
-  if (radioAlarmRinging) {
-    // Sta suonando - arancione
-    bgColor = 0x7A00;      // Arancione scuro
-    borderColor = RA_SNOOZE_COLOR;
-    textColor = RA_TEXT_COLOR;
-  } else if (radioAlarmSnoozed) {
-    // In snooze - blu/viola
-    bgColor = 0x2010;      // Viola scuro
-    borderColor = 0x781F;  // Viola
-    textColor = 0xF81F;    // Magenta
+  uint16_t bgColor, borderColor, textColor, iconColor;
+  if (radioAlarmSnoozed) {
+    bgColor = 0x2010;
+    borderColor = 0x781F;
+    textColor = 0xF81F;
+    iconColor = 0x781F;
   } else if (radioAlarm.enabled) {
-    bgColor = 0x0400;      // Verde scuro
+    bgColor = 0x0320;      // Verde molto scuro
     borderColor = RA_ALARM_ON;
     textColor = RA_ALARM_ON;
+    iconColor = RA_ALARM_ON;
   } else {
-    bgColor = 0x4000;      // Rosso scuro
+    bgColor = 0x3000;      // Rosso molto scuro
     borderColor = RA_ALARM_OFF;
     textColor = RA_ALARM_OFF;
+    iconColor = RA_ALARM_OFF;
   }
 
-  // Sfondo bottone (stile semplificato)
+  // Ombra e Card (stile WebRadio)
+  gfx->fillRoundRect(btnX + 3, y + 3, btnW, btnH, 10, RA_BUTTON_SHADOW);
   gfx->fillRoundRect(btnX, y, btnW, btnH, 10, bgColor);
 
-  // Bordo singolo
+  // Bordo con glow
   gfx->drawRoundRect(btnX, y, btnW, btnH, 10, borderColor);
+  gfx->drawRoundRect(btnX + 1, y + 1, btnW - 2, btnH - 2, 9, borderColor);
 
-  // Icona campana semplice
-  int iconX = btnX + 40;
+  // Icona campana
+  int iconX = btnX + 35;
   int iconY = y + btnH / 2;
+  gfx->fillCircle(iconX, iconY - 4, 8, iconColor);
+  gfx->fillRect(iconX - 8, iconY + 2, 16, 4, iconColor);
+  gfx->fillCircle(iconX, iconY + 9, 3, iconColor);
 
-  if (radioAlarmRinging) {
-    // Campana che suona con onde
-    gfx->fillCircle(iconX, iconY - 3, 10, RA_TEXT_COLOR);
-    gfx->fillRect(iconX - 10, iconY + 3, 20, 5, RA_TEXT_COLOR);
-    gfx->fillCircle(iconX, iconY + 11, 3, RA_TEXT_COLOR);
-    // Onde
-    gfx->drawCircle(iconX, iconY, 16, RA_TEXT_COLOR);
-    gfx->drawCircle(iconX, iconY, 20, RA_TEXT_COLOR);
-  } else if (radioAlarmSnoozed) {
-    // Campana con Zzz (snooze)
-    gfx->fillCircle(iconX, iconY - 3, 10, 0x781F);
-    gfx->fillRect(iconX - 10, iconY + 3, 20, 5, 0x781F);
-    gfx->fillCircle(iconX, iconY + 11, 3, 0x781F);
-    // Zzz
-    gfx->setFont(u8g2_font_helvB10_tr);
-    gfx->setTextColor(0xF81F);
-    gfx->setCursor(iconX + 10, iconY - 8);
-    gfx->print("z");
-    gfx->setCursor(iconX + 16, iconY - 2);
-    gfx->print("Z");
-  } else if (radioAlarm.enabled) {
-    // Campana attiva
-    gfx->fillCircle(iconX, iconY - 3, 10, RA_ALARM_ON);
-    gfx->fillRect(iconX - 10, iconY + 3, 20, 5, RA_ALARM_ON);
-    gfx->fillCircle(iconX, iconY + 11, 3, RA_ALARM_ON);
-  } else {
-    // Campana spenta con X
-    gfx->drawCircle(iconX, iconY - 3, 10, RA_ALARM_OFF);
-    gfx->drawRect(iconX - 10, iconY + 3, 20, 5, RA_ALARM_OFF);
-    gfx->drawCircle(iconX, iconY + 11, 3, RA_ALARM_OFF);
-    gfx->drawLine(iconX - 12, iconY - 12, iconX + 12, iconY + 12, RA_ALARM_OFF);
-    gfx->drawLine(iconX - 11, iconY - 12, iconX + 13, iconY + 12, RA_ALARM_OFF);
+  if (!radioAlarm.enabled && !radioAlarmSnoozed) {
+    // X sulla campana se spenta
+    gfx->drawLine(iconX - 10, iconY - 10, iconX + 10, iconY + 10, RA_ALARM_OFF);
+    gfx->drawLine(iconX - 9, iconY - 10, iconX + 11, iconY + 10, RA_ALARM_OFF);
   }
 
   // Testo stato
-  gfx->setFont(u8g2_font_helvB18_tr);
+  gfx->setFont(u8g2_font_helvB14_tr);
   gfx->setTextColor(textColor);
 
-  if (radioAlarmRinging) {
-    gfx->setCursor(btnX + 70, y + 38);
-    gfx->print("SVEGLIA! TOCCA PER FERMARE");
-  } else if (radioAlarmSnoozed) {
-    gfx->setCursor(btnX + 70, y + 38);
-    gfx->print("POSTICIPATA...");
-    // Mostra tempo rimanente
+  if (radioAlarmSnoozed) {
+    gfx->setCursor(btnX + 60, y + 32);
+    gfx->print("POSTICIPATA");
     uint32_t remaining = (radioAlarmSnoozeUntil > millis()) ? (radioAlarmSnoozeUntil - millis()) / 1000 : 0;
-    int mins = remaining / 60;
-    int secs = remaining % 60;
     gfx->setFont(u8g2_font_helvR12_tr);
-    gfx->setTextColor(RA_TEXT_MUTED);
+    gfx->setTextColor(RA_TEXT_DIM);
     char timeStr[16];
-    snprintf(timeStr, sizeof(timeStr), "tra %d:%02d", mins, secs);
-    gfx->setCursor(btnX + 200, y + 38);
+    snprintf(timeStr, sizeof(timeStr), "risveglio tra %d:%02d", (int)(remaining/60), (int)(remaining%60));
+    gfx->setCursor(btnX + 200, y + 32);
     gfx->print(timeStr);
   } else if (radioAlarm.enabled) {
-    gfx->setCursor(btnX + 70, y + 38);
-    gfx->print("SVEGLIA ON");
-    gfx->setFont(u8g2_font_helvR12_tr);
+    gfx->setCursor(btnX + 60, y + 32);
+    gfx->print("SVEGLIA ATTIVA");
+    gfx->setFont(u8g2_font_helvR10_tr);
     gfx->setTextColor(RA_TEXT_MUTED);
-    gfx->setCursor(btnX + 230, y + 38);
-    gfx->print("tocca per spegnere");
+    gfx->setCursor(btnX + 250, y + 32);
+    gfx->print("tocca per disattivare");
   } else {
-    gfx->setCursor(btnX + 70, y + 38);
-    gfx->print("SVEGLIA OFF");
-    gfx->setFont(u8g2_font_helvR12_tr);
+    gfx->setCursor(btnX + 60, y + 32);
+    gfx->print("SVEGLIA SPENTA");
+    gfx->setFont(u8g2_font_helvR10_tr);
     gfx->setTextColor(RA_TEXT_MUTED);
-    gfx->setCursor(btnX + 235, y + 38);
+    gfx->setCursor(btnX + 250, y + 32);
     gfx->print("tocca per attivare");
   }
 }
 
-// ================== HEADER ==================
+// ================== HEADER - STILE WEBRADIO ==================
 void drawRAHeader() {
   int centerX = 240;
 
-  // Titolo stile )) RADIOSVEGLIA (( come WebRadio/MP3Player
+  // Icona campana stilizzata (sinistra)
+  int iconY = RA_HEADER_Y + 22;
+  gfx->fillCircle(70, iconY, 12, RA_ACCENT_COLOR);
+  gfx->fillRect(58, iconY + 8, 24, 6, RA_ACCENT_COLOR);
+  gfx->fillCircle(70, iconY + 18, 4, RA_ACCENT_COLOR);
+
+  // Effetto Glow (ombra)
   gfx->setFont(u8g2_font_helvB18_tr);
+  gfx->setTextColor(RA_ACCENT_DARK);
+  gfx->setCursor(116, RA_HEADER_Y + 32);
+  gfx->print("RADIOSVEGLIA");
+
+  // Testo principale
   gfx->setTextColor(RA_ACCENT_COLOR);
+  gfx->setCursor(115, RA_HEADER_Y + 31);
+  gfx->print("RADIOSVEGLIA");
 
-  // Calcola larghezza testo per centrare
-  const char* title = ")) RADIOSVEGLIA ((";
-  int textW = 210;  // Larghezza approssimativa
-  gfx->setCursor(centerX - textW/2, RA_HEADER_Y + 28);
-  gfx->print(title);
+  // Icona campana stilizzata (destra)
+  gfx->fillCircle(410, iconY, 12, RA_ACCENT_COLOR);
+  gfx->fillRect(398, iconY + 8, 24, 6, RA_ACCENT_COLOR);
+  gfx->fillCircle(410, iconY + 18, 4, RA_ACCENT_COLOR);
 
-  // Linea separatrice ciano
-  gfx->drawFastHLine(30, RA_HEADER_Y + 40, 420, RA_ACCENT_DARK);
-  gfx->drawFastHLine(30, RA_HEADER_Y + 41, 420, RA_ACCENT_COLOR);
+  // Linea separatrice tripla (come WebRadio)
+  for (int i = 0; i < 3; i++) {
+    uint16_t lineColor = (i == 1) ? RA_ACCENT_COLOR : RA_ACCENT_DARK;
+    gfx->drawFastHLine(RA_CENTER_X, RA_HEADER_Y + 44 + i, RA_CENTER_W, lineColor);
+  }
 }
 
-// ================== DISPLAY ORARIO ==================
+// ================== DISPLAY ORARIO - CARD STILE WEBRADIO ==================
 void drawRATimeDisplay() {
   int y = RA_TIME_Y;
   int centerX = 240;
 
-  // Card orario con bordo ciano
-  int cardW = 220;
-  int cardH = 60;
+  // Card orario centrata
+  int cardW = 260;
+  int cardH = 65;
   int cardX = centerX - cardW / 2;
 
-  gfx->fillRoundRect(cardX, y + 15, cardW, cardH, 10, RA_BG_CARD);
-  gfx->drawRoundRect(cardX, y + 15, cardW, cardH, 10, RA_ACCENT_COLOR);
+  // Ombra e Card
+  gfx->fillRoundRect(cardX + 3, y + 3, cardW, cardH, 12, RA_BUTTON_SHADOW);
+  gfx->fillRoundRect(cardX, y, cardW, cardH, 12, RA_BG_CARD);
+
+  // Bordo con glow
+  gfx->drawRoundRect(cardX, y, cardW, cardH, 12, RA_ACCENT_DARK);
+  gfx->drawRoundRect(cardX + 1, y + 1, cardW - 2, cardH - 2, 11, RA_ACCENT_COLOR);
+
+  // Frecce ora (sinistra del card)
+  int hourArrowX = cardX - 25;
+  gfx->fillTriangle(hourArrowX, y + 15, hourArrowX - 15, y + 30, hourArrowX + 15, y + 30, RA_ACCENT_COLOR);
+  gfx->fillTriangle(hourArrowX, y + 50, hourArrowX - 15, y + 35, hourArrowX + 15, y + 35, RA_ACCENT_COLOR);
+  gfx->setFont(u8g2_font_helvR08_tr);
+  gfx->setTextColor(RA_TEXT_MUTED);
+  gfx->setCursor(hourArrowX - 10, y + 68);
+  gfx->print("ORA");
 
   // Orario grande centrato
   gfx->setFont(u8g2_font_logisoso42_tn);
-
   char timeStr[6];
   snprintf(timeStr, sizeof(timeStr), "%02d:%02d", radioAlarm.hour, radioAlarm.minute);
-
-  // Calcola posizione centrata
-  int textW = 130;  // Larghezza approssimativa
-  int textX = cardX + (cardW - textW) / 2;
-
   gfx->setTextColor(RA_TEXT_COLOR);
-  gfx->setCursor(textX, y + 62);
+  gfx->setCursor(cardX + 45, y + 52);
   gfx->print(timeStr);
 
-  // Frecce +/- per ora (all'esterno sinistra)
-  int hourArrowX = cardX + 20;
-  gfx->fillTriangle(hourArrowX, y + 25, hourArrowX - 12, y + 40, hourArrowX + 12, y + 40, RA_ACCENT_COLOR);  // Su
-  gfx->fillTriangle(hourArrowX, y + 70, hourArrowX - 12, y + 55, hourArrowX + 12, y + 55, RA_ACCENT_COLOR);  // Giu
-
-  // Frecce +/- per minuti (all'esterno destra)
-  int minArrowX = cardX + cardW - 20;
-  gfx->fillTriangle(minArrowX, y + 25, minArrowX - 12, y + 40, minArrowX + 12, y + 40, RA_ACCENT_COLOR);  // Su
-  gfx->fillTriangle(minArrowX, y + 70, minArrowX - 12, y + 55, minArrowX + 12, y + 55, RA_ACCENT_COLOR);  // Giu
+  // Frecce minuti (destra del card)
+  int minArrowX = cardX + cardW + 25;
+  gfx->fillTriangle(minArrowX, y + 15, minArrowX - 15, y + 30, minArrowX + 15, y + 30, RA_ACCENT_COLOR);
+  gfx->fillTriangle(minArrowX, y + 50, minArrowX - 15, y + 35, minArrowX + 15, y + 35, RA_ACCENT_COLOR);
+  gfx->setFont(u8g2_font_helvR08_tr);
+  gfx->setTextColor(RA_TEXT_MUTED);
+  gfx->setCursor(minArrowX - 10, y + 68);
+  gfx->print("MIN");
 }
 
-// ================== SELETTORE GIORNI ==================
+// ================== SELETTORE GIORNI - STILE WEBRADIO ==================
 void drawRADaysSelector() {
   int y = RA_DAYS_Y;
   int centerX = 240;
 
-//  gfx->setFont(u8g2_font_helvB12_tr);
-//  gfx->setTextColor(RA_ACCENT_COLOR);
-//  gfx->setCursor(RA_CENTER_X, y);
-//  gfx->print("GIORNI:");
-
-  const char* days[] = {"DOM", "LUN", "MAR", "MER", "GIO", "VEN", "SAB"};
-  int btnW = 52;
-  int btnH = 32;
-  int spacing = 6;
+  const char* daysFull[] = {"DOM", "LUN", "MAR", "MER", "GIO", "VEN", "SAB"};
+  int btnW = 54;
+  int btnH = 36;
+  int spacing = 8;
   int totalW = 7 * btnW + 6 * spacing;
   int startX = centerX - totalW / 2;
 
@@ -392,214 +459,214 @@ void drawRADaysSelector() {
     int bx = startX + i * (btnW + spacing);
     bool active = (radioAlarm.daysMask & (1 << i)) != 0;
 
-    // Bottone giorno con stile ciano
+    // Ombra
     if (active) {
-      gfx->fillRoundRect(bx, y + 18, btnW, btnH, 6, RA_ACCENT_DARK);
-      gfx->drawRoundRect(bx, y + 18, btnW, btnH, 6, RA_ACCENT_COLOR);
-    } else {
-      gfx->fillRoundRect(bx, y + 18, btnW, btnH, 6, RA_BUTTON_COLOR);
-      gfx->drawRoundRect(bx, y + 18, btnW, btnH, 6, RA_ACCENT_COLOR);  // Bordo ciano anche se inattivo
+      gfx->fillRoundRect(bx + 2, y + 7, btnW, btnH, 6, RA_BUTTON_SHADOW);
     }
 
-    gfx->setFont(u8g2_font_helvB10_tr);
+    // Bottone
+    uint16_t bgCol = active ? RA_ACCENT_DARK : RA_BUTTON_COLOR;
+    gfx->fillRoundRect(bx, y + 5, btnW, btnH, 6, bgCol);
+
+    // Bordo
+    uint16_t borderCol = active ? RA_ACCENT_COLOR : RA_BUTTON_BORDER;
+    gfx->drawRoundRect(bx, y + 5, btnW, btnH, 6, borderCol);
+
+    // Testo giorno
+    gfx->setFont(u8g2_font_helvB12_tr);
     gfx->setTextColor(active ? RA_TEXT_COLOR : RA_TEXT_MUTED);
-    gfx->setCursor(bx + 8, y + 40);
-    gfx->print(days[i]);
+    gfx->setCursor(bx + 10, y + 30);
+    gfx->print(daysFull[i]);
   }
 }
 
-// ================== SELETTORE STAZIONE ==================
+// ================== SELETTORE STAZIONE - STILE WEBRADIO ==================
 void drawRAStationSelector() {
   int y = RA_STATION_Y;
-  int centerX = 240;
+  int cardX = RA_CENTER_X;
+  int cardW = RA_CENTER_W;
+  int cardH = 50;
 
-  // Card stazione con bordo ciano
-  int cardW = 340;
-  int cardH = 48;
-  int cardX = centerX - cardW / 2;
+  // Ombra e Card
+  gfx->fillRoundRect(cardX + 3, y + 3, cardW, cardH, 10, RA_BUTTON_SHADOW);
+  gfx->fillRoundRect(cardX, y, cardW, cardH, 10, RA_BG_CARD);
 
-  gfx->fillRoundRect(cardX, y + 14, cardW, cardH, 8, RA_BG_CARD);
-  gfx->drawRoundRect(cardX, y + 14, cardW, cardH, 8, RA_ACCENT_COLOR);
+  // Bordo con glow
+  gfx->drawRoundRect(cardX, y, cardW, cardH, 10, RA_ACCENT_DARK);
+  gfx->drawRoundRect(cardX + 1, y + 1, cardW - 2, cardH - 2, 9, RA_ACCENT_COLOR);
+
+  // Icona nota musicale (sinistra)
+  int iconX = cardX + 25;
+  int iconY = y + cardH / 2;
+  gfx->fillCircle(iconX, iconY + 5, 5, RA_ACCENT_COLOR);
+  gfx->fillCircle(iconX + 10, iconY + 2, 5, RA_ACCENT_COLOR);
+  gfx->fillRect(iconX + 3, iconY - 10, 2, 15, RA_ACCENT_COLOR);
+  gfx->fillRect(iconX + 13, iconY - 13, 2, 15, RA_ACCENT_COLOR);
+  gfx->fillRect(iconX + 3, iconY - 12, 12, 2, RA_ACCENT_COLOR);
 
   // Freccia sinistra
-  int arrowX = cardX + 20;
-  int arrowY = y + 14 + cardH / 2;
-  gfx->fillTriangle(arrowX, arrowY, arrowX + 12, arrowY - 10, arrowX + 12, arrowY + 10, RA_ACCENT_COLOR);
+  int arrowLX = cardX + 55;
+  int arrowY = y + cardH / 2;
+  gfx->fillTriangle(arrowLX, arrowY, arrowLX + 12, arrowY - 8, arrowLX + 12, arrowY + 8, RA_ACCENT_COLOR);
 
-  // Nome stazione
-  gfx->setFont(u8g2_font_helvB14_tr);
+  // Nome stazione centrato
+  gfx->setFont(u8g2_font_helvB12_tr);
   gfx->setTextColor(RA_TEXT_COLOR);
-
   String stationName = getRAStationName(radioAlarm.stationIndex);
-  if (stationName.length() > 26) {
-    stationName = stationName.substring(0, 23) + "...";
+  if (stationName.length() > 20) {
+    stationName = stationName.substring(0, 17) + "...";
   }
-  int textW = stationName.length() * 9;
-  gfx->setCursor(cardX + (cardW - textW) / 2, y + 45);
+  int textW = stationName.length() * 8;
+  gfx->setCursor(cardX + (cardW - textW) / 2, y + 33);
   gfx->print(stationName);
 
   // Freccia destra
-  arrowX = cardX + cardW - 20;
-  gfx->fillTriangle(arrowX, arrowY, arrowX - 12, arrowY - 10, arrowX - 12, arrowY + 10, RA_ACCENT_COLOR);
+  int arrowRX = cardX + cardW - 55;
+  gfx->fillTriangle(arrowRX, arrowY, arrowRX - 12, arrowY - 8, arrowRX - 12, arrowY + 8, RA_ACCENT_COLOR);
 
-  // Numero stazione
+  // Numero stazione (a fianco freccia destra)
   gfx->setFont(u8g2_font_helvR10_tr);
   gfx->setTextColor(RA_TEXT_MUTED);
   char numStr[16];
   snprintf(numStr, sizeof(numStr), "%d/%d", radioAlarm.stationIndex + 1, webRadioStationCount);
-  gfx->setCursor(cardX + cardW - 45, y + 10);
+  gfx->setCursor(cardX + cardW - 40, y + 33);
   gfx->print(numStr);
 }
 
-// ================== BARRA VOLUME ==================
+// ================== BARRA VOLUME - STILE WEBRADIO ==================
 void drawRAVolumeBar() {
   int y = RA_VOLUME_Y;
-  int barX = 90;
-  int barW = 300;
-  int barH = 32;
+  int barX = RA_CENTER_X + 50;
+  int barW = RA_CENTER_W - 100;
+  int barH = 28;
 
-  // Icona speaker ciano
-  int spkX = barX - 20;
-  int spkY = y + 28;
-  gfx->fillRect(spkX - 4, spkY - 3, 6, 6, RA_ACCENT_COLOR);
-  gfx->fillTriangle(spkX + 2, spkY - 6, spkX + 2, spkY + 6, spkX + 10, spkY, RA_ACCENT_COLOR);
+  // Icona speaker (sinistra)
+  int spkX = RA_CENTER_X + 20;
+  int spkY = y + 14;
+  gfx->fillRect(spkX, spkY, 6, 8, RA_ACCENT_COLOR);
+  gfx->fillTriangle(spkX + 6, spkY - 4, spkX + 6, spkY + 12, spkX + 14, spkY + 4, RA_ACCENT_COLOR);
+  // Onde sonore
+  gfx->drawArc(spkX + 16, spkY + 4, 6, 6, 300, 60, RA_ACCENT_COLOR);
+  gfx->drawArc(spkX + 16, spkY + 4, 10, 10, 300, 60, RA_ACCENT_DARK);
 
-  // Barra volume con bordo ciano
-  gfx->fillRoundRect(barX, y + 18, barW, barH, 6, RA_BG_CARD);
-  gfx->drawRoundRect(barX, y + 18, barW, barH, 6, RA_ACCENT_COLOR);
+  // Barra volume con ombra
+  gfx->fillRoundRect(barX + 2, y + 5, barW, barH, 8, RA_BUTTON_SHADOW);
+  gfx->fillRoundRect(barX, y + 3, barW, barH, 8, RA_BG_CARD);
+  gfx->drawRoundRect(barX, y + 3, barW, barH, 8, RA_ACCENT_DARK);
 
   // Riempimento gradiente
-  int fillW = map(radioAlarm.volume, 0, 100, 0, barW - 6);
+  int fillW = map(radioAlarm.volume, 0, 100, 0, barW - 8);
   if (fillW > 4) {
     for (int i = 0; i < fillW; i++) {
-      // Gradiente da ciano scuro a ciano chiaro
       uint16_t col = (i < fillW / 3) ? RA_ACCENT_DARK : ((i < fillW * 2 / 3) ? RA_ACCENT_COLOR : RA_ACCENT_GLOW);
-      gfx->drawFastVLine(barX + 3 + i, y + 22, barH - 8, col);
+      gfx->drawFastVLine(barX + 4 + i, y + 7, barH - 8, col);
     }
   }
 
   // Knob
-  int knobX = barX + 3 + fillW;
-  if (knobX < barX + 8) knobX = barX + 8;
-  if (knobX > barX + barW - 8) knobX = barX + barW - 8;
-  gfx->fillCircle(knobX, y + 18 + barH / 2, 10, RA_ACCENT_COLOR);
-  gfx->fillCircle(knobX, y + 18 + barH / 2, 5, RA_TEXT_COLOR);
+  int knobX = barX + 4 + fillW;
+  if (knobX < barX + 10) knobX = barX + 10;
+  if (knobX > barX + barW - 10) knobX = barX + barW - 10;
+  gfx->fillCircle(knobX, y + 3 + barH / 2, 12, RA_ACCENT_COLOR);
+  gfx->fillCircle(knobX, y + 3 + barH / 2, 6, RA_TEXT_COLOR);
 
-  // Valore numerico
+  // Valore numerico (destra)
   gfx->setFont(u8g2_font_helvB14_tr);
   gfx->setTextColor(RA_TEXT_COLOR);
-  char volStr[4];
-  snprintf(volStr, sizeof(volStr), "%d", radioAlarm.volume);
-  gfx->setCursor(barX + barW + 15, y + 40);
+  char volStr[5];
+  snprintf(volStr, sizeof(volStr), "%d%%", radioAlarm.volume);
+  gfx->setCursor(barX + barW + 15, y + 23);
   gfx->print(volStr);
 }
 
-// ================== CONTROLLI ==================
+// ================== CONTROLLI - STILE WEBRADIO ==================
 void drawRAControls() {
   int y = RA_CONTROLS_Y;
   int centerX = 240;
 
   // 3 bottoni: TEST | ON/OFF | SNOOZE
-  int btnW = 110;
-  int btnH = 55;
-  int spacing = 20;
+  int btnW = 130;
+  int btnH = 50;
+  int spacing = 15;
   int totalW = 3 * btnW + 2 * spacing;
   int startX = centerX - totalW / 2;
 
-  // Bottone TEST / STOP (rosso quando suona)
-  if (radioAlarmRinging) {
-    // Mostra STOP in rosso
-    drawRAModernButton(startX, y, btnW, btnH, true, RA_ALARM_OFF);
-    gfx->setFont(u8g2_font_helvB14_tr);
-    gfx->setTextColor(RA_TEXT_COLOR);
-    gfx->setCursor(startX + 30, y + 35);
-    gfx->print("STOP");
-  } else {
-    // Mostra TEST normale
-    drawRAModernButton(startX, y, btnW, btnH, false, 0);
-    gfx->setFont(u8g2_font_helvB14_tr);
-    gfx->setTextColor(RA_ACCENT_COLOR);
-    gfx->setCursor(startX + 30, y + 35);
-    gfx->print("TEST");
-  }
+  // ===== Bottone TEST =====
+  drawRAModernButton(startX, y, btnW, btnH, false, 0);
+  gfx->setFont(u8g2_font_helvB14_tr);
+  gfx->setTextColor(RA_ACCENT_COLOR);
+  gfx->setCursor(startX + 40, y + 33);
+  gfx->print("TEST");
 
-  // Bottone ON/OFF (centrale, piu' grande)
-  int onoffX = startX + btnW + spacing;
-  bool isOn = radioAlarm.enabled;
-  uint16_t onoffColor = radioAlarmRinging ? RA_ALARM_OFF : (isOn ? RA_ALARM_ON : RA_ALARM_OFF);
-  drawRAModernButton(onoffX - 5, y - 5, btnW + 10, btnH + 10, true, onoffColor);
-
-  gfx->setFont(u8g2_font_helvB18_tr);
+  // ===== Bottone STOP (centrale) =====
+  int stopX = startX + btnW + spacing;
+  drawRAModernButton(stopX, y, btnW, btnH, true, RA_ALARM_OFF);
+  gfx->setFont(u8g2_font_helvB14_tr);
   gfx->setTextColor(RA_TEXT_COLOR);
-  if (radioAlarmRinging) {
-    gfx->setCursor(onoffX + 25, y + 38);
-    gfx->print("OFF");
-  } else {
-    gfx->setCursor(onoffX + (isOn ? 35 : 30), y + 38);
-    gfx->print(isOn ? "ON" : "OFF");
-  }
+  gfx->setCursor(stopX + 40, y + 33);
+  gfx->print("STOP");
 
-  // Icona power
-  int pwrX = onoffX + 15;
-  int pwrY = y + 30;
-  gfx->drawCircle(pwrX, pwrY, 8, RA_TEXT_COLOR);
-  gfx->fillRect(pwrX - 2, pwrY - 12, 4, 10, RA_TEXT_COLOR);
-
-  // Bottone SNOOZE (evidenziato quando suona)
-  int snoozeX = onoffX + btnW + spacing + 10;
-  if (radioAlarmRinging) {
-    drawRAModernButton(snoozeX, y, btnW, btnH, true, RA_SNOOZE_COLOR);
-    gfx->setFont(u8g2_font_helvB12_tr);
-    gfx->setTextColor(RA_TEXT_COLOR);
-  } else {
-    drawRAModernButton(snoozeX, y, btnW, btnH, false, 0);
-    gfx->setFont(u8g2_font_helvB12_tr);
-    gfx->setTextColor(RA_SNOOZE_COLOR);
-  }
-  gfx->setCursor(snoozeX + 10, y + 30);
-  gfx->print("RINVIA");
+  // ===== Bottone SNOOZE =====
+  int snoozeX = stopX + btnW + spacing;
+  drawRAModernButton(snoozeX, y, btnW, btnH, false, 0);
+  gfx->setFont(u8g2_font_helvB12_tr);
+  gfx->setTextColor(RA_SNOOZE_COLOR);
+  gfx->setCursor(snoozeX + 30, y + 28);
+  gfx->print("SNOOZE");
   gfx->setFont(u8g2_font_helvR10_tr);
-  gfx->setTextColor(radioAlarmRinging ? RA_TEXT_COLOR : RA_TEXT_DIM);
+  gfx->setTextColor(RA_TEXT_MUTED);
   char snzStr[8];
   snprintf(snzStr, sizeof(snzStr), "%d min", radioAlarm.snoozeMinutes);
-  gfx->setCursor(snoozeX + 28, y + 48);
+  gfx->setCursor(snoozeX + 42, y + 44);
   gfx->print(snzStr);
 }
 
-// ================== HELPER BOTTONE MODERNO ==================
+// ================== HELPER BOTTONE MODERNO - STILE WEBRADIO ==================
 void drawRAModernButton(int bx, int by, int bw, int bh, bool active, uint16_t activeColor) {
-  // Stile semplificato coerente con WebRadio/MP3Player
+  // Ombra
+  gfx->fillRoundRect(bx + 2, by + 2, bw, bh, 8, RA_BUTTON_SHADOW);
+
+  // Sfondo
   uint16_t bgColor = active ? activeColor : RA_BUTTON_COLOR;
   gfx->fillRoundRect(bx, by, bw, bh, 8, bgColor);
 
-  // Bordo ciano (o colore attivo se premuto)
+  // Bordo con glow
   uint16_t borderColor = active ? activeColor : RA_BUTTON_BORDER;
   gfx->drawRoundRect(bx, by, bw, bh, 8, borderColor);
+  if (active) {
+    gfx->drawRoundRect(bx + 1, by + 1, bw - 2, bh - 2, 7, activeColor);
+  }
 }
 
-// ================== EXIT BUTTON ==================
+// ================== EXIT BUTTON - STILE WEBRADIO ==================
 void drawRAExitButton() {
-  int btnW = 100;
+  int btnW = 120;
   int btnX = 240 - btnW / 2;
   int y = RA_EXIT_Y;
-  int btnH = 38;
+  int btnH = 40;
 
-  // Sfondo arancione (coerente con WebRadio/MP3Player)
-  gfx->fillRoundRect(btnX, y, btnW, btnH, 8, 0xFB20);  // Arancione
-  gfx->drawRoundRect(btnX, y, btnW, btnH, 8, 0xFD60);  // Bordo arancione chiaro
+  // Ombra
+  gfx->fillRoundRect(btnX + 2, y + 2, btnW, btnH, 10, RA_BUTTON_SHADOW);
+
+  // Sfondo arancione
+  gfx->fillRoundRect(btnX, y, btnW, btnH, 10, 0xFB20);
+
+  // Bordo glow arancione
+  gfx->drawRoundRect(btnX, y, btnW, btnH, 10, 0xFD60);
+  gfx->drawRoundRect(btnX + 1, y + 1, btnW - 2, btnH - 2, 9, 0xFD60);
 
   // Icona X
-  int iconX = btnX + 20;
+  int iconX = btnX + 28;
   int iconY = y + btnH / 2;
-  gfx->drawLine(iconX - 5, iconY - 5, iconX + 5, iconY + 5, RA_TEXT_COLOR);
-  gfx->drawLine(iconX - 5, iconY + 5, iconX + 5, iconY - 5, RA_TEXT_COLOR);
-  gfx->drawLine(iconX - 4, iconY - 5, iconX + 6, iconY + 5, RA_TEXT_COLOR);
-  gfx->drawLine(iconX - 4, iconY + 5, iconX + 6, iconY - 5, RA_TEXT_COLOR);
+  gfx->drawLine(iconX - 6, iconY - 6, iconX + 6, iconY + 6, RA_TEXT_COLOR);
+  gfx->drawLine(iconX - 6, iconY + 6, iconX + 6, iconY - 6, RA_TEXT_COLOR);
+  gfx->drawLine(iconX - 5, iconY - 6, iconX + 7, iconY + 6, RA_TEXT_COLOR);
+  gfx->drawLine(iconX - 5, iconY + 6, iconX + 7, iconY - 6, RA_TEXT_COLOR);
 
   // Testo
-  gfx->setFont(u8g2_font_helvB12_tr);
+  gfx->setFont(u8g2_font_helvB14_tr);
   gfx->setTextColor(RA_TEXT_COLOR);
-  gfx->setCursor(btnX + 38, y + 25);
+  gfx->setCursor(btnX + 48, y + 28);
   gfx->print("EXIT");
 }
 
@@ -609,46 +676,41 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
 
   int centerX = 240;
 
-  // ===== GRANDE BOTTONE TOGGLE ON/OFF - debounce lungo =====
-  int toggleBtnW = 360;
-  int toggleBtnX = centerX - toggleBtnW / 2;  // = 60
-  if (y >= RA_TOGGLE_Y && y <= RA_TOGGLE_Y + 55) {
-    if (x >= toggleBtnX && x <= toggleBtnX + toggleBtnW) {
+  // ===== TOUCH SCHERMO INTERO PER SPEGNERE ALLARME =====
+  // Quando la sveglia sta suonando, qualsiasi tocco la ferma
+  if (radioAlarmRinging) {
+    Serial.println("[RADIO-ALARM] Touch schermo intero - STOP sveglia");
+    stopRadioAlarm();
+    radioAlarmNeedsRedraw = true;
+    return false;  // Resta nella modalità radio alarm
+  }
+
+  // ===== TOGGLE ON/OFF =====
+  if (y >= RA_TOGGLE_Y && y <= RA_TOGGLE_Y + 48) {
+    if (x >= RA_CENTER_X && x <= RA_CENTER_X + RA_CENTER_W) {
       static uint32_t lastToggleTouch = 0;
       uint32_t now = millis();
-      if (now - lastToggleTouch < 700) {
-        return false;  // Ignora tocco troppo ravvicinato
-      }
+      if (now - lastToggleTouch < 700) return false;
       lastToggleTouch = now;
 
-      if (radioAlarmRinging) {
-        // Se sta suonando, ferma tutto
-        Serial.println("[RADIO-ALARM] Toggle: STOP sveglia");
-        stopRadioAlarm();
-      } else {
-        // Altrimenti toggle ON/OFF
-        radioAlarm.enabled = !radioAlarm.enabled;
-        saveRadioAlarmSettings();
-        Serial.printf("[RADIO-ALARM] Toggle: Sveglia %s\n", radioAlarm.enabled ? "ATTIVATA" : "DISATTIVATA");
-      }
+      radioAlarm.enabled = !radioAlarm.enabled;
+      saveRadioAlarmSettings();
+      Serial.printf("[RADIO-ALARM] Toggle: Sveglia %s\n", radioAlarm.enabled ? "ATTIVATA" : "DISATTIVATA");
       radioAlarmNeedsRedraw = true;
       return false;
     }
   }
 
-  // ===== ORARIO - Card =====
-  int cardW = 220;
-  int cardX = centerX - cardW / 2;
-  int cardY = RA_TIME_Y + 15;
-  if (y >= cardY && y <= cardY + 60) {
-    // Frecce ora all'esterno sinistra
-    int hourArrowX = cardX + 20;
-    if (x >= hourArrowX - 20 && x <= hourArrowX + 20) {
-      if (y < cardY + 35) {
-        // Ora +
+  // ===== ORARIO - Frecce esterne =====
+  int timeCardW = 260;
+  int timeCardX = centerX - timeCardW / 2;
+  if (y >= RA_TIME_Y && y <= RA_TIME_Y + 75) {
+    // Frecce ora (sinistra del card)
+    int hourArrowX = timeCardX - 25;
+    if (x >= hourArrowX - 25 && x <= hourArrowX + 25) {
+      if (y < RA_TIME_Y + 35) {
         radioAlarm.hour = (radioAlarm.hour + 1) % 24;
       } else {
-        // Ora -
         radioAlarm.hour = (radioAlarm.hour == 0) ? 23 : radioAlarm.hour - 1;
       }
       saveRadioAlarmSettings();
@@ -656,14 +718,12 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
       return false;
     }
 
-    // Frecce minuti all'esterno destra
-    int minArrowX = cardX + cardW - 20;
-    if (x >= minArrowX - 20 && x <= minArrowX + 20) {
-      if (y < cardY + 35) {
-        // Minuti +
+    // Frecce minuti (destra del card)
+    int minArrowX = timeCardX + timeCardW + 25;
+    if (x >= minArrowX - 25 && x <= minArrowX + 25) {
+      if (y < RA_TIME_Y + 35) {
         radioAlarm.minute = (radioAlarm.minute + 1) % 60;
       } else {
-        // Minuti -
         radioAlarm.minute = (radioAlarm.minute == 0) ? 59 : radioAlarm.minute - 1;
       }
       saveRadioAlarmSettings();
@@ -673,16 +733,16 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
   }
 
   // ===== GIORNI =====
-  if (y >= RA_DAYS_Y + 18 && y <= RA_DAYS_Y + 50) {
-    int btnW = 52;
-    int spacing = 6;
+  if (y >= RA_DAYS_Y && y <= RA_DAYS_Y + 45) {
+    int btnW = 54;
+    int spacing = 8;
     int totalW = 7 * btnW + 6 * spacing;
     int startX = centerX - totalW / 2;
 
     for (int i = 0; i < 7; i++) {
       int bx = startX + i * (btnW + spacing);
       if (x >= bx && x <= bx + btnW) {
-        radioAlarm.daysMask ^= (1 << i);  // Toggle giorno
+        radioAlarm.daysMask ^= (1 << i);
         saveRadioAlarmSettings();
         radioAlarmNeedsRedraw = true;
         return false;
@@ -691,13 +751,9 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
   }
 
   // ===== STAZIONE =====
-  int stCardW = 340;
-  int stCardX = centerX - stCardW / 2;
-  if (y >= RA_STATION_Y + 14 && y <= RA_STATION_Y + 62 && webRadioStationCount > 0) {
-    radioAlarmEditField = 2;
-
-    // Freccia sinistra - stazione precedente
-    if (x >= stCardX && x <= stCardX + 50) {
+  if (y >= RA_STATION_Y && y <= RA_STATION_Y + 50 && webRadioStationCount > 0) {
+    // Freccia sinistra
+    if (x >= RA_CENTER_X && x <= RA_CENTER_X + 70) {
       if (radioAlarm.stationIndex > 0) {
         radioAlarm.stationIndex--;
       } else {
@@ -708,8 +764,8 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
       return false;
     }
 
-    // Freccia destra - stazione successiva
-    if (x >= stCardX + stCardW - 50 && x <= stCardX + stCardW) {
+    // Freccia destra
+    if (x >= RA_CENTER_X + RA_CENTER_W - 70 && x <= RA_CENTER_X + RA_CENTER_W) {
       radioAlarm.stationIndex = (radioAlarm.stationIndex + 1) % webRadioStationCount;
       saveRadioAlarmSettings();
       radioAlarmNeedsRedraw = true;
@@ -718,9 +774,9 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
   }
 
   // ===== VOLUME =====
-  int volBarX = 90;
-  int volBarW = 300;
-  if (y >= RA_VOLUME_Y + 15 && y <= RA_VOLUME_Y + 55) {
+  int volBarX = RA_CENTER_X + 50;
+  int volBarW = RA_CENTER_W - 100;
+  if (y >= RA_VOLUME_Y && y <= RA_VOLUME_Y + 35) {
     if (x >= volBarX && x <= volBarX + volBarW) {
       int newVol = map(x - volBarX, 0, volBarW, 0, 100);
       newVol = constrain(newVol, 0, 100);
@@ -735,84 +791,49 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
 
   // ===== CONTROLLI =====
   int ctrlY = RA_CONTROLS_Y;
-  int btnW = 110;
-  int btnH = 55;
-  int spacing = 20;
+  int btnW = 130;
+  int btnH = 50;
+  int spacing = 15;
   int totalW = 3 * btnW + 2 * spacing;
   int startX = centerX - totalW / 2;
 
-  if (y >= ctrlY - 5 && y <= ctrlY + btnH + 10) {
-    // TEST / STOP (diventa STOP quando suona) - debounce lungo
+  if (y >= ctrlY && y <= ctrlY + btnH) {
+    // TEST
     if (x >= startX && x <= startX + btnW) {
-      static uint32_t lastTestStopTouch = 0;
-      uint32_t now = millis();
-      if (now - lastTestStopTouch < 700) {
-        return false;  // Ignora tocco troppo ravvicinato
-      }
-      lastTestStopTouch = now;
-
-      if (radioAlarmRinging) {
-        // Se sta suonando, ferma la sveglia (stopRadioAlarm ferma anche la radio)
-        Serial.println("[RADIO-ALARM] STOP - Fermo sveglia");
-        stopRadioAlarm();
-      } else {
-        // Altrimenti, test sveglia
-        Serial.println("[RADIO-ALARM] Test sveglia");
-        triggerRadioAlarm();
-      }
+      Serial.println("[RADIO-ALARM] Test sveglia");
+      triggerRadioAlarm();
       radioAlarmNeedsRedraw = true;
       return false;
     }
 
-    // ON/OFF (ferma anche la sveglia se sta suonando) - debounce lungo
-    int onoffX = startX + btnW + spacing;
-    if (x >= onoffX - 5 && x <= onoffX + btnW + 15) {
-      static uint32_t lastOnOffTouch = 0;
-      uint32_t now = millis();
-      if (now - lastOnOffTouch < 700) {
-        return false;  // Ignora tocco troppo ravvicinato
-      }
-      lastOnOffTouch = now;
-
-      if (radioAlarmRinging) {
-        // Se sta suonando, ferma tutto (stopRadioAlarm ferma anche la radio)
-        Serial.println("[RADIO-ALARM] OFF - Fermo sveglia");
-        stopRadioAlarm();
-        radioAlarm.enabled = false;
-      } else {
-        radioAlarm.enabled = !radioAlarm.enabled;
-      }
-      saveRadioAlarmSettings();
-      Serial.printf("[RADIO-ALARM] Sveglia %s\n", radioAlarm.enabled ? "ATTIVATA" : "DISATTIVATA");
+    // STOP
+    int stopX = startX + btnW + spacing;
+    if (x >= stopX && x <= stopX + btnW) {
+      Serial.println("[RADIO-ALARM] STOP sveglia");
+      stopRadioAlarm();
       radioAlarmNeedsRedraw = true;
       return false;
     }
 
-    // SNOOZE (attiva snooze se sta suonando, altrimenti cambia durata)
-    int snoozeX = onoffX + btnW + spacing + 10;
+    // SNOOZE
+    int snoozeX = stopX + btnW + spacing;
     if (x >= snoozeX && x <= snoozeX + btnW) {
-      if (radioAlarmRinging) {
-        // Se sta suonando, attiva snooze
-        Serial.println("[RADIO-ALARM] SNOOZE attivato");
-        snoozeRadioAlarm();
-      } else {
-        // Altrimenti, cambia durata snooze (cicla 5, 10, 15, 20, 30)
-        if (radioAlarm.snoozeMinutes < 10) radioAlarm.snoozeMinutes = 10;
-        else if (radioAlarm.snoozeMinutes < 15) radioAlarm.snoozeMinutes = 15;
-        else if (radioAlarm.snoozeMinutes < 20) radioAlarm.snoozeMinutes = 20;
-        else if (radioAlarm.snoozeMinutes < 30) radioAlarm.snoozeMinutes = 30;
-        else radioAlarm.snoozeMinutes = 5;
-        saveRadioAlarmSettings();
-      }
+      // Cambia durata snooze (cicla 5, 10, 15, 20, 30)
+      if (radioAlarm.snoozeMinutes < 10) radioAlarm.snoozeMinutes = 10;
+      else if (radioAlarm.snoozeMinutes < 15) radioAlarm.snoozeMinutes = 15;
+      else if (radioAlarm.snoozeMinutes < 20) radioAlarm.snoozeMinutes = 20;
+      else if (radioAlarm.snoozeMinutes < 30) radioAlarm.snoozeMinutes = 30;
+      else radioAlarm.snoozeMinutes = 5;
+      saveRadioAlarmSettings();
       radioAlarmNeedsRedraw = true;
       return false;
     }
   }
 
   // ===== EXIT =====
-  int exitBtnW = 100;
+  int exitBtnW = 120;
   int exitX = centerX - exitBtnW / 2;
-  if (y >= RA_EXIT_Y && y <= RA_EXIT_Y + 38) {
+  if (y >= RA_EXIT_Y && y <= RA_EXIT_Y + 40) {
     if (x >= exitX && x <= exitX + exitBtnW) {
       Serial.println("[RADIO-ALARM] EXIT");
       return true;
@@ -988,46 +1009,60 @@ const char RADIO_ALARM_HTML[] PROGMEM = R"rawliteral(
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Radio Alarm</title><style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:sans-serif;background:#1a1a2e;min-height:100vh;padding:20px;color:#eee}
-.c{max-width:500px;margin:0 auto;background:rgba(255,255,255,.1);border-radius:20px;overflow:hidden}
-.h{background:linear-gradient(135deg,#00BCD4,#0097A7);padding:25px;text-align:center}
-.h h1{font-size:1.5em;margin-bottom:5px}
+body{font-family:Arial,sans-serif;background:#1a1a2e;min-height:100vh;padding:20px;color:#eee}
+.c{max-width:600px;margin:0 auto;background:rgba(255,255,255,.1);border-radius:20px;overflow:hidden}
+.h{background:linear-gradient(135deg,#00d4ff,#0099cc);padding:25px;text-align:center}
+.h h1{font-size:1.5em;margin-bottom:5px}.h p{opacity:.8;font-size:.9em}
 .ct{padding:25px}
-.s{background:rgba(0,0,0,.3);border-radius:15px;padding:20px;margin-bottom:15px}
-.s h3{margin-bottom:15px;color:#00BCD4}
+.s{background:rgba(0,0,0,.3);border-radius:15px;padding:20px;margin-bottom:20px}
+.s h3{margin-bottom:15px;color:#00d4ff}
+.nav{display:flex;justify-content:space-between;padding:10px 15px}
+.nav a{color:#94a3b8;text-decoration:none;font-size:.9em;padding:5px 10px}
+.nav a:hover{color:#fff}
 .time-set{display:flex;justify-content:center;align-items:center;gap:10px;margin:15px 0}
-.time-btn{width:50px;height:50px;border-radius:10px;border:none;background:#2a2a4a;color:#fff;font-size:1.5em;cursor:pointer}
-.time-btn:hover{background:#3a3a5a}
-.time-display{font-size:3em;font-weight:bold;color:#00BCD4;padding:0 15px}
+.time-btn{width:55px;height:55px;border-radius:10px;border:2px solid #00d4ff;background:#2a2a4a;color:#00d4ff;font-size:1.8em;cursor:pointer;transition:all .2s}
+.time-btn:hover{background:#0099cc;color:#fff}
+.time-display{font-size:3.5em;font-weight:bold;color:#00d4ff;padding:0 20px;text-shadow:0 0 20px rgba(0,212,255,.3)}
 .days{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}
-.day-btn{width:45px;height:40px;border-radius:8px;border:2px solid #444;background:#2a2a4a;color:#888;font-size:0.9em;cursor:pointer}
-.day-btn.active{background:#0097A7;border-color:#00BCD4;color:#fff}
-.station-select{width:100%;padding:12px;border-radius:10px;border:1px solid #444;background:#2a2a4a;color:#fff;font-size:1em}
+.day-btn{width:50px;height:45px;border-radius:8px;border:2px solid #555;background:#2a2a4a;color:#888;font-size:0.9em;cursor:pointer;transition:all .2s}
+.day-btn.active{background:rgba(0,212,255,.2);border-color:#00d4ff;color:#00d4ff}
+.day-btn:hover{border-color:#00d4ff}
+.station-select{width:100%;padding:14px;border-radius:10px;border:2px solid #555;background:#2a2a4a;color:#fff;font-size:1em}
+.station-select:focus{outline:none;border-color:#00d4ff}
 .volume-row{display:flex;align-items:center;gap:15px}
-.volume-slider{flex:1;height:8px;-webkit-appearance:none;background:#2a2a4a;border-radius:4px}
-.volume-slider::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;background:#00BCD4;border-radius:50%;cursor:pointer}
-.vol-val{min-width:30px;text-align:center;color:#00BCD4;font-weight:bold}
-.btn{width:100%;padding:15px;border:none;border-radius:10px;font-weight:bold;cursor:pointer;font-size:1em;margin-top:10px}
-.btn-primary{background:linear-gradient(135deg,#00BCD4,#0097A7);color:#fff}
-.btn-test{background:#FF9800;color:#fff}
-.btn-stop{background:#f44336;color:#fff}
-.hm{display:block;text-align:center;color:#94a3b8;padding:10px;text-decoration:none;font-size:.9em}.hm:hover{color:#fff}
-.status{text-align:center;padding:15px;background:rgba(0,0,0,.2);border-radius:10px;margin-bottom:15px}
-.status.on{color:#4CAF50;font-size:1.2em}.status.off{color:#f44336;font-size:1.2em}
-.power-btn{width:100%;padding:20px;border:none;border-radius:15px;font-weight:bold;cursor:pointer;font-size:1.3em;margin-bottom:20px;display:flex;align-items:center;justify-content:center;gap:15px;transition:all 0.3s}
+.volume-slider{flex:1;height:10px;-webkit-appearance:none;background:#2a2a4a;border-radius:5px;border:1px solid #555}
+.volume-slider::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;background:#00d4ff;border-radius:50%;cursor:pointer;box-shadow:0 0 10px rgba(0,212,255,.5)}
+.vol-val{min-width:40px;text-align:center;color:#00d4ff;font-weight:bold;font-size:1.2em}
+.btn{width:100%;padding:15px;border:none;border-radius:10px;font-weight:bold;cursor:pointer;font-size:1em;margin-top:10px;transition:all .2s}
+.btn:hover{transform:scale(1.02)}
+.btn-primary{background:linear-gradient(135deg,#00d4ff,#0099cc);color:#fff}
+.btn-test{background:linear-gradient(135deg,#ff9800,#f57c00);color:#fff}
+.btn-stop{background:linear-gradient(135deg,#f44336,#d32f2f);color:#fff}
+.btn-display{background:linear-gradient(135deg,#9c27b0,#7b1fa2);color:#fff}
+.status{text-align:center;padding:15px;background:rgba(0,0,0,.2);border-radius:10px;margin-bottom:15px;font-size:1.1em}
+.status.on{color:#4CAF50;border:1px solid #4CAF50;background:rgba(76,175,80,.1)}
+.status.off{color:#f44336;border:1px solid #f44336;background:rgba(244,67,54,.1)}
+.status.ring{color:#ff9800;border:2px solid #ff9800;background:rgba(255,152,0,.2);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.power-btn{width:100%;padding:22px;border:none;border-radius:15px;font-weight:bold;cursor:pointer;font-size:1.3em;margin-bottom:20px;display:flex;align-items:center;justify-content:center;gap:15px;transition:all .3s}
 .power-btn.off{background:linear-gradient(135deg,#2a2a4a,#1a1a3a);color:#888;border:3px solid #444}
-.power-btn.on{background:linear-gradient(135deg,#4CAF50,#388E3C);color:#fff;border:3px solid #4CAF50;box-shadow:0 0 20px rgba(76,175,80,0.4)}
+.power-btn.on{background:linear-gradient(135deg,#4CAF50,#388E3C);color:#fff;border:3px solid #4CAF50;box-shadow:0 0 25px rgba(76,175,80,0.4)}
 .power-btn:hover{transform:scale(1.02)}
-.power-icon{font-size:1.8em}
-.power-text{font-size:1.1em}
-</style></head><body><div class="c"><a href="/" class="hm">&larr; Home</a><div class="h">
-<h1>⏰ Radio Alarm</h1><p>Wake up with your favorite station</p></div><div class="ct">
-<div class="status" id="status">Loading...</div>
+.power-icon{font-size:2em}
+.snooze-row{display:flex;align-items:center;gap:10px;margin-top:15px}
+.snooze-label{color:#888;font-size:.9em}
+.snooze-btns{display:flex;gap:5px}
+.snooze-btn{padding:8px 15px;border-radius:8px;border:1px solid #555;background:#2a2a4a;color:#888;cursor:pointer;font-size:.9em}
+.snooze-btn.active{background:rgba(0,212,255,.2);border-color:#00d4ff;color:#00d4ff}
+</style></head><body><div class="c">
+<div class="nav"><a href="/">&larr; Home</a><a href="/settings">Settings &rarr;</a></div>
+<div class="h"><h1>)) RADIOSVEGLIA ((</h1><p>Svegliati con la tua stazione preferita</p></div><div class="ct">
+<div class="status" id="status">Caricamento...</div>
 <button class="power-btn off" id="powerBtn" onclick="toggleAlarm()">
-<span class="power-icon">⏰</span>
-<span class="power-text" id="powerText">ALARM OFF</span>
+<span class="power-icon">&#x23F0;</span>
+<span id="powerText">SVEGLIA OFF</span>
 </button>
-<div class="s"><h3>Wake Time</h3>
+<div class="s"><h3>Orario Sveglia</h3>
 <div class="time-set">
 <button class="time-btn" onclick="adj('hour',-1)">-</button>
 <span class="time-display" id="timeDisplay">07:00</span>
@@ -1035,42 +1070,72 @@ body{font-family:sans-serif;background:#1a1a2e;min-height:100vh;padding:20px;col
 </div>
 <div class="time-set">
 <button class="time-btn" onclick="adj('min',-1)">-</button>
-<span style="color:#888">Minutes</span>
+<span style="color:#888;font-size:1.1em">Minuti</span>
 <button class="time-btn" onclick="adj('min',1)">+</button>
 </div>
 </div>
-<div class="s"><h3>Days</h3>
+<div class="s"><h3>Giorni Attivi</h3>
 <div class="days" id="days"></div>
 </div>
-<div class="s"><h3>Station</h3>
+<div class="s"><h3>Stazione Radio</h3>
 <select class="station-select" id="station" onchange="save()"></select>
+<div id="noStations" style="display:none;text-align:center;padding:20px;background:rgba(255,152,0,.15);border-radius:10px;border:1px solid #ff9800;">
+<p style="font-size:1.1em;margin-bottom:10px;">&#x26A0; Nessuna stazione radio disponibile</p>
+<p style="color:#aaa;font-size:.9em;margin-bottom:15px;">Le stazioni WebRadio devono essere aggiunte dalla pagina Settings nella sezione "WebRadio Stations"</p>
+<a href="/settings" style="display:inline-block;padding:12px 25px;background:linear-gradient(135deg,#00d4ff,#0099cc);color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;">Vai a Settings</a>
 </div>
-<div class="s"><h3>Volume</h3>
+</div>
+<div class="s"><h3>Volume Sveglia</h3>
 <div class="volume-row">
-<input type="range" class="volume-slider" id="volume" min="0" max="21" onchange="save()">
-<span class="vol-val" id="volVal">15</span>
+<span style="font-size:1.3em">&#x1F508;</span>
+<input type="range" class="volume-slider" id="volume" min="0" max="100" onchange="save()">
+<span class="vol-val" id="volVal">70</span>
+</div>
+<div class="snooze-row">
+<span class="snooze-label">Snooze:</span>
+<div class="snooze-btns" id="snooze"></div>
 </div>
 </div>
-<button class="btn btn-test" onclick="test()">Test Alarm</button>
-<button class="btn btn-stop" onclick="stop()">Stop Alarm</button>
-<button class="btn btn-primary" onclick="activate()">Show on Display</button>
+<button class="btn btn-test" onclick="test()">Test Sveglia</button>
+<button class="btn btn-stop" onclick="stop()">Ferma Sveglia</button>
+<button class="btn btn-snooze" id="snoozeBtn" onclick="doSnooze()" style="display:none;background:linear-gradient(135deg,#ff9800,#f57c00);color:#fff;">Snooze</button>
+<button class="btn btn-display" onclick="activate()">Mostra su Display</button>
 </div></div><script>
-var cfg={hour:7,minute:0,enabled:false,station:0,days:0x3E,volume:15};
-var dayNames=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+var cfg={hour:7,minute:0,enabled:false,station:0,days:0x3E,volume:70,snooze:10,ringing:false,snoozed:false,snoozeRemaining:0};
+var dayNames=['DOM','LUN','MAR','MER','GIO','VEN','SAB'];
+var snoozeOpts=[5,10,15,20,30];
 function render(){
   document.getElementById('timeDisplay').textContent=String(cfg.hour).padStart(2,'0')+':'+String(cfg.minute).padStart(2,'0');
   document.getElementById('volume').value=cfg.volume;
   document.getElementById('volVal').textContent=cfg.volume;
-  document.getElementById('status').textContent=cfg.enabled?'🔔 Alarm is ACTIVE':'🔕 Alarm is OFF';
-  document.getElementById('status').className='status '+(cfg.enabled?'on':'off');
+  var st=document.getElementById('status');
+  var snzBtn=document.getElementById('snoozeBtn');
+  if(cfg.ringing){
+    st.textContent='SVEGLIA IN CORSO!';st.className='status ring';
+    snzBtn.style.display='block';
+  }else if(cfg.snoozed){
+    var m=Math.floor(cfg.snoozeRemaining/60);var s=cfg.snoozeRemaining%60;
+    st.textContent='POSTICIPATA - risveglio tra '+m+':'+String(s).padStart(2,'0');
+    st.className='status ring';st.style.color='#ff9800';st.style.borderColor='#ff9800';
+    snzBtn.style.display='none';
+  }else if(cfg.enabled){
+    st.textContent='Sveglia ATTIVA';st.className='status on';
+    snzBtn.style.display='none';
+  }else{
+    st.textContent='Sveglia DISATTIVATA';st.className='status off';
+    snzBtn.style.display='none';
+  }
   var pwrBtn=document.getElementById('powerBtn');
   var pwrTxt=document.getElementById('powerText');
-  if(cfg.enabled){
-    pwrBtn.className='power-btn on';
-    pwrTxt.textContent='ALARM ON - TAP TO DISABLE';
+  if(cfg.snoozed){
+    pwrBtn.className='power-btn on';pwrBtn.style.background='linear-gradient(135deg,#ff9800,#f57c00)';
+    pwrBtn.style.borderColor='#ff9800';pwrTxt.textContent='POSTICIPATA - tocca per annullare';
+  }else if(cfg.enabled){
+    pwrBtn.className='power-btn on';pwrBtn.style.background='';pwrBtn.style.borderColor='';
+    pwrTxt.textContent='SVEGLIA ON - tocca per disattivare';
   }else{
-    pwrBtn.className='power-btn off';
-    pwrTxt.textContent='ALARM OFF - TAP TO ENABLE';
+    pwrBtn.className='power-btn off';pwrBtn.style.background='';pwrBtn.style.borderColor='';
+    pwrTxt.textContent='SVEGLIA OFF - tocca per attivare';
   }
   var daysHtml='';
   for(var i=0;i<7;i++){
@@ -1078,11 +1143,16 @@ function render(){
     daysHtml+='<button class="day-btn '+active+'" onclick="toggleDay('+i+')">'+dayNames[i]+'</button>';
   }
   document.getElementById('days').innerHTML=daysHtml;
+  var snzHtml='';
+  for(var i=0;i<snoozeOpts.length;i++){
+    var active=cfg.snooze==snoozeOpts[i]?'active':'';
+    snzHtml+='<button class="snooze-btn '+active+'" onclick="setSnooze('+snoozeOpts[i]+')">'+snoozeOpts[i]+' min</button>';
+  }
+  document.getElementById('snooze').innerHTML=snzHtml;
 }
 function toggleAlarm(){
-  cfg.enabled=!cfg.enabled;
-  render();
-  save();
+  if(cfg.snoozed){fetch('/radioalarm/stop').then(()=>{setTimeout(load,300);});return;}
+  cfg.enabled=!cfg.enabled;render();save();
 }
 function adj(f,d){
   if(f=='hour'){cfg.hour=(cfg.hour+d+24)%24;}
@@ -1090,99 +1160,165 @@ function adj(f,d){
   render();save();
 }
 function toggleDay(d){cfg.days^=(1<<d);render();save();}
+function setSnooze(m){cfg.snooze=m;render();save();}
 function save(){
-  cfg.station=parseInt(document.getElementById('station').value);
+  var selEl=document.getElementById('station');
+  if(selEl&&selEl.value)cfg.station=parseInt(selEl.value);
   cfg.volume=parseInt(document.getElementById('volume').value);
   document.getElementById('volVal').textContent=cfg.volume;
-  fetch('/radioalarm/save?enabled='+(cfg.enabled?1:0)+'&hour='+cfg.hour+'&minute='+cfg.minute+'&station='+cfg.station+'&days='+cfg.days+'&volume='+cfg.volume);
+  fetch('/radioalarm/save?enabled='+(cfg.enabled?1:0)+'&hour='+cfg.hour+'&minute='+cfg.minute+'&station='+cfg.station+'&days='+cfg.days+'&volume='+cfg.volume+'&snooze='+cfg.snooze);
 }
-function test(){fetch('/radioalarm/test');}
-function stop(){fetch('/radioalarm/stop');}
-function activate(){fetch('/radioalarm/activate').then(()=>{alert('Radio Alarm mode activated on display!');});}
+function test(){fetch('/radioalarm/test').then(()=>{setTimeout(load,500);});}
+function stop(){fetch('/radioalarm/stop').then(()=>{setTimeout(load,500);});}
+function doSnooze(){fetch('/radioalarm/snooze').then(()=>{setTimeout(load,500);});}
+function activate(){fetch('/radioalarm/activate').then(()=>{alert('Radiosveglia attivata sul display!');});}
 function load(){
   fetch('/radioalarm/status').then(r=>r.json()).then(d=>{
-    cfg=d;render();
+    cfg.hour=d.hour;cfg.minute=d.minute;cfg.enabled=d.enabled;cfg.station=d.station;
+    cfg.days=d.days;cfg.volume=d.volume;cfg.snooze=d.snooze||10;cfg.ringing=d.ringing;
+    cfg.snoozed=d.snoozed||false;cfg.snoozeRemaining=d.snoozeRemaining||0;
+    render();
     var sel=document.getElementById('station');
+    var noSt=document.getElementById('noStations');
     sel.innerHTML='';
-    if(d.stations){
+    if(d.stations && d.stations.length>0){
+      sel.style.display='block';
+      noSt.style.display='none';
       for(var i=0;i<d.stations.length;i++){
         var opt=document.createElement('option');
         opt.value=i;opt.textContent=(i+1)+'. '+d.stations[i];
         if(i==cfg.station)opt.selected=true;
         sel.appendChild(opt);
       }
+    }else{
+      sel.style.display='none';
+      noSt.style.display='block';
     }
   });
 }
-load();
+load();setInterval(load,2000);
 </script></body></html>
 )rawliteral";
 
 void setup_radioalarm_webserver(AsyncWebServer* server) {
   Serial.println("[RADIO-ALARM-WEB] Configurazione endpoints...");
 
-  // Pagina HTML
-  server->on("/radioalarm", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send_P(200, "text/html", RADIO_ALARM_HTML);
-  });
+  // IMPORTANTE: Registrare endpoint specifici PRIMA di quello generico!
 
   // Status JSON
   server->on("/radioalarm/status", HTTP_GET, [](AsyncWebServerRequest *request){
-    String json = "{";
-    json += "\"enabled\":" + String(radioAlarm.enabled ? "true" : "false") + ",";
-    json += "\"hour\":" + String(radioAlarm.hour) + ",";
-    json += "\"minute\":" + String(radioAlarm.minute) + ",";
-    json += "\"station\":" + String(radioAlarm.stationIndex) + ",";
-    json += "\"days\":" + String(radioAlarm.daysMask) + ",";
-    json += "\"volume\":" + String(radioAlarm.volume) + ",";
-    json += "\"snooze\":" + String(radioAlarm.snoozeMinutes) + ",";
-    json += "\"ringing\":" + String(radioAlarmRinging ? "true" : "false") + ",";
-    json += "\"stations\":[";
+    // Calcola tempo rimanente snooze
+    uint32_t snoozeRemaining = 0;
+    if (radioAlarmSnoozed && radioAlarmSnoozeUntil > millis()) {
+      snoozeRemaining = (radioAlarmSnoozeUntil - millis()) / 1000;
+    }
+
+    // Costruisci JSON con buffer
+    char jsonBuf[2048];
+    int pos = 0;
+
+    pos += snprintf(jsonBuf + pos, sizeof(jsonBuf) - pos,
+      "{\"enabled\":%s,\"hour\":%d,\"minute\":%d,\"station\":%d,\"days\":%d,\"volume\":%d,\"snooze\":%d,\"ringing\":%s,\"snoozed\":%s,\"snoozeRemaining\":%lu,\"stations\":[",
+      radioAlarm.enabled ? "true" : "false",
+      radioAlarm.hour,
+      radioAlarm.minute,
+      radioAlarm.stationIndex,
+      radioAlarm.daysMask,
+      radioAlarm.volume,
+      radioAlarm.snoozeMinutes,
+      radioAlarmRinging ? "true" : "false",
+      radioAlarmSnoozed ? "true" : "false",
+      snoozeRemaining
+    );
 
     #ifdef EFFECT_WEB_RADIO
-    for (int i = 0; i < webRadioStationCount && i < 50; i++) {
-      if (i > 0) json += ",";
-      json += "\"" + String(webRadioStations[i].name) + "\"";
+    for (int i = 0; i < webRadioStationCount && i < 20; i++) {
+      if (i > 0) pos += snprintf(jsonBuf + pos, sizeof(jsonBuf) - pos, ",");
+      // Escape eventuali caratteri problematici nel nome
+      String safeName = webRadioStations[i].name;
+      safeName.replace("\"", "'");
+      pos += snprintf(jsonBuf + pos, sizeof(jsonBuf) - pos, "\"%s\"", safeName.c_str());
+      if (pos >= sizeof(jsonBuf) - 100) break; // Evita overflow
     }
     #endif
 
-    json += "]}";
-    request->send(200, "application/json", json);
+    pos += snprintf(jsonBuf + pos, sizeof(jsonBuf) - pos, "]}");
+
+    request->send(200, "application/json", jsonBuf);
   });
 
-  // Save settings
+  // Save settings (sincronizzato con display)
   server->on("/radioalarm/save", HTTP_GET, [](AsyncWebServerRequest *request){
+    bool changed = false;
+
     if (request->hasParam("enabled")) {
-      radioAlarm.enabled = request->getParam("enabled")->value().toInt() == 1;
+      bool newEnabled = request->getParam("enabled")->value().toInt() == 1;
+      if (radioAlarm.enabled != newEnabled) { radioAlarm.enabled = newEnabled; changed = true; }
     }
     if (request->hasParam("hour")) {
-      radioAlarm.hour = request->getParam("hour")->value().toInt();
+      uint8_t newHour = request->getParam("hour")->value().toInt();
+      if (radioAlarm.hour != newHour) { radioAlarm.hour = newHour; changed = true; }
     }
     if (request->hasParam("minute")) {
-      radioAlarm.minute = request->getParam("minute")->value().toInt();
+      uint8_t newMinute = request->getParam("minute")->value().toInt();
+      if (radioAlarm.minute != newMinute) { radioAlarm.minute = newMinute; changed = true; }
     }
     if (request->hasParam("station")) {
-      radioAlarm.stationIndex = request->getParam("station")->value().toInt();
+      uint8_t newStation = request->getParam("station")->value().toInt();
+      if (radioAlarm.stationIndex != newStation) { radioAlarm.stationIndex = newStation; changed = true; }
     }
     if (request->hasParam("days")) {
-      radioAlarm.daysMask = request->getParam("days")->value().toInt();
+      uint8_t newDays = request->getParam("days")->value().toInt();
+      if (radioAlarm.daysMask != newDays) { radioAlarm.daysMask = newDays; changed = true; }
     }
     if (request->hasParam("volume")) {
-      radioAlarm.volume = request->getParam("volume")->value().toInt();
+      uint8_t newVolume = request->getParam("volume")->value().toInt();
+      if (radioAlarm.volume != newVolume) { radioAlarm.volume = newVolume; changed = true; }
     }
-    saveRadioAlarmSettings();
+    if (request->hasParam("snooze")) {
+      uint8_t newSnooze = request->getParam("snooze")->value().toInt();
+      if (radioAlarm.snoozeMinutes != newSnooze) { radioAlarm.snoozeMinutes = newSnooze; changed = true; }
+    }
+
+    if (changed) {
+      saveRadioAlarmSettings();
+      // Forza ridisegno display se siamo in modalità Radio Alarm
+      if (currentMode == MODE_RADIO_ALARM) {
+        radioAlarmNeedsRedraw = true;
+      }
+      Serial.println("[RADIO-ALARM-WEB] Impostazioni aggiornate da web");
+    }
+
     request->send(200, "application/json", "{\"success\":true}");
   });
 
   // Test alarm
   server->on("/radioalarm/test", HTTP_GET, [](AsyncWebServerRequest *request){
     triggerRadioAlarm();
+    Serial.println("[RADIO-ALARM-WEB] Test sveglia da web");
     request->send(200, "application/json", "{\"success\":true}");
   });
 
   // Stop alarm
   server->on("/radioalarm/stop", HTTP_GET, [](AsyncWebServerRequest *request){
     stopRadioAlarm();
+    // Forza ridisegno display
+    if (currentMode == MODE_RADIO_ALARM) {
+      radioAlarmNeedsRedraw = true;
+    }
+    request->send(200, "application/json", "{\"success\":true}");
+  });
+
+  // Snooze alarm
+  server->on("/radioalarm/snooze", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (radioAlarmRinging) {
+      snoozeRadioAlarm();
+      Serial.println("[RADIO-ALARM-WEB] Snooze attivato da web");
+    }
+    // Forza ridisegno display
+    if (currentMode == MODE_RADIO_ALARM) {
+      radioAlarmNeedsRedraw = true;
+    }
     request->send(200, "application/json", "{\"success\":true}");
   });
 
@@ -1192,6 +1328,11 @@ void setup_radioalarm_webserver(AsyncWebServer* server) {
     radioAlarmNeedsRedraw = true;
     forceDisplayUpdate();
     request->send(200, "application/json", "{\"success\":true}");
+  });
+
+  // Pagina HTML - DEVE essere registrata DOPO gli endpoint specifici!
+  server->on("/radioalarm", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/html", RADIO_ALARM_HTML);
   });
 
   Serial.println("[RADIO-ALARM-WEB] Endpoints configurati su /radioalarm");

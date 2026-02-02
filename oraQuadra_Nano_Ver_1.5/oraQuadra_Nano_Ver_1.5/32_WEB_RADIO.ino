@@ -935,16 +935,293 @@ bool handleWebRadioTouch(int16_t x, int16_t y) {
   return false;
 }
 
+// ================== HTML PAGINA WEB RADIO ==================
+const char WEB_RADIO_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Web Radio</title><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial,sans-serif;background:#1a1a2e;min-height:100vh;padding:20px;color:#eee}
+.c{max-width:600px;margin:0 auto;background:rgba(255,255,255,.1);border-radius:20px;overflow:hidden}
+.h{background:linear-gradient(135deg,#00d4ff,#0099cc);padding:25px;text-align:center}
+.h h1{font-size:1.5em;margin-bottom:5px}.h p{opacity:.8;font-size:.9em}
+.ct{padding:25px}
+.s{background:rgba(0,0,0,.3);border-radius:15px;padding:20px;margin-bottom:20px}
+.s h3{margin-bottom:15px;color:#00d4ff}
+.nav{display:flex;justify-content:space-between;padding:10px 15px}
+.nav a{color:#94a3b8;text-decoration:none;font-size:.9em;padding:5px 10px}
+.nav a:hover{color:#fff}
+.status{text-align:center;padding:20px;background:rgba(0,0,0,.2);border-radius:15px;margin-bottom:20px}
+.status.on{border:2px solid #4CAF50;background:rgba(76,175,80,.15)}
+.status.off{border:2px solid #666;background:rgba(0,0,0,.3)}
+.now-playing{font-size:1.3em;font-weight:bold;margin-bottom:8px;color:#00d4ff}
+.station-url{font-size:.8em;opacity:.5;word-break:break-all}
+.power-btn{width:100%;padding:20px;border:none;border-radius:15px;font-weight:bold;cursor:pointer;font-size:1.2em;margin-bottom:20px;display:flex;align-items:center;justify-content:center;gap:15px;transition:all .3s}
+.power-btn.off{background:linear-gradient(135deg,#2a2a4a,#1a1a3a);color:#888;border:3px solid #444}
+.power-btn.on{background:linear-gradient(135deg,#4CAF50,#388E3C);color:#fff;border:3px solid #4CAF50;box-shadow:0 0 25px rgba(76,175,80,0.4)}
+.power-btn:hover{transform:scale(1.02)}
+.power-icon{font-size:1.8em}
+.station-select{width:100%;padding:14px;border-radius:10px;border:2px solid #555;background:#2a2a4a;color:#fff;font-size:1em;margin-bottom:15px}
+.station-select:focus{outline:none;border-color:#00d4ff}
+.volume-row{display:flex;align-items:center;gap:15px}
+.volume-slider{flex:1;height:10px;-webkit-appearance:none;background:#2a2a4a;border-radius:5px;border:1px solid #555}
+.volume-slider::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;background:#00d4ff;border-radius:50%;cursor:pointer;box-shadow:0 0 10px rgba(0,212,255,.5)}
+.vol-val{min-width:50px;text-align:center;color:#00d4ff;font-weight:bold;font-size:1.2em}
+.btn{width:100%;padding:15px;border:none;border-radius:10px;font-weight:bold;cursor:pointer;font-size:1em;margin-top:10px;transition:all .2s}
+.btn:hover{transform:scale(1.02)}
+.btn-display{background:linear-gradient(135deg,#9c27b0,#7b1fa2);color:#fff}
+.vu{display:flex;justify-content:center;gap:4px;height:50px;align-items:flex-end;margin:20px 0}
+.vu-bar{width:10px;background:linear-gradient(to top,#00d4ff,#00ff88,#ff9800);border-radius:3px;transition:height 0.1s}
+.add-section{margin-top:15px;padding-top:15px;border-top:1px solid #444}
+.add-row{display:flex;gap:10px;margin-bottom:10px}
+.add-input{flex:1;padding:10px;border-radius:8px;border:1px solid #555;background:#2a2a4a;color:#fff}
+.add-input:focus{outline:none;border-color:#00d4ff}
+.btn-add{padding:10px 20px;background:#4CAF50;color:#fff;border:none;border-radius:8px;cursor:pointer}
+.btn-remove{padding:10px 20px;background:#f44336;color:#fff;border:none;border-radius:8px;cursor:pointer}
+</style></head><body><div class="c">
+<div class="nav"><a href="/">&larr; Home</a><a href="/settings">Settings &rarr;</a></div>
+<div class="h"><h1>📻 WEB RADIO</h1><p>Ascolta le tue stazioni preferite</p></div><div class="ct">
+<div class="status off" id="statusBox">
+<div class="now-playing" id="nowPlaying">Radio spenta</div>
+<div class="station-url" id="stationUrl"></div>
+</div>
+<button class="power-btn off" id="powerBtn" onclick="toggleRadio()">
+<span class="power-icon">📻</span>
+<span id="powerText">ACCENDI RADIO</span>
+</button>
+<div class="vu" id="vuMeter"></div>
+<div class="s"><h3>Stazione</h3>
+<select class="station-select" id="stationSelect" onchange="selectStation()"></select>
+</div>
+<div class="s"><h3>Volume</h3>
+<div class="volume-row">
+<span style="font-size:1.3em">🔊</span>
+<input type="range" class="volume-slider" id="volume" min="0" max="100" onchange="setVolume()">
+<span class="vol-val" id="volVal">100</span>
+</div>
+</div>
+<div class="s"><h3>Gestisci Stazioni</h3>
+<div class="add-row">
+<input type="text" class="add-input" id="newName" placeholder="Nome stazione">
+</div>
+<div class="add-row">
+<input type="text" class="add-input" id="newUrl" placeholder="URL stream (http://...)">
+<button class="btn-add" onclick="addStation()">+</button>
+</div>
+<div class="add-row" style="margin-top:10px">
+<button class="btn-remove" onclick="removeStation()">Rimuovi stazione selezionata</button>
+</div>
+</div>
+<button class="btn btn-display" onclick="activate()">Mostra su Display</button>
+</div></div><script>
+var cfg={enabled:false,station:0,volume:100,name:'',url:'',stations:[]};
+function render(){
+  var st=document.getElementById('statusBox');
+  var pwrBtn=document.getElementById('powerBtn');
+  var pwrTxt=document.getElementById('powerText');
+  if(cfg.enabled){
+    st.className='status on';
+    document.getElementById('nowPlaying').textContent=cfg.name||'In riproduzione...';
+    document.getElementById('stationUrl').textContent=cfg.url||'';
+    pwrBtn.className='power-btn on';
+    pwrTxt.textContent='RADIO ACCESA - tocca per spegnere';
+  }else{
+    st.className='status off';
+    document.getElementById('nowPlaying').textContent='Radio spenta';
+    document.getElementById('stationUrl').textContent='';
+    pwrBtn.className='power-btn off';
+    pwrTxt.textContent='ACCENDI RADIO';
+  }
+  document.getElementById('volume').value=cfg.volume;
+  document.getElementById('volVal').textContent=cfg.volume+'%';
+  var sel=document.getElementById('stationSelect');
+  sel.innerHTML='';
+  for(var i=0;i<cfg.stations.length;i++){
+    var opt=document.createElement('option');
+    opt.value=i;opt.textContent=(i+1)+'. '+cfg.stations[i].name;
+    if(i==cfg.station)opt.selected=true;
+    sel.appendChild(opt);
+  }
+}
+function toggleRadio(){
+  fetch('/webradio/cmd?action='+(cfg.enabled?'stop':'play')).then(r=>r.json()).then(d=>{
+    cfg.enabled=d.enabled;cfg.station=d.station;cfg.volume=d.volume;
+    cfg.name=d.name;cfg.url=d.url;cfg.stations=d.stations||[];
+    render();
+  });
+}
+function selectStation(){
+  var idx=document.getElementById('stationSelect').value;
+  fetch('/webradio/cmd?action=select&station='+idx).then(r=>r.json()).then(d=>{
+    cfg.enabled=d.enabled;cfg.station=d.station;cfg.name=d.name;cfg.url=d.url;
+    render();
+  });
+}
+function setVolume(){
+  var vol=document.getElementById('volume').value;
+  document.getElementById('volVal').textContent=vol+'%';
+  fetch('/webradio/cmd?action=volume&value='+vol);
+  cfg.volume=vol;
+}
+function addStation(){
+  var name=document.getElementById('newName').value.trim();
+  var url=document.getElementById('newUrl').value.trim();
+  if(!name||!url){alert('Inserisci nome e URL');return;}
+  if(!url.startsWith('http')){alert('URL deve iniziare con http');return;}
+  fetch('/webradio/cmd?action=add&name='+encodeURIComponent(name)+'&url='+encodeURIComponent(url))
+    .then(r=>r.json()).then(d=>{
+      cfg.stations=d.stations||[];render();
+      document.getElementById('newName').value='';
+      document.getElementById('newUrl').value='';
+    });
+}
+function removeStation(){
+  var idx=document.getElementById('stationSelect').value;
+  if(cfg.stations.length<=1){alert('Devi avere almeno una stazione');return;}
+  if(!confirm('Rimuovere questa stazione?'))return;
+  fetch('/webradio/cmd?action=remove&station='+idx).then(r=>r.json()).then(d=>{
+    cfg.stations=d.stations||[];cfg.station=d.station;render();
+  });
+}
+function activate(){fetch('/webradio/activate').then(()=>{alert('Web Radio attivata sul display!');});}
+function updateVU(l,r){
+  var vu=document.getElementById('vuMeter');
+  var html='';
+  for(var i=0;i<8;i++){html+='<div class="vu-bar" style="height:'+Math.max(5,l>i*12?Math.min(50,l/2):5)+'px"></div>';}
+  for(var i=7;i>=0;i--){html+='<div class="vu-bar" style="height:'+Math.max(5,r>i*12?Math.min(50,r/2):5)+'px"></div>';}
+  vu.innerHTML=html;
+}
+function load(){
+  fetch('/webradio/status').then(r=>r.json()).then(d=>{
+    cfg.enabled=d.enabled;cfg.station=d.station;cfg.volume=d.volume;
+    cfg.name=d.name;cfg.url=d.url;cfg.stations=d.stations||[];
+    render();
+    updateVU(d.vuL||0,d.vuR||0);
+  }).catch(()=>{});
+}
+load();setInterval(load,2000);
+</script></body></html>
+)rawliteral";
+
 // ================== WEBSERVER ENDPOINTS ==================
 void setup_webradio_webserver(AsyncWebServer* server) {
   Serial.println("[WEBRADIO-WEB] Configurazione endpoints web...");
 
-  // API attiva modalità Web Radio sul display
+  // IMPORTANTE: Endpoint specifici PRIMA di quello generico!
+
+  // Status JSON
+  server->on("/webradio/status", HTTP_GET, [](AsyncWebServerRequest* request) {
+    char jsonBuf[2048];
+    int pos = 0;
+
+    pos += snprintf(jsonBuf + pos, sizeof(jsonBuf) - pos,
+      "{\"enabled\":%s,\"station\":%d,\"volume\":%d,\"name\":\"%s\",\"url\":\"%s\",\"vuL\":%d,\"vuR\":%d,\"stations\":[",
+      webRadioEnabled ? "true" : "false",
+      webRadioCurrentIndex,
+      webRadioVolume,
+      webRadioName.c_str(),
+      webRadioUrl.c_str(),
+      wrVuLeft, wrVuRight
+    );
+
+    for (int i = 0; i < webRadioStationCount && i < 30; i++) {
+      if (i > 0) pos += snprintf(jsonBuf + pos, sizeof(jsonBuf) - pos, ",");
+      String safeName = webRadioStations[i].name;
+      safeName.replace("\"", "'");
+      String safeUrl = webRadioStations[i].url;
+      safeUrl.replace("\"", "'");
+      pos += snprintf(jsonBuf + pos, sizeof(jsonBuf) - pos,
+        "{\"name\":\"%s\",\"url\":\"%s\"}", safeName.c_str(), safeUrl.c_str());
+      if (pos >= sizeof(jsonBuf) - 200) break;
+    }
+
+    pos += snprintf(jsonBuf + pos, sizeof(jsonBuf) - pos, "]}");
+    request->send(200, "application/json", jsonBuf);
+  });
+
+  // Comandi
+  server->on("/webradio/cmd", HTTP_GET, [](AsyncWebServerRequest* request) {
+    if (request->hasParam("action")) {
+      String action = request->getParam("action")->value();
+
+      if (action == "play") {
+        if (!webRadioEnabled) {
+          startWebRadio();
+        }
+        if (currentMode == MODE_WEB_RADIO) webRadioNeedsRedraw = true;
+      }
+      else if (action == "stop") {
+        if (webRadioEnabled) {
+          stopWebRadio();
+        }
+        if (currentMode == MODE_WEB_RADIO) webRadioNeedsRedraw = true;
+      }
+      else if (action == "select" && request->hasParam("station")) {
+        int idx = request->getParam("station")->value().toInt();
+        if (idx >= 0 && idx < webRadioStationCount) {
+          selectWebRadioStation(idx);
+          saveWebRadioSettings();
+          if (currentMode == MODE_WEB_RADIO) webRadioNeedsRedraw = true;
+        }
+      }
+      else if (action == "volume" && request->hasParam("value")) {
+        int vol = request->getParam("value")->value().toInt();
+        vol = constrain(vol, 0, 100);
+        webRadioVolume = vol;
+        setWebRadioVolume(vol);
+        saveWebRadioSettings();
+        if (currentMode == MODE_WEB_RADIO) webRadioNeedsRedraw = true;
+      }
+      else if (action == "add" && request->hasParam("name") && request->hasParam("url")) {
+        String name = request->getParam("name")->value();
+        String url = request->getParam("url")->value();
+        if (addWebRadioStation(name, url)) {
+          saveWebRadioStationsToSD();
+          Serial.printf("[WEBRADIO-WEB] Stazione aggiunta: %s\n", name.c_str());
+        }
+      }
+      else if (action == "remove" && request->hasParam("station")) {
+        int idx = request->getParam("station")->value().toInt();
+        if (removeWebRadioStation(idx)) {
+          saveWebRadioStationsToSD();
+          Serial.printf("[WEBRADIO-WEB] Stazione rimossa: %d\n", idx);
+        }
+      }
+    }
+
+    // Rispondi con stato aggiornato
+    char jsonBuf[2048];
+    int pos = 0;
+    pos += snprintf(jsonBuf + pos, sizeof(jsonBuf) - pos,
+      "{\"enabled\":%s,\"station\":%d,\"volume\":%d,\"name\":\"%s\",\"url\":\"%s\",\"stations\":[",
+      webRadioEnabled ? "true" : "false",
+      webRadioCurrentIndex,
+      webRadioVolume,
+      webRadioName.c_str(),
+      webRadioUrl.c_str()
+    );
+    for (int i = 0; i < webRadioStationCount && i < 30; i++) {
+      if (i > 0) pos += snprintf(jsonBuf + pos, sizeof(jsonBuf) - pos, ",");
+      String safeName = webRadioStations[i].name;
+      safeName.replace("\"", "'");
+      pos += snprintf(jsonBuf + pos, sizeof(jsonBuf) - pos, "{\"name\":\"%s\"}", safeName.c_str());
+      if (pos >= sizeof(jsonBuf) - 100) break;
+    }
+    pos += snprintf(jsonBuf + pos, sizeof(jsonBuf) - pos, "]}");
+    request->send(200, "application/json", jsonBuf);
+  });
+
+  // Attiva modalità Web Radio sul display
   server->on("/webradio/activate", HTTP_GET, [](AsyncWebServerRequest* request) {
     currentMode = MODE_WEB_RADIO;
     webRadioNeedsRedraw = true;
     forceDisplayUpdate();
     request->send(200, "application/json", "{\"success\":true}");
+  });
+
+  // Pagina HTML - DEVE essere registrata DOPO gli endpoint specifici!
+  server->on("/webradio", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->send_P(200, "text/html", WEB_RADIO_HTML);
   });
 
   Serial.println("[WEBRADIO-WEB] Endpoints configurati su /webradio");

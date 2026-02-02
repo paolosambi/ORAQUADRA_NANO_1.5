@@ -443,7 +443,10 @@ input[type="number"] {
     <a href="/ledring" class="nav-link">LED Ring</a>
     <a href="/bttf" class="nav-link">BTTF Time Circuits</a>
     <a href="/fluxcap" class="nav-link">⚡ Flux Capacitor</a>
-    <a href="/espcam" class="nav-link" id="espcamConfigLink" style="display:none;">📷 ESP-CAM Config</a>
+    <a href="/espcam" class="nav-link" id="espcamConfigLink" style="display:none;">📷 ESP-CAM</a>
+    <a href="/mp3player" class="nav-link" id="mp3playerConfigLink" style="display:none;">🎵 MP3 Player</a>
+    <a href="/webradio" class="nav-link" id="webradioConfigLink" style="display:none;">📻 Web Radio</a>
+    <a href="/radioalarm" class="nav-link" id="radioAlarmConfigLink" style="display:none;">⏰ Radio Alarm</a>
   </div>
 
   <!-- SEZIONE RIASSUNTO STATO - LED INDICATORI (sempre aperta) -->
@@ -1369,6 +1372,9 @@ function toggleMode(modeId, enabled) {
   saveModeSettings();
   renderModes();
   updateEspCamLink();
+  updateMp3PlayerLink();
+  updateWebRadioLink();
+  updateRadioAlarmLink();
 }
 
 // Variabile globale per URL webcam
@@ -1383,6 +1389,34 @@ function updateEspCamLink() {
     camLink.style.display = 'inline-block';
   } else {
     camLink.style.display = 'none';
+  }
+}
+
+// Aggiorna visibilità link MP3 Player
+function updateMp3PlayerLink() {
+  var link = document.getElementById('mp3playerConfigLink');
+  if (!link) return;
+  var modeEnabled = enabledModes[24] === true; // 24 = MODE_MP3_PLAYER
+  link.style.display = modeEnabled ? 'inline-block' : 'none';
+}
+
+// Aggiorna visibilità link Web Radio
+function updateWebRadioLink() {
+  var link = document.getElementById('webradioConfigLink');
+  if (!link) return;
+  var modeEnabled = enabledModes[25] === true; // 25 = MODE_WEB_RADIO
+  link.style.display = modeEnabled ? 'inline-block' : 'none';
+}
+
+// Aggiorna visibilità link Radio Alarm Config
+function updateRadioAlarmLink() {
+  var alarmLink = document.getElementById('radioAlarmConfigLink');
+  if (!alarmLink) return;
+  var radioAlarmModeEnabled = enabledModes[26] === true; // 26 = MODE_RADIO_ALARM
+  if (radioAlarmModeEnabled) {
+    alarmLink.style.display = 'inline-block';
+  } else {
+    alarmLink.style.display = 'none';
   }
 }
 
@@ -3056,6 +3090,9 @@ function loadSettings() {
         esp32camWebUrl = data.esp32camWebUrl;
       }
       updateEspCamLink();
+      updateMp3PlayerLink();
+      updateWebRadioLink();
+      updateRadioAlarmLink();
 
       // Lingua
       if (data.language !== undefined) {

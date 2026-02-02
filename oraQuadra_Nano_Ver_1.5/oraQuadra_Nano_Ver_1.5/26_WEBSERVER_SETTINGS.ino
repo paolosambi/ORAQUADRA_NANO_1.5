@@ -1738,10 +1738,11 @@ void setup_settings_webserver(AsyncWebServer* server) {
   // Carica API keys da LittleFS all'avvio
   loadApiKeysFromLittleFS();
 
-  // Carica URL ESP32-CAM da EEPROM all'avvio
+  // Carica lista camere ESP32-CAM da LittleFS all'avvio
+  // (include migrazione automatica da EEPROM se necessario)
   #ifdef EFFECT_ESP32CAM
-  extern void loadEsp32camUrlFromEEPROM();
-  loadEsp32camUrlFromEEPROM();
+  extern void loadCamerasFromLittleFS();
+  loadCamerasFromLittleFS();
   #endif
 
   // Pagina principale (deve essere l'ultima)

@@ -1394,16 +1394,19 @@ const char MP3_PLAYER_HTML[] PROGMEM = R"rawliteral(
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MP3 Player</title><style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:sans-serif;background:#1a1a2e;min-height:100vh;padding:20px;color:#eee}
+body{font-family:Arial,sans-serif;background:#1a1a2e;min-height:100vh;padding:20px;color:#eee}
 .c{max-width:600px;margin:0 auto;background:rgba(255,255,255,.1);border-radius:20px;overflow:hidden}
-.h{background:linear-gradient(135deg,#2196F3,#1976D2);padding:25px;text-align:center}
-.h h1{font-size:1.5em;margin-bottom:5px}
+.h{background:linear-gradient(135deg,#9c27b0,#7b1fa2);padding:25px;text-align:center}
+.h h1{font-size:1.5em;margin-bottom:5px}.h p{opacity:.8;font-size:.9em}
 .ct{padding:25px}
 .s{background:rgba(0,0,0,.3);border-radius:15px;padding:20px;margin-bottom:20px}
-.s h3{margin-bottom:15px;color:#2196F3}
+.s h3{margin-bottom:15px;color:#ce93d8}
+.nav{display:flex;justify-content:space-between;padding:10px 15px}
+.nav a{color:#94a3b8;text-decoration:none;font-size:.9em;padding:5px 10px}
+.nav a:hover{color:#fff}
 .track{padding:12px;background:rgba(255,255,255,.1);border-radius:8px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
-.track:hover{background:rgba(33,150,243,.3)}
-.track.active{background:rgba(33,150,243,.5);border:1px solid #2196F3}
+.track:hover{background:rgba(156,39,176,.3)}
+.track.active{background:rgba(156,39,176,.5);border:2px solid #ce93d8}
 .track .name{flex:1}
 .track .type{font-size:0.8em;opacity:0.7;padding:2px 8px;background:rgba(255,255,255,.1);border-radius:4px}
 .controls{display:flex;justify-content:center;gap:15px;margin:20px 0}
@@ -1413,23 +1416,29 @@ body{font-family:sans-serif;background:#1a1a2e;min-height:100vh;padding:20px;col
 .btn-play{background:#4CAF50;color:#fff;width:70px;height:70px}
 .btn-play.playing{background:#ff9800}
 .btn-stop{background:#f44336;color:#fff}
-.status{text-align:center;padding:15px;background:rgba(0,0,0,.2);border-radius:10px;margin-bottom:20px}
-.status .now{font-size:1.2em;font-weight:bold;margin-bottom:5px}
+.status{text-align:center;padding:20px;background:rgba(0,0,0,.2);border-radius:15px;margin-bottom:20px}
+.status.playing{border:2px solid #4CAF50;background:rgba(76,175,80,.1)}
+.status .now{font-size:1.2em;font-weight:bold;margin-bottom:5px;color:#ce93d8}
 .status .state{opacity:0.7}
-.vu{display:flex;justify-content:center;gap:3px;height:40px;align-items:flex-end;margin:15px 0}
-.vu-bar{width:8px;background:linear-gradient(to top,#4CAF50,#FFEB3B,#f44336);border-radius:2px;transition:height 0.1s}
-.hm{display:block;text-align:center;color:#94a3b8;padding:10px;text-decoration:none;font-size:.9em}.hm:hover{color:#fff}
+.vu{display:flex;justify-content:center;gap:4px;height:50px;align-items:flex-end;margin:15px 0}
+.vu-bar{width:10px;background:linear-gradient(to top,#9c27b0,#e91e63,#ff5722);border-radius:3px;transition:height 0.1s}
 .empty{text-align:center;padding:40px;opacity:0.6}
-.mode-btn{width:100%;padding:15px;border:none;border-radius:10px;font-weight:bold;cursor:pointer;font-size:1em;margin-top:10px;background:linear-gradient(135deg,#2196F3,#1976D2);color:#fff}
+.mode-btn{width:100%;padding:15px;border:none;border-radius:10px;font-weight:bold;cursor:pointer;font-size:1em;margin-top:10px;background:linear-gradient(135deg,#9c27b0,#7b1fa2);color:#fff}
+.mode-btn:hover{transform:scale(1.02)}
 .playmode{display:flex;gap:10px;margin:15px 0}
 .playmode-btn{flex:1;padding:12px;border:2px solid #444;border-radius:10px;background:rgba(0,0,0,.3);color:#fff;cursor:pointer;text-align:center;transition:all 0.3s}
 .playmode-btn.active{border-color:#4CAF50;background:rgba(76,175,80,.3)}
 .playmode-btn:hover{background:rgba(255,255,255,.1)}
-</style></head><body><div class="c"><a href="/" class="hm">&larr; Home</a><div class="h">
-<h1>🎵 MP3 Player</h1><p>Play music from SD card</p></div><div class="ct">
-<div class="status">
-<div class="now" id="nowPlaying">No track selected</div>
-<div class="state" id="playState">Stopped</div>
+.volume-row{display:flex;align-items:center;gap:15px;margin-top:15px}
+.volume-slider{flex:1;height:10px;-webkit-appearance:none;background:#2a2a4a;border-radius:5px;border:1px solid #555}
+.volume-slider::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;background:#ce93d8;border-radius:50%;cursor:pointer;box-shadow:0 0 10px rgba(206,147,216,.5)}
+.vol-val{min-width:50px;text-align:center;color:#ce93d8;font-weight:bold;font-size:1.2em}
+</style></head><body><div class="c">
+<div class="nav"><a href="/">&larr; Home</a><a href="/settings">Settings &rarr;</a></div>
+<div class="h"><h1>🎵 MP3 PLAYER</h1><p>Riproduci musica dalla SD card</p></div><div class="ct">
+<div class="status" id="statusBox">
+<div class="now" id="nowPlaying">Nessun brano selezionato</div>
+<div class="state" id="playState">Fermo</div>
 </div>
 <div class="vu" id="vuMeter"></div>
 <div class="controls">
@@ -1438,16 +1447,23 @@ body{font-family:sans-serif;background:#1a1a2e;min-height:100vh;padding:20px;col
 <button class="btn btn-play" id="playBtn" onclick="cmd('toggle')">▶</button>
 <button class="btn btn-next" onclick="cmd('next')">⏭</button>
 </div>
+<div class="s"><h3>Volume</h3>
+<div class="volume-row">
+<span style="font-size:1.3em">🔊</span>
+<input type="range" class="volume-slider" id="volume" min="0" max="100" onchange="setVolume()">
+<span class="vol-val" id="volVal">70%</span>
+</div>
+</div>
 <div class="playmode">
-<div class="playmode-btn" id="modeSingle" onclick="setMode(false)">🎵 Singolo Brano</div>
-<div class="playmode-btn" id="modeAll" onclick="setMode(true)">🔁 Tutti i Brani</div>
+<div class="playmode-btn" id="modeSingle" onclick="setMode(false)">🎵 Singolo</div>
+<div class="playmode-btn" id="modeAll" onclick="setMode(true)">🔁 Tutti</div>
 </div>
 <div class="s"><h3>Playlist</h3>
 <div id="playlist"></div>
 </div>
-<button class="mode-btn" onclick="activateMode()">Attiva modalità MP3 Player</button>
+<button class="mode-btn" onclick="activateMode()">Mostra su Display</button>
 </div></div><script>
-var isPlaying=false,currentTrack=-1,playAll=false;
+var cfg={playing:false,paused:false,current:-1,playAll:false,volume:70,tracks:[]};
 function cmd(c,idx){
   var url='/mp3player/cmd?action='+c;
   if(typeof idx!=='undefined')url+='&track='+idx;
@@ -1456,46 +1472,50 @@ function cmd(c,idx){
 function setMode(all){
   fetch('/mp3player/cmd?action=setmode&playall='+(all?1:0)).then(r=>r.json()).then(d=>{update(d)});
 }
+function setVolume(){
+  var vol=document.getElementById('volume').value;
+  document.getElementById('volVal').textContent=vol+'%';
+  fetch('/mp3player/cmd?action=volume&value='+vol);
+  cfg.volume=vol;
+}
 function update(d){
-  isPlaying=d.playing;currentTrack=d.current;playAll=d.playAll;
-  document.getElementById('playBtn').innerHTML=isPlaying?'⏸':'▶';
-  document.getElementById('playBtn').className='btn btn-play'+(isPlaying?' playing':'');
-  document.getElementById('playState').textContent=isPlaying?(d.paused?'Paused':'Playing'):'Stopped';
-  document.getElementById('modeSingle').className='playmode-btn'+(playAll?'':' active');
-  document.getElementById('modeAll').className='playmode-btn'+(playAll?' active':'');
-  if(d.tracks&&d.tracks.length>0){
-    document.getElementById('nowPlaying').textContent=currentTrack>=0?d.tracks[currentTrack].title:'Select a track';
+  cfg.playing=d.playing;cfg.paused=d.paused;cfg.current=d.current;cfg.playAll=d.playAll;
+  cfg.volume=d.volume||70;cfg.tracks=d.tracks||[];
+  document.getElementById('playBtn').innerHTML=cfg.playing&&!cfg.paused?'⏸':'▶';
+  document.getElementById('playBtn').className='btn btn-play'+(cfg.playing&&!cfg.paused?' playing':'');
+  var stateText=cfg.playing?(cfg.paused?'In pausa':'In riproduzione'):'Fermo';
+  document.getElementById('playState').textContent=stateText;
+  document.getElementById('statusBox').className='status'+(cfg.playing&&!cfg.paused?' playing':'');
+  document.getElementById('modeSingle').className='playmode-btn'+(cfg.playAll?'':' active');
+  document.getElementById('modeAll').className='playmode-btn'+(cfg.playAll?' active':'');
+  document.getElementById('volume').value=cfg.volume;
+  document.getElementById('volVal').textContent=cfg.volume+'%';
+  if(cfg.tracks.length>0){
+    document.getElementById('nowPlaying').textContent=cfg.current>=0?cfg.tracks[cfg.current].title:'Seleziona un brano';
     var html='';
-    for(var i=0;i<d.tracks.length;i++){
-      html+='<div class="track'+(i==currentTrack?' active':'')+'" onclick="cmd(\'play\','+i+')">';
-      html+='<span class="name">'+(i+1)+'. '+d.tracks[i].title+'</span>';
-      html+='<span class="type">'+d.tracks[i].type+'</span></div>';
+    for(var i=0;i<cfg.tracks.length;i++){
+      html+='<div class="track'+(i==cfg.current?' active':'')+'" onclick="cmd(\'play\','+i+')">';
+      html+='<span class="name">'+(i+1)+'. '+cfg.tracks[i].title+'</span>';
+      html+='<span class="type">'+cfg.tracks[i].type+'</span></div>';
     }
     document.getElementById('playlist').innerHTML=html;
   }else{
-    document.getElementById('playlist').innerHTML='<div class="empty">No MP3/WAV files found in /MP3 folder</div>';
+    document.getElementById('playlist').innerHTML='<div class="empty">Nessun file MP3/WAV trovato nella cartella /MP3</div>';
   }
   updateVU(d.vuL||0,d.vuR||0);
 }
 function updateVU(l,r){
   var vu=document.getElementById('vuMeter');
   var html='';
-  for(var i=0;i<10;i++){
-    var h1=Math.min(40,l*40/100*(i<l/10?1:0.3));
-    var h2=Math.min(40,r*40/100*(i<r/10?1:0.3));
-    html+='<div class="vu-bar" style="height:'+Math.max(4,l>i*10?h1:4)+'px"></div>';
-  }
-  for(var i=9;i>=0;i--){
-    var h2=Math.min(40,r*40/100*(i<r/10?1:0.3));
-    html+='<div class="vu-bar" style="height:'+Math.max(4,r>i*10?h2:4)+'px"></div>';
-  }
+  for(var i=0;i<8;i++){html+='<div class="vu-bar" style="height:'+Math.max(5,l>i*12?Math.min(50,l/2):5)+'px"></div>';}
+  for(var i=7;i>=0;i--){html+='<div class="vu-bar" style="height:'+Math.max(5,r>i*12?Math.min(50,r/2):5)+'px"></div>';}
   vu.innerHTML=html;
 }
 function activateMode(){
-  fetch('/mp3player/activate').then(()=>{alert('MP3 Player mode activated on display!')});
+  fetch('/mp3player/activate').then(()=>{alert('MP3 Player attivato sul display!')});
 }
 function poll(){fetch('/mp3player/status').then(r=>r.json()).then(d=>{update(d)}).catch(()=>{});}
-poll();setInterval(poll,1000);
+poll();setInterval(poll,2000);
 </script></body></html>
 )rawliteral";
 
@@ -1507,6 +1527,7 @@ String getMP3PlayerStatusJSON() {
   json += "\"playAll\":" + String(mp3Player.playAll ? "true" : "false") + ",";
   json += "\"current\":" + String(mp3Player.currentTrack) + ",";
   json += "\"total\":" + String(mp3Player.totalTracks) + ",";
+  json += "\"volume\":" + String(mp3Player.volume) + ",";
   json += "\"vuL\":" + String(mp3Player.vuLeft) + ",";
   json += "\"vuR\":" + String(mp3Player.vuRight) + ",";
   json += "\"tracks\":[";
@@ -1566,10 +1587,7 @@ void loadMP3PlayerSettings() {
 void setup_mp3player_webserver(AsyncWebServer* server) {
   Serial.println("[MP3-WEB] Configurazione endpoints web...");
 
-  // Pagina principale MP3 Player
-  server->on("/mp3player", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send_P(200, "text/html", MP3_PLAYER_HTML);
-  });
+  // IMPORTANTE: Endpoint specifici PRIMA di quello generico!
 
   // API stato player
   server->on("/mp3player/status", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -1594,6 +1612,7 @@ void setup_mp3player_webserver(AsyncWebServer* server) {
       if (action == "play" && request->hasParam("track")) {
         int track = request->getParam("track")->value().toInt();
         playMP3Track(track);
+        if (currentMode == MODE_MP3_PLAYER) mp3Player.needsRedraw = true;
       }
       else if (action == "toggle") {
         if (mp3Player.playing && !mp3Player.paused) {
@@ -1603,20 +1622,37 @@ void setup_mp3player_webserver(AsyncWebServer* server) {
         } else {
           playMP3Track(mp3Player.currentTrack);
         }
+        if (currentMode == MODE_MP3_PLAYER) mp3Player.needsRedraw = true;
       }
       else if (action == "stop") {
         stopMP3Track();
+        if (currentMode == MODE_MP3_PLAYER) mp3Player.needsRedraw = true;
       }
       else if (action == "next") {
         nextMP3Track();
+        if (currentMode == MODE_MP3_PLAYER) mp3Player.needsRedraw = true;
       }
       else if (action == "prev") {
         prevMP3Track();
+        if (currentMode == MODE_MP3_PLAYER) mp3Player.needsRedraw = true;
+      }
+      else if (action == "volume" && request->hasParam("value")) {
+        int vol = request->getParam("value")->value().toInt();
+        vol = constrain(vol, 0, 100);
+        mp3Player.volume = vol;
+        #ifdef AUDIO
+        extern Audio audio;
+        audio.setVolume(map(vol, 0, 100, 0, 21));
+        #endif
+        saveMP3PlayerSettings();
+        if (currentMode == MODE_MP3_PLAYER) mp3Player.needsRedraw = true;
+        Serial.printf("[MP3-WEB] Volume: %d%%\n", vol);
       }
       else if (action == "setmode" && request->hasParam("playall")) {
         int mode = request->getParam("playall")->value().toInt();
         mp3Player.playAll = (mode == 1);
-        //saveMP3PlayerSettings();
+        saveMP3PlayerSettings();
+        if (currentMode == MODE_MP3_PLAYER) mp3Player.needsRedraw = true;
         Serial.printf("[MP3-WEB] Modalita' cambiata: %s\n", mp3Player.playAll ? "TUTTI" : "SINGOLO");
       }
     }
@@ -1629,6 +1665,11 @@ void setup_mp3player_webserver(AsyncWebServer* server) {
     mp3Player.needsRedraw = true;
     forceDisplayUpdate();
     request->send(200, "application/json", "{\"success\":true}");
+  });
+
+  // Pagina principale MP3 Player - DEVE essere registrata DOPO gli endpoint specifici!
+  server->on("/mp3player", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/html", MP3_PLAYER_HTML);
   });
 
   Serial.println("[MP3-WEB] Endpoints configurati su /mp3player");
