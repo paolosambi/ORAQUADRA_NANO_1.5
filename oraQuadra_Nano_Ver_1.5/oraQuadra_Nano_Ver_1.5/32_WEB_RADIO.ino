@@ -1083,7 +1083,7 @@ function removeStation(){
     cfg.stations=d.stations||[];cfg.station=d.station;render();
   });
 }
-function activate(){fetch('/webradio/activate').then(()=>{alert('Web Radio attivata sul display!');});}
+function activate(){fetch('/webradio/activate');}
 function updateVU(l,r){
   var vu=document.getElementById('vuMeter');
   var html='';
@@ -1215,7 +1215,6 @@ void setup_webradio_webserver(AsyncWebServer* server) {
   server->on("/webradio/activate", HTTP_GET, [](AsyncWebServerRequest* request) {
     currentMode = MODE_WEB_RADIO;
     webRadioNeedsRedraw = true;
-    forceDisplayUpdate();
     request->send(200, "application/json", "{\"success\":true}");
   });
 

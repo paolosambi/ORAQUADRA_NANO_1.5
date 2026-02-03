@@ -954,6 +954,8 @@ void triggerRadioAlarm() {
   #endif
 
   // Mostra interfaccia sveglia
+  extern void cleanupPreviousMode(DisplayMode);
+  cleanupPreviousMode(currentMode);
   currentMode = MODE_RADIO_ALARM;
   radioAlarmNeedsRedraw = true;
 }
@@ -1171,7 +1173,7 @@ function save(){
 function test(){fetch('/radioalarm/test').then(()=>{setTimeout(load,500);});}
 function stop(){fetch('/radioalarm/stop').then(()=>{setTimeout(load,500);});}
 function doSnooze(){fetch('/radioalarm/snooze').then(()=>{setTimeout(load,500);});}
-function activate(){fetch('/radioalarm/activate').then(()=>{alert('Radiosveglia attivata sul display!');});}
+function activate(){fetch('/radioalarm/activate');}
 function load(){
   fetch('/radioalarm/status').then(r=>r.json()).then(d=>{
     cfg.hour=d.hour;cfg.minute=d.minute;cfg.enabled=d.enabled;cfg.station=d.station;
@@ -1326,7 +1328,6 @@ void setup_radioalarm_webserver(AsyncWebServer* server) {
   server->on("/radioalarm/activate", HTTP_GET, [](AsyncWebServerRequest *request){
     currentMode = MODE_RADIO_ALARM;
     radioAlarmNeedsRedraw = true;
-    forceDisplayUpdate();
     request->send(200, "application/json", "{\"success\":true}");
   });
 

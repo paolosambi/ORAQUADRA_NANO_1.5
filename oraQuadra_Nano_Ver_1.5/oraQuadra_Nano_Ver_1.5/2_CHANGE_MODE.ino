@@ -1,3 +1,251 @@
+//===================================================================//
+//           CLEANUP RISORSE MODALITA' PRECEDENTE                     //
+//===================================================================//
+// Chiamata PRIMA di cambiare pagina per liberare memoria e risorse
+void cleanupPreviousMode(DisplayMode previousMode) {
+  Serial.printf("[CLEANUP] Pulizia risorse modalità %d...\n", previousMode);
+
+  // Accesso all'oggetto audio globale
+  #ifdef AUDIO
+  extern Audio audio;
+  #endif
+
+  //-------------------------------------------------------------------
+  // 1. STOP AUDIO E CLEANUP COMPLETO (MP3 Player, Web Radio, Radio Alarm)
+  //-------------------------------------------------------------------
+#ifdef EFFECT_MP3_PLAYER
+  if (previousMode == MODE_MP3_PLAYER) {
+    #ifdef AUDIO
+    // Ferma l'audio - stopSong() interrompe qualsiasi riproduzione
+    audio.stopSong();
+    Serial.println("[CLEANUP] MP3 Player: audio.stopSong() chiamato");
+    #endif
+    // NON chiamare cleanupMP3Player() - libererebbe memoria causando crash
+    // Il flag verrà resettato così alla prossima apertura si reinizializza
+    mp3PlayerInitialized = false;
+    Serial.println("[CLEANUP] MP3 Player: audio fermato");
+  }
+#endif
+
+#ifdef EFFECT_WEB_RADIO
+  if (previousMode == MODE_WEB_RADIO) {
+    #ifdef AUDIO
+    // Ferma streaming audio direttamente
+    audio.stopSong();
+    Serial.println("[CLEANUP] Web Radio: audio.stopSong() chiamato");
+    #endif
+    webRadioEnabled = false;
+    webRadioInitialized = false;
+    webRadioNeedsRedraw = true;
+    Serial.println("[CLEANUP] Web Radio: streaming fermato e UI reset");
+  }
+#endif
+
+#ifdef EFFECT_RADIO_ALARM
+  if (previousMode == MODE_RADIO_ALARM) {
+    #ifdef AUDIO
+    // Ferma audio direttamente
+    audio.stopSong();
+    Serial.println("[CLEANUP] Radio Alarm: audio.stopSong() chiamato");
+    #endif
+    webRadioEnabled = false;
+    radioAlarmInitialized = false;
+    radioAlarmNeedsRedraw = true;
+    Serial.println("[CLEANUP] Radio Alarm: audio fermato e UI reset");
+  }
+#endif
+
+  //-------------------------------------------------------------------
+  // 2. CHIUDI STREAMING (MJPEG, ESP32-CAM)
+  // NOTA: NON liberare buffer PSRAM - verranno riutilizzati
+  //-------------------------------------------------------------------
+#ifdef EFFECT_MJPEG_STREAM
+  if (previousMode == MODE_MJPEG_STREAM) {
+    mjpegDecoder.close();
+    mjpegInitialized = false;
+    Serial.println("[CLEANUP] MJPEG Stream: decoder chiuso");
+  }
+#endif
+
+#ifdef EFFECT_ESP32CAM
+  if (previousMode == MODE_ESP32CAM) {
+    esp32camDecoder.close();
+    // NON liberare buffer - verranno riutilizzati alla prossima apertura
+    esp32camInitialized = false;
+    Serial.println("[CLEANUP] ESP32-CAM: decoder chiuso");
+  }
+#endif
+
+  //-------------------------------------------------------------------
+  // 3. RESET FLAG MODALITA' GRAFICHE (NON liberare buffer PSRAM)
+  // I buffer rimangono allocati per riutilizzo - evita crash e riallocazioni
+  //-------------------------------------------------------------------
+#ifdef EFFECT_BTTF
+  if (previousMode == MODE_BTTF) {
+    bttfInitialized = false;
+    Serial.println("[CLEANUP] BTTF: reset flag");
+  }
+#endif
+
+#ifdef EFFECT_FLIP_CLOCK
+  if (previousMode == MODE_FLIP_CLOCK) {
+    flipClockInitialized = false;
+    Serial.println("[CLEANUP] FlipClock: reset flag");
+  }
+#endif
+
+#ifdef EFFECT_LED_RING
+  if (previousMode == MODE_LED_RING) {
+    ledRingInitialized = false;
+    Serial.println("[CLEANUP] LED Ring: reset flag");
+  }
+#endif
+
+#ifdef EFFECT_CLOCK
+  if (previousMode == MODE_CLOCK) {
+    clockInitNeeded = true;
+    Serial.println("[CLEANUP] Clock: reset flag");
+  }
+#endif
+
+#ifdef EFFECT_FLUX_CAPACITOR
+  if (previousMode == MODE_FLUX_CAPACITOR) {
+    fluxCapacitorInitialized = false;
+    Serial.println("[CLEANUP] Flux Capacitor: reset flag");
+  }
+#endif
+
+  //-------------------------------------------------------------------
+  // 4. RESET BUFFER STATICI E VARIABILI MODALITA'
+  //-------------------------------------------------------------------
+
+  // Matrix
+  if (previousMode == MODE_MATRIX || previousMode == MODE_MATRIX2) {
+    matrixInitialized = false;
+    // Reset drops array
+    for (int i = 0; i < NUM_DROPS; i++) {
+      drops[i].active = false;
+      drops[i].y = 0;
+    }
+    Serial.println("[CLEANUP] Matrix: drops resettati");
+  }
+
+  // Snake
+  if (previousMode == MODE_SNAKE) {
+    snakeInitNeeded = true;
+    // Reset snake trail colors
+    memset(snakeTrailColors, 0, sizeof(snakeTrailColors));
+    Serial.println("[CLEANUP] Snake: trail colors resettati");
+  }
+
+  // Water Drop
+  if (previousMode == MODE_WATER) {
+    waterDropInitNeeded = true;
+    Serial.println("[CLEANUP] Water Drop: reset");
+  }
+
+  // Mario
+  if (previousMode == MODE_MARIO) {
+    marioInitNeeded = true;
+    Serial.println("[CLEANUP] Mario: reset");
+  }
+
+  // Tron
+  if (previousMode == MODE_TRON) {
+    tronInitialized = false;
+    Serial.println("[CLEANUP] Tron: reset");
+  }
+
+#ifdef EFFECT_GALAGA
+  if (previousMode == MODE_GALAGA) {
+    galagaInitNeeded = true;
+    Serial.println("[CLEANUP] Galaga: reset");
+  }
+#endif
+
+#ifdef EFFECT_GALAGA2
+  if (previousMode == MODE_GALAGA2) {
+    galaga2InitNeeded = true;
+    Serial.println("[CLEANUP] Galaga2: reset");
+  }
+#endif
+
+#ifdef EFFECT_ANALOG_CLOCK
+  if (previousMode == MODE_ANALOG_CLOCK) {
+    analogClockInitNeeded = true;
+    Serial.println("[CLEANUP] Analog Clock: reset");
+  }
+#endif
+
+#ifdef EFFECT_WEATHER_STATION
+  if (previousMode == MODE_WEATHER_STATION) {
+    weatherStationInitialized = false;
+    Serial.println("[CLEANUP] Weather Station: reset");
+  }
+#endif
+
+#ifdef EFFECT_GEMINI_AI
+  if (previousMode == MODE_GEMINI_AI) {
+    geminiInitialized = false;
+    geminiNeedsRedraw = true;
+    Serial.println("[CLEANUP] Gemini AI: reset");
+  }
+#endif
+
+#ifdef EFFECT_CHRISTMAS
+  if (previousMode == MODE_CHRISTMAS) {
+    christmasInitialized = false;
+    Serial.println("[CLEANUP] Christmas: reset");
+  }
+#endif
+
+#ifdef EFFECT_FIRE
+  if (previousMode == MODE_FIRE) {
+    fireInitialized = false;
+    Serial.println("[CLEANUP] Fire: reset");
+  }
+#endif
+
+#ifdef EFFECT_FIRE_TEXT
+  if (previousMode == MODE_FIRE_TEXT) {
+    fireTextInitialized = false;
+    Serial.println("[CLEANUP] Fire Text: reset");
+  }
+#endif
+
+  // Fade/Slow modes
+  if (previousMode == MODE_FADE) {
+    fadeInitialized = false;
+    fadePhase = FADE_SONO_LE;
+    fadeStep = 0;
+    Serial.println("[CLEANUP] Fade: reset");
+  }
+
+  if (previousMode == MODE_SLOW) {
+    slowInitialized = false;
+    Serial.println("[CLEANUP] Slow: reset");
+  }
+
+  //-------------------------------------------------------------------
+  // 5. RESET BUFFER DISPLAY COMUNI
+  //-------------------------------------------------------------------
+  memset(displayBuffer, 0, sizeof(displayBuffer));
+  memset(activePixels, 0, sizeof(activePixels));
+  memset(targetPixels, 0, sizeof(targetPixels));
+  memset(targetPixels_1, 0, sizeof(targetPixels_1));
+  memset(targetPixels_2, 0, sizeof(targetPixels_2));
+  memset(pixelChanged, 0, sizeof(pixelChanged));
+
+  //-------------------------------------------------------------------
+  // 6. FORZA GARBAGE COLLECTION (se disponibile)
+  //-------------------------------------------------------------------
+  // Stampa memoria libera per debug
+  Serial.printf("[CLEANUP] Heap libero: %d bytes, PSRAM libera: %d bytes\n",
+                ESP.getFreeHeap(), ESP.getFreePsram());
+
+  Serial.println("[CLEANUP] Pulizia completata.");
+}
+
 // Funzione per forzare un aggiornamento completo del display
 void forceDisplayUpdate() {
   // Pulizia completa dello schermo impostando tutti i pixel a nero.
@@ -161,6 +409,8 @@ void forceDisplayUpdate() {
 
 
 void applyPreset(uint8_t preset) {
+  // *** CLEANUP DELLA MODALITA' PRECEDENTE ***
+  cleanupPreviousMode(currentMode);
 
   const char* presetName = "";
   const char* title = "PRESET:";
@@ -390,10 +640,11 @@ bool isValidMode(DisplayMode mode) {
 }
 
 void handleModeChange() {
-#ifdef EFFECT_MJPEG_STREAM
-  // Salva il mode precedente per controllare transizioni MJPEG
+  // Salva il mode precedente per cleanup
   DisplayMode previousMode = currentMode;
-#endif
+
+  // *** CLEANUP DELLA MODALITA' PRECEDENTE ***
+  cleanupPreviousMode(previousMode);
 
   // Passa alla modalità di visualizzazione successiva nel ciclo.
   // Usa getNextEnabledMode che considera sia i modi validi (#ifdef) che quelli abilitati dall'utente

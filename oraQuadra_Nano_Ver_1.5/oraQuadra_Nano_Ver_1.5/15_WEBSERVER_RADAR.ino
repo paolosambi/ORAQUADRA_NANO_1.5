@@ -28,6 +28,14 @@ uint8_t radarRemoteBrightness = 128;       // Luminosità dal radar remoto (0-25
 float radarRemoteTemperature = 0.0;        // Temperatura dal radar server (BME280)
 float radarRemoteHumidity = 0.0;           // Umidità dal radar server (BME280)
 
+// ================== VARIABILI ALLARME GAS ==================
+bool gasAlarmActive = false;               // Allarme gas attivo
+String gasAlarmCode = "";                  // Codice gas (CO, CH4, etc.)
+String gasAlarmName = "";                  // Nome gas (MONOSSIDO, METANO, etc.)
+float gasAlarmValue = 0.0;                 // Valore PPM
+unsigned long lastGasBeep = 0;             // Timestamp ultimo beep
+#define GAS_BEEP_INTERVAL 1500             // Intervallo tra beep (1.5 sec)
+
 // ================== FUNZIONI EEPROM RADAR SERVER ==================
 
 // Carica IP radar server da EEPROM
@@ -511,6 +519,124 @@ void updateRadarServer() {
   }
 }
 
+// ================== FUNZIONI ALLARME GAS ==================
+
+// Mostra schermata allarme gas (display rosso con nome gas)
+void showGasAlarmScreen() {
+  extern Arduino_RGB_Display *gfx;
+  if (!gfx) return;
+
+  // Sfondo rosso
+  gfx->fillScreen(0xF800);  // Rosso
+
+  // Testo ALLARME GAS
+  gfx->setTextColor(0xFFFF);  // Bianco
+  gfx->setFont(u8g2_font_maniac_te);
+
+  // "ALLARME GAS" centrato
+  gfx->setCursor(80, 150);
+  gfx->print("ALLARME GAS!");
+
+  // Nome del gas (es. METANO)
+  gfx->setCursor(140, 250);
+  gfx->print(gasAlarmName);
+
+  // Valore PPM
+  gfx->setFont(u8g2_font_crox5hb_tr);
+  gfx->setCursor(160, 320);
+  char valueStr[32];
+  sprintf(valueStr, "%.1f PPM", gasAlarmValue);
+  gfx->print(valueStr);
+
+  // Istruzioni
+  gfx->setFont(u8g2_font_helvB08_tr);
+  gfx->setCursor(100, 420);
+  gfx->print("Aerare il locale! Verificare perdite!");
+  gfx->setCursor(120, 450);
+  gfx->print("Reset da pannello RADAR");
+
+  Serial.printf("[GAS ALARM] Schermata allarme: %s (%s) = %.1f PPM\n",
+                gasAlarmName.c_str(), gasAlarmCode.c_str(), gasAlarmValue);
+}
+
+// Suona beep allarme (chiamare nel loop)
+void updateGasAlarmBeep() {
+  if (!gasAlarmActive) return;
+
+  unsigned long now = millis();
+  if (now - lastGasBeep >= GAS_BEEP_INTERVAL) {
+    lastGasBeep = now;
+
+    #ifdef AUDIO
+    // Riproduci beep.mp3 da LittleFS
+    extern bool playLocalMP3(const char* filename);
+    playLocalMP3("beep.mp3");
+    #endif
+
+    Serial.println("[GAS ALARM] BEEP!");
+  }
+}
+
+// Handler: GET /radar/gas_alarm?gas=CO&name=MONOSSIDO&value=150.5
+void handleRadarGasAlarm(AsyncWebServerRequest *request) {
+  // Estrai parametri
+  if (request->hasParam("gas")) {
+    gasAlarmCode = request->getParam("gas")->value();
+  }
+  if (request->hasParam("name")) {
+    gasAlarmName = request->getParam("name")->value();
+  }
+  if (request->hasParam("value")) {
+    gasAlarmValue = request->getParam("value")->value().toFloat();
+  }
+
+  // Attiva allarme
+  gasAlarmActive = true;
+  lastGasBeep = 0;  // Forza beep immediato
+
+  Serial.printf("[GAS ALARM] >>> ALLARME RICEVUTO: %s (%s) = %.1f PPM <<<\n",
+                gasAlarmName.c_str(), gasAlarmCode.c_str(), gasAlarmValue);
+
+  // Mostra schermata allarme
+  showGasAlarmScreen();
+
+  // Beep immediato
+  #ifdef AUDIO
+  extern bool playLocalMP3(const char* filename);
+  playLocalMP3("beep.mp3");
+  #endif
+
+  request->send(200, "application/json", "{\"status\":\"ok\",\"alarm\":\"active\"}");
+}
+
+// Handler: GET /radar/gas_alarm_end
+void handleRadarGasAlarmEnd(AsyncWebServerRequest *request) {
+  if (gasAlarmActive) {
+    Serial.println("[GAS ALARM] >>> ALLARME TERMINATO <<<");
+    gasAlarmActive = false;
+    gasAlarmCode = "";
+    gasAlarmName = "";
+    gasAlarmValue = 0;
+
+    // Forza ridisegno orologio
+    extern void forceDisplayUpdate();
+    forceDisplayUpdate();
+  }
+
+  request->send(200, "application/json", "{\"status\":\"ok\",\"alarm\":\"cleared\"}");
+}
+
+// Handler: GET /radar/gas_alarm_status
+void handleRadarGasAlarmStatus(AsyncWebServerRequest *request) {
+  String json = "{";
+  json += "\"active\":" + String(gasAlarmActive ? "true" : "false") + ",";
+  json += "\"code\":\"" + gasAlarmCode + "\",";
+  json += "\"name\":\"" + gasAlarmName + "\",";
+  json += "\"value\":" + String(gasAlarmValue, 1);
+  json += "}";
+  request->send(200, "application/json", json);
+}
+
 // ================== SETUP WEBSERVER RADAR ==================
 
 void setup_radar_webserver(AsyncWebServer* server) {
@@ -530,6 +656,11 @@ void setup_radar_webserver(AsyncWebServer* server) {
   server->on("/radar/status", HTTP_GET, handleRadarStatus);
   server->on("/api/status", HTTP_GET, handleApiStatus);  // Per discovery
 
+  // Endpoint allarme gas
+  server->on("/radar/gas_alarm", HTTP_GET, handleRadarGasAlarm);
+  server->on("/radar/gas_alarm_end", HTTP_GET, handleRadarGasAlarmEnd);
+  server->on("/radar/gas_alarm_status", HTTP_GET, handleRadarGasAlarmStatus);
+
   Serial.println("[RADAR REMOTE] Endpoints registrati:");
   Serial.println("[RADAR REMOTE]   GET /radar/presence?value=true/false");
   Serial.println("[RADAR REMOTE]   GET /radar/brightness?value=XXX");
@@ -539,6 +670,9 @@ void setup_radar_webserver(AsyncWebServer* server) {
   Serial.println("[RADAR REMOTE]   GET /radar/status");
   Serial.println("[RADAR REMOTE]   GET /radar/config");
   Serial.println("[RADAR REMOTE]   GET /radar/config/set?ip=X.X.X.X&enabled=1");
+  Serial.println("[RADAR REMOTE]   GET /radar/gas_alarm?gas=XX&name=XX&value=XX");
+  Serial.println("[RADAR REMOTE]   GET /radar/gas_alarm_end");
+  Serial.println("[RADAR REMOTE]   GET /radar/gas_alarm_status");
 
   // Tenta registrazione sul radar server (dopo un delay per stabilità WiFi)
   if (radarServerEnabled) {

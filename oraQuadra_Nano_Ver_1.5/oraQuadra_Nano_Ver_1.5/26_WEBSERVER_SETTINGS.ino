@@ -1432,6 +1432,8 @@ void handleSettingsSaveModes(AsyncWebServerRequest *request) {
     // Se la modalità corrente è stata disabilitata, passa a FADE
     if (!isModeEnabled((uint8_t)currentMode)) {
       Serial.printf("[SETTINGS] Modalità corrente %d disabilitata, passo a FADE\n", currentMode);
+      // Cleanup della modalità precedente prima di cambiare
+      cleanupPreviousMode(currentMode);
       currentMode = MODE_FADE;
       userMode = MODE_FADE;
       EEPROM.write(EEPROM_MODE_ADDR, (uint8_t)MODE_FADE);

@@ -594,6 +594,7 @@ void checkButtons();
 void playTouchSound();
 
 // Funzioni definite in 2_CHANGE_MODE.ino
+void cleanupPreviousMode(DisplayMode previousMode);  // Cleanup risorse modalità precedente
 void forceDisplayUpdate();
 void applyPreset(uint8_t preset);
 void handleModeChange();
@@ -1171,6 +1172,13 @@ OffscreenGFX* analogClockOffscreenGfx = nullptr;  // GFX offscreen
 // Double buffering per flip clock
 uint16_t* flipClockFrameBuffer = nullptr;  // Frame buffer per double buffering
 OffscreenGFX* flipClockOffscreenGfx = nullptr;  // GFX offscreen
+
+// Forward declarations per variabili definite in 8_CLOCK.ino (necessarie per cleanupPreviousMode)
+#ifdef EFFECT_CLOCK
+extern uint16_t* clockFaceBuffer;
+extern uint16_t* clockSkinFrameBuffer;
+extern OffscreenGFX* clockSkinOffscreenGfx;
+#endif
 
 // Variabili per monitoraggio SD Card
 bool sdCardPresent = false;          // Stato corrente della SD Card
@@ -1845,12 +1853,14 @@ void cleanupBtAudio();
 void setup_radar_webserver(AsyncWebServer* server);
 void initRadarServerConnection();
 void updateRadarServer();
+void updateGasAlarmBeep();  // Gestione beep allarme gas
 bool useRemoteRadar();
 // Variabili esterne dal modulo radar remoto (15_WEBSERVER_RADAR.ino)
 extern bool radarServerEnabled;
 extern bool radarRemotePresence;
 extern uint8_t radarRemoteBrightness;
 extern bool radarServerConnected;
+extern bool gasAlarmActive;  // Allarme gas attivo
 
 // ================== INDICATORE ALLARME GLOBALE ==================
 /**
@@ -2582,6 +2592,7 @@ void loop() {
     retryNTPSync(); // Ritenta sincronizzazione NTP se fallita al boot
     espalexa.loop(); // Gestisce le comunicazioni con Alexa.
     updateRadarServer(); // Gestisce riconnessione radar server remoto
+    updateGasAlarmBeep(); // Gestisce beep allarme gas (se attivo)
 
     // Controllo trigger radiosveglia
     #ifdef EFFECT_RADIO_ALARM
@@ -2663,6 +2674,11 @@ void loop() {
       // Cambia modalità
       if (newMode != currentMode) {
         Serial.printf("[RANDOM MODE] Cambio automatico: %d -> %d\n", (int)currentMode, (int)newMode);
+
+        // *** CLEANUP DELLA MODALITA' PRECEDENTE ***
+        DisplayMode previousMode = currentMode;
+        cleanupPreviousMode(previousMode);
+
         currentMode = newMode;
         userMode = newMode;
 
@@ -2670,31 +2686,9 @@ void loop() {
         EEPROM.write(EEPROM_MODE_ADDR, (uint8_t)newMode);
         EEPROM.commit();
 
-        // Reset flag di inizializzazione per tutte le modalità
-        #ifdef EFFECT_LED_RING
-        ledRingInitialized = false;
-        #endif
-        #ifdef EFFECT_FLIP_CLOCK
-        flipClockInitialized = false;
-        #endif
-        #ifdef EFFECT_BTTF
-        bttfInitialized = false;
-        #endif
-        #ifdef EFFECT_WEATHER_STATION
-        weatherStationInitialized = false;
-        #endif
-        #ifdef EFFECT_FLUX_CAPACITOR
-        fluxCapacitorInitialized = false;
-        #endif
-        #ifdef EFFECT_CHRISTMAS
-        christmasInitialized = false;
-        #endif
-        #ifdef EFFECT_FIRE
-        fireInitialized = false;
-        #endif
+        // Forza reinizializzazione completa della nuova modalità
+        forceDisplayUpdate();
 
-        // Forza ridisegno display
-        gfx->fillScreen(BLACK);
         lastHour = 255;
         lastMinute = 255;
       }
@@ -2986,6 +2980,9 @@ if (currentIsNight != lastWasNightTime) {
       }
       #endif
 
+      // Se allarme gas attivo, non aggiornare display (mantieni schermata rossa)
+      if (!gasAlarmActive) {
+
       switch (currentMode) {
         case MODE_MATRIX:
           if (currentMillis - lastEffectUpdate > 20) {
@@ -3202,9 +3199,10 @@ if (currentIsNight != lastWasNightTime) {
             updateFastMode();     // Aggiorna la visualizzazione veloce dell'ora.
           } else {
             blinkWord_E();
-          }                              
+          }
           break;
       }
+      } // Fine if (!gasAlarmActive)
     }
   }
 

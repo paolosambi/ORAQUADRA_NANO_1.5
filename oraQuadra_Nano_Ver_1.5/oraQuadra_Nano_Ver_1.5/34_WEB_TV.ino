@@ -546,7 +546,7 @@ function stopTV(){
     .catch(()=>{currentChannel=-1;render();});
 }
 function activateMode(){
-  fetch('/webtv/activate').then(()=>{alert('Web TV attivata sul display!');});
+  fetch('/webtv/activate');
 }
 render();
 </script></body></html>
@@ -562,7 +562,6 @@ void setup_webtv_webserver(AsyncWebServer* server) {
   server->on("/webtv/activate", HTTP_GET, [](AsyncWebServerRequest *request){
     currentMode = MODE_WEB_TV;
     webTVNeedsRedraw = true;
-    forceDisplayUpdate();
     request->send(200, "application/json", "{\"success\":true}");
   });
 

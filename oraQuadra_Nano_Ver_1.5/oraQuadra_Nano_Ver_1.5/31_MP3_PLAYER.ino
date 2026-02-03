@@ -1512,7 +1512,7 @@ function updateVU(l,r){
   vu.innerHTML=html;
 }
 function activateMode(){
-  fetch('/mp3player/activate').then(()=>{alert('MP3 Player attivato sul display!')});
+  fetch('/mp3player/activate');
 }
 function poll(){fetch('/mp3player/status').then(r=>r.json()).then(d=>{update(d)}).catch(()=>{});}
 poll();setInterval(poll,2000);
@@ -1663,7 +1663,6 @@ void setup_mp3player_webserver(AsyncWebServer* server) {
   server->on("/mp3player/activate", HTTP_GET, [](AsyncWebServerRequest *request){
     currentMode = MODE_MP3_PLAYER;
     mp3Player.needsRedraw = true;
-    forceDisplayUpdate();
     request->send(200, "application/json", "{\"success\":true}");
   });
 

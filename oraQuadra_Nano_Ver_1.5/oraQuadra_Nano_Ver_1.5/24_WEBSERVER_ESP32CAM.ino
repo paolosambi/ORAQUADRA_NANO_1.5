@@ -260,6 +260,10 @@ void setup_esp32cam_webserver(AsyncWebServer* server) {
     extern DisplayMode currentMode;
     extern DisplayMode userMode;
     extern void forceDisplayUpdate();
+    extern void cleanupPreviousMode(DisplayMode);
+
+    // Cleanup della modalità precedente prima di cambiare
+    cleanupPreviousMode(currentMode);
 
     currentMode = MODE_ESP32CAM;
     userMode = MODE_ESP32CAM;
