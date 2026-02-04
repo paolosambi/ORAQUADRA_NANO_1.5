@@ -1,12 +1,9 @@
 // ================== WEB TV - STREAMING MJPEG ==================
 // Visualizza streaming TV da server Python via MJPEG
 // Richiede StreamServer in esecuzione sul PC
+// DISABILITATO - Troppo lag per ESP32
 
-#ifndef EFFECT_WEB_TV
-#define EFFECT_WEB_TV
-#endif
-
-#ifdef EFFECT_WEB_TV
+#ifdef EFFECT_WEB_TV  // Abilitare nel file principale se necessario
 
 #include <HTTPClient.h>
 #include <JPEGDEC.h>
@@ -15,7 +12,7 @@
 #define TV_SERVER_IP      "192.168.1.24"  // IP del PC con StreamServer
 #define TV_SERVER_PORT    5000
 #define TV_STREAM_URL     "/stream"
-#define TV_BUFFER_SIZE    65536  // 64KB buffer per frame JPEG
+#define TV_BUFFER_SIZE    131072  // 128KB buffer per frame JPEG (PSRAM)
 
 // ================== TEMA - COERENTE CON WEB RADIO ==================
 #define TV_BG_COLOR       0x0000  // Nero puro
@@ -26,12 +23,13 @@
 #define TV_BUTTON_COLOR   0x1082  // Grigio-blu scuro
 #define TV_BUTTON_BORDER  0x07FF  // Ciano
 
-// ================== LAYOUT 480x480 ==================
+// ================== LAYOUT 480x480 - VIDEO A SCHERMO PIENO ==================
 #define TV_HEADER_Y       5
-#define TV_VIDEO_Y        50
-#define TV_VIDEO_H        340
+#define TV_VIDEO_Y        0       // Video da y=0 per schermo pieno
+#define TV_VIDEO_H        480     // Altezza piena
 #define TV_CONTROLS_Y     400
 #define TV_EXIT_Y         440
+#define TV_FULLSCREEN     true    // Modalità schermo pieno per video
 
 // ================== CANALI TV ==================
 struct TVChannel {
@@ -90,14 +88,8 @@ int tvJpegDraw(JPEGDRAW *pDraw);
 
 // ================== CALLBACK JPEG DECODER ==================
 int tvJpegDraw(JPEGDRAW *pDraw) {
-  // Disegna direttamente sul display
-  int x = pDraw->x;
-  int y = pDraw->y + TV_VIDEO_Y;
-
-  // Limita all'area video
-  if (y < TV_VIDEO_Y || y >= TV_VIDEO_Y + TV_VIDEO_H) return 1;
-
-  gfx->draw16bitRGBBitmap(x, y, pDraw->pPixels, pDraw->iWidth, pDraw->iHeight);
+  // Disegna direttamente sul display - schermo pieno
+  gfx->draw16bitRGBBitmap(pDraw->x, pDraw->y, pDraw->pPixels, pDraw->iWidth, pDraw->iHeight);
   return 1;
 }
 
@@ -160,45 +152,94 @@ void disconnectTVStream() {
 
 // ================== LETTURA FRAME ==================
 bool readTVFrame() {
+  static uint32_t frameCount = 0;
+  static uint32_t lastDebug = 0;
+
   if (!webTVConnected || !webTVStreaming) return false;
 
   WiFiClient* stream = tvHttp.getStreamPtr();
   if (!stream || !stream->connected()) {
+    Serial.println("[WEBTV] Stream disconnesso");
     webTVConnected = false;
     return false;
   }
 
-  // Cerca header MJPEG "--frame"
+  int available = stream->available();
+  if (available > 0 && millis() - lastDebug > 5000) {
+    Serial.printf("[WEBTV] Bytes disponibili: %d\n", available);
+    lastDebug = millis();
+  }
+
+  // Cerca header MJPEG
   String line;
   unsigned long startWait = millis();
 
-  while (millis() - startWait < 1000) {
+  while (millis() - startWait < 500) {
     if (stream->available()) {
       line = stream->readStringUntil('\n');
-      if (line.startsWith("Content-Length:")) {
-        int contentLength = line.substring(15).toInt();
-        if (contentLength > 0 && contentLength < TV_BUFFER_SIZE) {
-          // Leggi riga vuota
-          stream->readStringUntil('\n');
+      line.trim();  // Rimuovi \r e spazi
 
-          // Leggi dati JPEG
-          size_t bytesRead = 0;
-          startWait = millis();
-          while (bytesRead < contentLength && millis() - startWait < 2000) {
-            if (stream->available()) {
-              int toRead = min((int)(contentLength - bytesRead), stream->available());
-              int read = stream->readBytes(tvJpegBuffer + bytesRead, toRead);
-              bytesRead += read;
+      // Ignora righe vuote e chunk size (hex numbers del chunked transfer)
+      if (line.length() == 0) continue;
+
+      // Salta chunk size markers (sono numeri hex come "55a0", "5597")
+      bool isChunkSize = true;
+      for (int i = 0; i < line.length() && isChunkSize; i++) {
+        char c = line.charAt(i);
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+          isChunkSize = false;
+        }
+      }
+      if (isChunkSize && line.length() <= 8) continue;  // Skip chunk markers
+
+      // Salta boundary marker
+      if (line.startsWith("--")) continue;
+
+      // Salta Content-Type
+      if (line.startsWith("Content-Type")) continue;
+
+      // Debug prime righe
+      if (frameCount < 3) {
+        Serial.printf("[WEBTV] Line: '%s'\n", line.c_str());
+      }
+
+      if (line.startsWith("Content-Length")) {
+        int colonPos = line.indexOf(':');
+        if (colonPos > 0) {
+          int contentLength = line.substring(colonPos + 1).toInt();
+          if (contentLength > 0 && contentLength < TV_BUFFER_SIZE) {
+            // Leggi eventuali righe vuote prima dei dati
+            while (stream->available() && stream->peek() == '\r') {
+              stream->read();
             }
-            yield();
-          }
+            if (stream->available() && stream->peek() == '\n') {
+              stream->read();
+            }
 
-          if (bytesRead == contentLength) {
-            tvJpegBufferSize = bytesRead;
-            return true;
+            // Leggi dati JPEG
+            size_t bytesRead = 0;
+            startWait = millis();
+            while (bytesRead < contentLength && millis() - startWait < 2000) {
+              if (stream->available()) {
+                int toRead = min((int)(contentLength - bytesRead), stream->available());
+                int read = stream->readBytes(tvJpegBuffer + bytesRead, toRead);
+                bytesRead += read;
+              }
+              yield();
+            }
+
+            if (bytesRead == contentLength) {
+              tvJpegBufferSize = bytesRead;
+              frameCount++;
+              if (frameCount == 1 || frameCount % 100 == 0) {
+                Serial.printf("[WEBTV] Frame %d ricevuto, size: %d\n", frameCount, bytesRead);
+              }
+              return true;
+            } else {
+              Serial.printf("[WEBTV] Frame incompleto: %d/%d bytes\n", bytesRead, contentLength);
+            }
           }
         }
-        break;
       }
     }
     yield();
@@ -241,6 +282,7 @@ void selectTVChannel(int channel) {
 // ================== UPDATE LOOP ==================
 void updateWebTV() {
   static int lastActiveMode = -1;
+  static uint32_t lastTouchCheck = 0;
 
   if (lastActiveMode != MODE_WEB_TV) {
     webTVNeedsRedraw = true;
@@ -253,41 +295,73 @@ void updateWebTV() {
     return;
   }
 
-  // Gestione touch
-  ts.read();
-  if (ts.isTouched && ts.touches > 0) {
-    static uint32_t lastTouch = 0;
-    uint32_t now = millis();
-    if (now - lastTouch > 400) {
-      int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
-      int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+  // Gestione touch - meno frequente durante streaming per performance
+  uint32_t now = millis();
+  if (now - lastTouchCheck > (webTVStreaming ? 200 : 50)) {
+    lastTouchCheck = now;
+    ts.read();
+    if (ts.isTouched && ts.touches > 0) {
+      static uint32_t lastTouch = 0;
+      if (now - lastTouch > 400) {
+        int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+        int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
 
-      x = constrain(x, 0, 479);
-      y = constrain(y, 0, 479);
+        x = constrain(x, 0, 479);
+        y = constrain(y, 0, 479);
 
-      if (handleWebTVTouch(x, y)) {
-        disconnectTVStream();
-        webTVInitialized = false;
-        handleModeChange();
-        return;
+        if (handleWebTVTouch(x, y)) {
+          disconnectTVStream();
+          webTVInitialized = false;
+          handleModeChange();
+          return;
+        }
+        lastTouch = now;
       }
-      lastTouch = now;
     }
   }
 
-  // Ridisegna UI se necessario
-  if (webTVNeedsRedraw) {
+  // Ridisegna UI solo se non in streaming
+  if (webTVNeedsRedraw && !webTVStreaming) {
     drawWebTVUI();
     webTVNeedsRedraw = false;
   }
 
-  // Leggi e visualizza frame se connesso
+  // Auto-connetti allo stream se non connesso
+  if (!webTVStreaming && !webTVConnected) {
+    static uint32_t lastConnectAttempt = 0;
+    // Riprova ogni 2 secondi
+    if (now - lastConnectAttempt > 2000) {
+      lastConnectAttempt = now;
+      if (connectToTVStream()) {
+        Serial.println("[WEBTV] Auto-connesso allo stream!");
+      }
+    }
+  }
+
+  // Leggi e visualizza frame se connesso - processa multipli frame per loop
   if (webTVStreaming) {
-    if (readTVFrame()) {
-      // Decodifica e visualizza JPEG
+    static uint32_t lastFrameTime = 0;
+    int framesThisLoop = 0;
+    const int maxFramesPerLoop = 3;  // Max frame per iterazione
+
+    while (framesThisLoop < maxFramesPerLoop && readTVFrame()) {
+      lastFrameTime = millis();
+      // Decodifica e visualizza JPEG con PSRAM
       if (tvJpeg.openRAM(tvJpegBuffer, tvJpegBufferSize, tvJpegDraw)) {
-        tvJpeg.decode(0, 0, 0);
+        tvJpeg.decode(0, 0, 0);  // Decode a schermo pieno
         tvJpeg.close();
+      }
+      framesThisLoop++;
+    }
+
+    // Controlla timeout solo se non abbiamo ricevuto frame
+    if (framesThisLoop == 0) {
+      if (lastFrameTime == 0) lastFrameTime = millis();
+      if (millis() - lastFrameTime > 5000) {
+        // Nessun frame per 5 secondi, riconnetti
+        Serial.println("[WEBTV] Timeout frame, riconnessione...");
+        disconnectTVStream();
+        lastFrameTime = 0;
       }
     }
   }
@@ -502,53 +576,83 @@ body{font-family:sans-serif;background:#1a1a2e;min-height:100vh;padding:20px;col
 </div>
 <button class="btn btn-stop" onclick="stopTV()">Stop Streaming</button>
 <button class="btn btn-primary" onclick="activateMode()">Mostra su Display</button>
+<button class="btn" style="background:#333;margin-top:5px" onclick="loadChannels()">Ricarica Canali</button>
 </div></div><script>
 var currentChannel=-1;
-var channels=[
-  {name:"Rai News (YT)",logo:"📰",idx:0},
-  {name:"Sky TG24 (YT)",logo:"🌐",idx:1},
-  {name:"Euronews IT",logo:"🇪🇺",idx:2},
-  {name:"Rai 1",logo:"🔴",idx:3},
-  {name:"Rai News 24",logo:"📰",idx:4},
-  {name:"LA7",logo:"7️⃣",idx:5},
-  {name:"RTL 102.5",logo:"📻",idx:6},
-  {name:"NASA TV",logo:"🚀",idx:7},
-  {name:"Lofi Radio",logo:"🎵",idx:8}
-];
+var channels=[];
 function getServerUrl(){
   return 'http://'+document.getElementById('serverIP').value+':'+document.getElementById('serverPort').value;
 }
+function loadChannels(){
+  document.getElementById('status').textContent='Caricamento canali...';
+  fetch(getServerUrl()+'/api/tv/channels')
+    .then(r=>r.json())
+    .then(d=>{
+      channels=d.channels||[];
+      render();
+      document.getElementById('status').textContent=channels.length+' canali disponibili';
+    })
+    .catch(e=>{
+      document.getElementById('status').textContent='Errore: server non raggiungibile';
+      document.getElementById('status').className='status off';
+    });
+}
 function render(){
   var html='';
-  for(var i=0;i<channels.length;i++){
-    html+='<div class="channel'+(i==currentChannel?' active':'')+'" onclick="playChannel('+i+')">';
-    html+='<span class="logo">'+channels[i].logo+'</span>';
-    html+='<span class="name">'+channels[i].name+'</span></div>';
+  if(channels.length==0){
+    html='<p style="color:#888;text-align:center">Nessun canale. Clicca "Ricarica Canali"</p>';
+  }else{
+    for(var i=0;i<channels.length;i++){
+      var ch=channels[i];
+      html+='<div class="channel'+(i==currentChannel?' active':'')+'" onclick="playChannel('+i+')">';
+      html+='<span class="logo">'+(ch.icon||'📺')+'</span>';
+      html+='<span class="name">'+ch.name+'</span></div>';
+    }
   }
   document.getElementById('channels').innerHTML=html;
-  document.getElementById('status').textContent=currentChannel>=0?'Streaming: '+channels[currentChannel].name:'Offline';
-  document.getElementById('status').className='status '+(currentChannel>=0?'on':'off');
+  if(currentChannel>=0&&channels[currentChannel]){
+    document.getElementById('status').textContent='Streaming: '+channels[currentChannel].name;
+    document.getElementById('status').className='status on';
+  }
 }
 function playChannel(idx){
-  currentChannel=idx;
+  if(idx<0||idx>=channels.length)return;
+  document.getElementById('status').textContent='Avvio '+channels[idx].name+'...';
   fetch(getServerUrl()+'/api/tv/play',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({channel:channels[idx].idx})
+    body:JSON.stringify({channel:idx})
   }).then(r=>r.json()).then(d=>{
-    if(d.success){render();}
-    else{alert('Errore: '+d.error);}
-  }).catch(e=>{alert('Errore connessione al server');});
+    if(d.success){
+      currentChannel=idx;
+      render();
+      fetch('/webtv/reconnect');
+    }else{
+      alert('Errore: '+(d.error||'sconosciuto'));
+      document.getElementById('status').textContent='Errore avvio';
+    }
+  }).catch(e=>{
+    alert('Errore connessione: '+e);
+    document.getElementById('status').textContent='Server non raggiungibile';
+  });
 }
 function stopTV(){
   fetch(getServerUrl()+'/api/tv/stop',{method:'POST'})
-    .then(()=>{currentChannel=-1;render();})
+    .then(()=>{
+      currentChannel=-1;
+      render();
+      fetch('/webtv/disconnect');
+      document.getElementById('status').textContent='Streaming fermato';
+      document.getElementById('status').className='status off';
+    })
     .catch(()=>{currentChannel=-1;render();});
 }
 function activateMode(){
-  fetch('/webtv/activate');
+  fetch('/webtv/activate').then(()=>{
+    if(currentChannel>=0)fetch('/webtv/reconnect');
+  });
 }
-render();
+loadChannels();
 </script></body></html>
 )rawliteral";
 
@@ -560,7 +664,31 @@ void setup_webtv_webserver(AsyncWebServer* server) {
   });
 
   server->on("/webtv/activate", HTTP_GET, [](AsyncWebServerRequest *request){
+    Serial.println("[WEBTV] Attivazione modalità WebTV da web");
     currentMode = MODE_WEB_TV;
+    userMode = MODE_WEB_TV;
+    webTVNeedsRedraw = true;
+    webTVInitialized = false;  // Forza reinizializzazione
+    // Pulisci display per forzare ridisegno
+    gfx->fillScreen(BLACK);
+    lastHour = 255;
+    lastMinute = 255;
+    request->send(200, "application/json", "{\"success\":true}");
+  });
+
+  server->on("/webtv/reconnect", HTTP_GET, [](AsyncWebServerRequest *request){
+    // Forza riconnessione allo stream (per cambio canale da web)
+    Serial.println("[WEBTV-WEB] Riconnessione richiesta da web");
+    disconnectTVStream();
+    webTVNeedsRedraw = true;
+    // La riconnessione avverrà automaticamente nel loop updateWebTV
+    request->send(200, "application/json", "{\"success\":true}");
+  });
+
+  server->on("/webtv/disconnect", HTTP_GET, [](AsyncWebServerRequest *request){
+    // Disconnetti dallo stream (stop da web)
+    Serial.println("[WEBTV-WEB] Disconnessione richiesta da web");
+    disconnectTVStream();
     webTVNeedsRedraw = true;
     request->send(200, "application/json", "{\"success\":true}");
   });

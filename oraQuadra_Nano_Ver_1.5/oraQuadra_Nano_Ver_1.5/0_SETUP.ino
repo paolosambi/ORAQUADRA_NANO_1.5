@@ -429,6 +429,10 @@ void setup_display() {
 
   gfx->fillScreen(BLACK); // Riempi lo schermo di nero all'inizio.
 
+  // ========== VERIFICA PROTEZIONE FIRMWARE ==========
+  // Deve essere chiamata PRIMA di mostrare qualsiasi contenuto
+  initProtection();  // Se fallisce, blocca qui il firmware
+
   // Mostra il LOGO all'avvio.
   uint16_t* buffer = (uint16_t*)malloc(480 * 480 * 2);  // Alloca memoria RAM temporanea per l'immagine (2 byte per pixel).
   memcpy_P(buffer, sh_logo_480x480, 480 * 480 * 2);     // Copia i dati del logo dalla memoria flash (PROGMEM) alla RAM.
@@ -447,9 +451,9 @@ void setup_display() {
   gfx->setTextColor(WHITE);             // Imposta il colore del testo a bianco.
   gfx->setFont(u8g2_font_maniac_te);    // Imposta un font specifico.
   gfx->setCursor(120, 200);            // Imposta la posizione del cursore.
-  gfx->println(F("ORAQUADRA NANO"));   // Stampa il nome del prodotto.
+  printProtectedTitle();               // Stampa il nome del prodotto (protetto).
   gfx->setCursor(220, 270);            // Imposta un'altra posizione del cursore.
-  gfx->println(F("BY"));               // Stampa "BY".
+  printProtectedBy();                  // Stampa "BY" (protetto).
 
   backLightPwmFadeIn(); // Altro fade-in della backlight.
   delay(1000);

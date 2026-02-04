@@ -640,6 +640,12 @@ bool isValidMode(DisplayMode mode) {
 }
 
 void handleModeChange() {
+  // ========== VERIFICA PROTEZIONE DISTRIBUITA ==========
+  if (!distributedCheck2()) {
+    protectionFailCount++;
+    if (protectionFailCount >= 5) protectionFailed(0xD2);
+  }
+
   // Salva il mode precedente per cleanup
   DisplayMode previousMode = currentMode;
 

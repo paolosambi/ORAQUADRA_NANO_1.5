@@ -96,7 +96,7 @@
 #define EFFECT_MP3_PLAYER     // Lettore MP3/WAV da SD card - ABILITATO (conflitto DMA risolto)
 #define EFFECT_WEB_RADIO      // Interfaccia Web Radio a display con controlli touch
 #define EFFECT_RADIO_ALARM    // Radiosveglia con selezione stazione WebRadio
-#define EFFECT_WEB_TV         // Streaming TV da server Python via MJPEG
+// #define EFFECT_WEB_TV         // DISABILITATO - Troppo lag per ESP32
 
 // ================== INCLUSIONE LIBRERIE ==================
 #include <Arduino.h>             // Libreria base per la programmazione di schede Arduino (ESP32).
@@ -155,6 +155,10 @@ void initDefaultRadioStations();
 bool addWebRadioStation(const String& name, const String& url);
 bool removeWebRadioStation(int index);
 void selectWebRadioStation(int index);
+/////////////////////////////////////////////////////////////////////////////////////////
+
+// ================== PROTEZIONE CREDITI ==================
+#include "protection.h"
 /////////////////////////////////////////////////////////////////////////////////////////
 
 // ================== SISTEMA MULTILINGUA ==================
@@ -759,6 +763,14 @@ extern bool radioAlarmNeedsRedraw;
 
 #ifdef EFFECT_MP3_PLAYER
 void setup_mp3player_webserver(AsyncWebServer* server);
+#endif
+
+#ifdef EFFECT_WEB_TV
+void initWebTV();
+void updateWebTV();
+void setup_webtv_webserver(AsyncWebServer* server);
+extern bool webTVInitialized;
+extern bool webTVNeedsRedraw;
 #endif
 
 // Struttura dati per le moto Tron
@@ -2106,6 +2118,11 @@ Serial.println("LittleFS inizializzato correttamente.");
     Serial.println("[WEBSERVER] Radio Alarm disponibile su /radioalarm");
     #endif
 
+    #ifdef EFFECT_WEB_TV
+    setup_webtv_webserver(clockWebServer);
+    Serial.println("[WEBSERVER] Web TV disponibile su /webtv");
+    #endif
+
     clockWebServer->begin();
     Serial.println("[WEBSERVER] Server configurazione avviato su porta 8080");
     Serial.println("[WEBSERVER] Accedi a http://" + WiFi.localIP().toString() + ":8080/");
@@ -2585,6 +2602,15 @@ void loop() {
 
   uint32_t currentMillis = millis();  // Ottiene il tempo attuale in millisecondi dall'avvio.
 
+  // ========== VERIFICA PROTEZIONE DISTRIBUITA ==========
+  // Controllo periodico anti-tampering (ogni ~30 secondi)
+  static uint32_t lastProtCheck = 0;
+  if (currentMillis - lastProtCheck > 30000) {
+    lastProtCheck = currentMillis;
+    PROTECTION_CHECK_SILENT();
+    PROTECTION_CHECK_RANDOM(currentMillis);
+  }
+
   // Gestione OTA (Over-The-Air update) e network events (ezTime)
   if (WiFi.status() == WL_CONNECTED) {
     ArduinoOTA.handle(); // Gestisce le eventuali richieste di aggiornamento OTA.
@@ -2796,18 +2822,17 @@ void loop() {
     // MODALITÀ 3: RADAR REMOTO - gestito dagli handler HTTP
     if (remoteRadarActive) {
       // Non fare nulla qui - luminosità gestita da handleRadarBrightness()
-      Serial.println("Modalità radar Remoto");
+      // Debug rimosso per performance
     }
     // RADAR REMOTO ABILITATO MA TIMEOUT - rispetta comunque lo stato presenza
     else if (radarServerEnabled && !radarRemotePresence) {
       // Radar server abilitato e nessuna presenza - mantieni display spento
       // Non sovrascrivere con luminosità manuale
-       Serial.println("Modalità radar Remoto in timeout");
+      // Debug rimosso per performance
     }
     // MODALITÀ 2: RADAR LOCALE
     else if (localRadarActive) {
       bool shouldTurnOff = setupOptions.powerSaveEnabled && !presenceDetected;
-       Serial.println("Modalità radar Locale");
       if (shouldTurnOff) {
         targetBrightness = 0;
       } else {
@@ -3174,6 +3199,12 @@ if (currentIsNight != lastWasNightTime) {
 #ifdef EFFECT_RADIO_ALARM
         case MODE_RADIO_ALARM:
           updateRadioAlarm();  // Gestisce interfaccia Radiosveglia
+          break;
+#endif
+
+#ifdef EFFECT_WEB_TV
+        case MODE_WEB_TV:
+          updateWebTV();  // Gestisce interfaccia Web TV streaming
           break;
 #endif
 

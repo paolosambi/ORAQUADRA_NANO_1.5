@@ -447,6 +447,7 @@ input[type="number"] {
     <a href="/mp3player" class="nav-link" id="mp3playerConfigLink" style="display:none;">🎵 MP3 Player</a>
     <a href="/webradio" class="nav-link" id="webradioConfigLink" style="display:none;">📻 Web Radio</a>
     <a href="/radioalarm" class="nav-link" id="radioAlarmConfigLink" style="display:none;">⏰ Radio Alarm</a>
+    <!-- WebTV disabilitato - troppo lag per ESP32 -->
   </div>
 
   <!-- SEZIONE RIASSUNTO STATO - LED INDICATORI (sempre aperta) -->
@@ -1319,7 +1320,8 @@ const MODES = [
   { id: 23, name: 'FIRE TEXT', icon: '🔥', desc: 'Lettere di Fuoco' },
   { id: 24, name: 'MP3 PLAYER', icon: '🎵', desc: 'Lettore MP3' },
   { id: 25, name: 'WEB RADIO', icon: '📻', desc: 'Web Radio' },
-  { id: 26, name: 'RADIO ALARM', icon: '⏰', desc: 'Radiosveglia' }
+  { id: 26, name: 'RADIO ALARM', icon: '⏰', desc: 'Radiosveglia' },
+  // { id: 27, name: 'WEB TV', icon: '📺', desc: 'TV Live' }  // DISABILITATO - Troppo lag
 ];
 
 let currentMode = 2;
@@ -1375,6 +1377,7 @@ function toggleMode(modeId, enabled) {
   updateMp3PlayerLink();
   updateWebRadioLink();
   updateRadioAlarmLink();
+  // updateWebTVLink();  // WebTV disabilitato
 }
 
 // Variabile globale per URL webcam
@@ -1419,6 +1422,9 @@ function updateRadioAlarmLink() {
     alarmLink.style.display = 'none';
   }
 }
+
+// WebTV disabilitato - funzione commentata
+// function updateWebTVLink() { }
 
 // Attiva modalità
 function activateMode(modeId) {
@@ -1927,8 +1933,8 @@ const MODE_DEFAULT_COLORS = {
 const TEXT_MODES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 17];
 
 // Modalità che NON supportano preset colori (grafiche/speciali)
-const NO_COLOR_MODES = [10, 11, 12, 13, 14, 19, 20, 21, 22, 23, 24, 25];
-// 10=ANALOG, 11=FLIP, 12=BTTF, 13=LED RING, 14=WEATHER, 19=ESP-CAM, 20=FLUX, 21=CHRISTMAS, 22=FIRE, 23=FIRE TEXT, 24=MP3 PLAYER
+const NO_COLOR_MODES = [10, 11, 12, 13, 14, 19, 20, 21, 22, 23, 24, 25, 26];  // 27 rimosso (WebTV disabilitato)
+// 10=ANALOG, 11=FLIP, 12=BTTF, 13=LED RING, 14=WEATHER, 19=ESP-CAM, 20=FLUX, 21=CHRISTMAS, 22=FIRE, 23=FIRE TEXT, 24=MP3 PLAYER, 25=WEB RADIO, 26=RADIO ALARM, 27=WEB TV
 
 // Verifica se la modalità corrente supporta il colore personalizzato
 function isTextMode(modeId) {
@@ -3093,6 +3099,7 @@ function loadSettings() {
       updateMp3PlayerLink();
       updateWebRadioLink();
       updateRadioAlarmLink();
+      // updateWebTVLink();  // WebTV disabilitato
 
       // Lingua
       if (data.language !== undefined) {

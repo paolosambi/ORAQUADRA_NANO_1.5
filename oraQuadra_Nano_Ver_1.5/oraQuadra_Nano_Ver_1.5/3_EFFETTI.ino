@@ -391,6 +391,8 @@ void showMinutes(uint8_t minutes, const Color& color) {
 //                        EFFETTO MODALITÀ LENTA                      //
 //===================================================================//
 void updateSlowMode() {
+  // ========== VERIFICA PROTEZIONE DISTRIBUITA ==========
+  PROTECTION_CHECK_RANDOM(millis());
 
   // Inizializza l'effetto solo se l'ora o il minuto cambiano, o se è la prima volta che viene eseguito.
   if (currentHour != lastHour || currentMinute != lastMinute || !slowInitialized) {
