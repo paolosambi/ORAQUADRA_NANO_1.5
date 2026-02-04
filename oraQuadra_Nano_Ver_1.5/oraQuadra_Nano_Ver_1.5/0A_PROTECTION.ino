@@ -1,81 +1,33 @@
-// ============================================================================
-// PROTEZIONE CREDITI AUTORI - OraQuadra Nano
-// ============================================================================
-//
-// Questo modulo protegge i crediti degli autori originali del progetto.
-//
-// Il codice di OraQuadra Nano è OPEN SOURCE e può essere:
-//   ✓ Visualizzato e studiato
-//   ✓ Modificato per aggiungere funzionalità
-//   ✓ Usato come base per altri progetti
-//   ✓ Ridistribuito (mantenendo i crediti)
-//
-// NON È PERMESSO:
-//   ✗ Rimuovere o modificare i nomi degli autori originali
-//   ✗ Rimuovere il riferimento a SurvivalHacking
-//   ✗ Presentare il progetto come proprio senza attribuzione
-//
-// Se i crediti vengono modificati, il firmware si bloccherà all'avvio.
-// Questo è intenzionale e non è un bug.
-//
-// AUTORI ORIGINALI:
-//   - Paolo Sambinello
-//   - Davide Gatti
-//   - Alessandro Spagnoletti
-//   - www.survivalhacking.it
-//
-// ============================================================================
-
-// ============================================================================
-// CREDITI PROTETTI (codificati per verifica integrità)
-// ============================================================================
-// I crediti sono codificati con XOR per permettere la verifica di integrità.
-// La chiave XOR è 0x5A - questo non è un segreto, serve solo per il checksum.
 
 #define CREDITS_XOR_KEY 0x5A
 
-// "ORAQUADRA NANO" - Titolo del progetto (ogni byte XOR 0x5A)
 const uint8_t CREDITS_TITLE[] PROGMEM = {
   0x15, 0x08, 0x1B, 0x0B, 0x0F, 0x1B, 0x1E, 0x08, 0x1B, 0x7A, 0x14, 0x1B, 0x14, 0x15, 0x00
 };
 
-// "BY" - Separatore
 const uint8_t CREDITS_BY[] PROGMEM = {
   0x18, 0x03, 0x00
 };
 
-// "SurvivalHacking" - Nome del team/sito
 const uint8_t CREDITS_TEAM[] PROGMEM = {
   0x09, 0x2F, 0x28, 0x2C, 0x33, 0x2C, 0x3B, 0x36, 0x12, 0x3B, 0x39, 0x31, 0x33, 0x34, 0x3D, 0x00
 };
 
-// "Paolo Sambinello" - Autore 1
 const uint8_t CREDITS_PAOLO[] PROGMEM = {
   0x0A, 0x3B, 0x35, 0x36, 0x35, 0x7A, 0x09, 0x3B, 0x37, 0x38, 0x33, 0x34, 0x3F, 0x36, 0x36, 0x35, 0x00
 };
-
-// "Davide Gatti" - Autore 2
 const uint8_t CREDITS_DAVIDE[] PROGMEM = {
   0x1E, 0x3B, 0x2C, 0x33, 0x3E, 0x3F, 0x7A, 0x1D, 0x3B, 0x2E, 0x2E, 0x33, 0x00
 };
 
-// "Alessandro Spagnoletti" - Autore 3
 const uint8_t CREDITS_ALESSANDRO[] PROGMEM = {
   0x1B, 0x36, 0x3F, 0x29, 0x29, 0x3B, 0x34, 0x3E, 0x28, 0x35, 0x7A, 0x09, 0x2A, 0x3B, 0x3D, 0x34, 0x35, 0x36, 0x3F, 0x2E, 0x2E, 0x33, 0x00
 };
 
-// ============================================================================
-// STATO PROTEZIONE (variabili globali - dichiarate extern in protection.h)
-// ============================================================================
-
-bool creditsVerified = false;              // I crediti sono stati verificati?
-uint8_t verificationFailures = 0;          // Contatore fallimenti
-static uint32_t lastVerificationTime = 0;  // Ultimo controllo periodico
-static char decodedString[64];             // Buffer per decodifica
-
-// ============================================================================
-// TABELLA CRC32 (per verifica integrità)
-// ============================================================================
+bool creditsVerified = false;              
+uint8_t verificationFailures = 0;          
+static uint32_t lastVerificationTime = 0;  
+static char decodedString[64];             
 
 static const uint32_t crc32Table[256] PROGMEM = {
   0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA, 0x076DC419, 0x706AF48F,
@@ -123,11 +75,6 @@ static const uint32_t crc32Table[256] PROGMEM = {
   0xAF0FC0B3, 0xD808F025, 0x4101A19F, 0x36069109
 };
 
-// ============================================================================
-// FUNZIONI DI UTILITÀ
-// ============================================================================
-
-// Calcola CRC32 di dati in PROGMEM
 static uint32_t calculateCreditsCRC(const uint8_t* data, size_t length) {
   uint32_t crc = 0xFFFFFFFF;
   for (size_t i = 0; i < length; i++) {
@@ -138,7 +85,6 @@ static uint32_t calculateCreditsCRC(const uint8_t* data, size_t length) {
   return crc ^ 0xFFFFFFFF;
 }
 
-// Decodifica una stringa codificata con XOR
 static const char* decodeCredits(const uint8_t* encoded) {
   int i = 0;
   while (i < 63) {
@@ -151,18 +97,10 @@ static const char* decodeCredits(const uint8_t* encoded) {
   return decodedString;
 }
 
-// ============================================================================
-// FUNZIONI DI VERIFICA CREDITI
-// ============================================================================
-
-// Verifica che il titolo sia "ORAQUADRA NANO"
 static bool verifyTitle() {
   const char* title = decodeCredits(CREDITS_TITLE);
 
-  // Deve essere esattamente "ORAQUADRA NANO" (14 caratteri)
   if (strlen(title) != 14) return false;
-
-  // Verifica caratteri chiave
   if (title[0] != 'O') return false;
   if (title[1] != 'R') return false;
   if (title[2] != 'A') return false;
@@ -181,52 +119,45 @@ static bool verifyTitle() {
   return true;
 }
 
-// Verifica che "BY" sia intatto
 static bool verifyBy() {
   const char* by = decodeCredits(CREDITS_BY);
   return (by[0] == 'B' && by[1] == 'Y' && by[2] == '\0');
 }
 
-// Verifica il logo (campionamento pixel)
 static bool verifyLogo() {
   uint32_t checksum = 0;
 
-  // Campiona pixel in posizioni specifiche del logo
-  for (int i = 0; i < 480 * 480; i += 9973) {  // Numero primo per distribuzione uniforme
+
+  for (int i = 0; i < 480 * 480; i += 9973) {  
     uint16_t pixel = pgm_read_word(&sh_logo_480x480[i]);
     checksum = checksum * 31 + pixel;
   }
 
-  // Aggiungi pixel in posizioni fisse
+
   checksum += pgm_read_word(&sh_logo_480x480[115440]);  // Centro
   checksum += pgm_read_word(&sh_logo_480x480[48100]);   // Alto
   checksum += pgm_read_word(&sh_logo_480x480[182780]);  // Basso
 
-  // Il checksum deve essere diverso da zero (logo non vuoto/sostituito con nero)
   return (checksum != 0);
 }
 
-// Verifica principale di tutti i crediti
+
 static bool verifyAllCredits() {
-  // Verifica 1: Titolo del progetto
   if (!verifyTitle()) {
     Serial.println("[CREDITS] Errore: Titolo modificato!");
     return false;
   }
 
-  // Verifica 2: Testo "BY"
   if (!verifyBy()) {
     Serial.println("[CREDITS] Errore: Attribuzione modificata!");
     return false;
   }
 
-  // Verifica 3: Logo SurvivalHacking
   if (!verifyLogo()) {
     Serial.println("[CREDITS] Errore: Logo modificato!");
     return false;
   }
 
-  // Verifica 4: Integrità CRC dei dati codificati
   uint32_t combinedCRC = 0;
   combinedCRC ^= calculateCreditsCRC(CREDITS_TITLE, sizeof(CREDITS_TITLE));
   combinedCRC ^= calculateCreditsCRC(CREDITS_BY, sizeof(CREDITS_BY));
@@ -235,7 +166,6 @@ static bool verifyAllCredits() {
   combinedCRC ^= calculateCreditsCRC(CREDITS_DAVIDE, sizeof(CREDITS_DAVIDE));
   combinedCRC ^= calculateCreditsCRC(CREDITS_ALESSANDRO, sizeof(CREDITS_ALESSANDRO));
 
-  // CRC deve essere diverso da zero
   if (combinedCRC == 0) {
     Serial.println("[CREDITS] Errore: Dati corrotti!");
     return false;
@@ -244,10 +174,6 @@ static bool verifyAllCredits() {
   creditsVerified = true;
   return true;
 }
-
-// ============================================================================
-// SCHERMATA DI ERRORE (crediti modificati)
-// ============================================================================
 
 void showCreditsError(uint8_t errorCode) {
   // Schermo rosso con messaggio chiaro
@@ -287,7 +213,6 @@ void showCreditsError(uint8_t errorCode) {
   gfx->setCursor(40, 450);
   gfx->println("Ripristina il firmware originale.");
 
-  // Backlight accesa per leggibilità
   ledcWrite(PWM_CHANNEL, 200);
 
   Serial.println("================================================");
@@ -297,7 +222,7 @@ void showCreditsError(uint8_t errorCode) {
   Serial.println("https://github.com/SurvivalHacking/OraquadraNano");
   Serial.println("================================================");
 
-  // Blocco permanente - lampeggio per attirare attenzione
+
   while (1) {
     delay(1000);
     ledcWrite(PWM_CHANNEL, 50);
@@ -305,12 +230,6 @@ void showCreditsError(uint8_t errorCode) {
     ledcWrite(PWM_CHANNEL, 200);
   }
 }
-
-// ============================================================================
-// VERIFICHE DISTRIBUITE (chiamate in vari punti del codice)
-// ============================================================================
-// Queste funzioni vengono chiamate periodicamente durante l'esecuzione
-// per assicurarsi che i crediti non vengano modificati a runtime.
 
 bool distributedCheck1() {
   if (!creditsVerified) return false;
@@ -331,7 +250,7 @@ bool distributedCheck3() {
 }
 
 bool distributedCheck4() {
-  // Controllo periodico ogni 60 secondi
+
   if (millis() - lastVerificationTime > 60000) {
     lastVerificationTime = millis();
     if (!verifyTitle()) {
@@ -343,18 +262,12 @@ bool distributedCheck4() {
 }
 
 bool distributedCheck5(uint32_t seed) {
-  // Verifica casuale basata su seed
   if ((seed % 0x1337) == 0) {
     return verifyBy();
   }
   return true;
 }
 
-// ============================================================================
-// FUNZIONI PUBBLICHE
-// ============================================================================
-
-// Inizializza e verifica i crediti all'avvio
 void initProtection() {
   Serial.println("[CREDITS] Verifica crediti autori...");
 
@@ -365,7 +278,6 @@ void initProtection() {
   if (!verifyAllCredits()) {
     Serial.println("[CREDITS] VERIFICA FALLITA!");
     showCreditsError(0x01);
-    // Non ritorna mai da qui
   }
 
   Serial.println("[CREDITS] Crediti verificati OK");
@@ -373,25 +285,21 @@ void initProtection() {
   Serial.println("[CREDITS] www.survivalhacking.it");
 }
 
-// Stampa il titolo protetto (decodificato)
 void printProtectedTitle() {
   const char* title = decodeCredits(CREDITS_TITLE);
   gfx->println(title);
 }
 
-// Stampa "BY" protetto
 void printProtectedBy() {
   const char* by = decodeCredits(CREDITS_BY);
   gfx->println(by);
 }
 
-// Stampa il nome del team
 void printProtectedAuthor() {
   const char* team = decodeCredits(CREDITS_TEAM);
   gfx->println(team);
 }
 
-// Stampa i nomi degli autori
 void printAuthorPaolo() {
   const char* name = decodeCredits(CREDITS_PAOLO);
   gfx->println(name);
