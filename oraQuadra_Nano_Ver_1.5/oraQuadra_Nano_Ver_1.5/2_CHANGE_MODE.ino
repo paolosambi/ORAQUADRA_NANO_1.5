@@ -184,6 +184,13 @@ void cleanupPreviousMode(DisplayMode previousMode) {
   }
 #endif
 
+#ifdef EFFECT_CALENDAR
+  if (previousMode == MODE_CALENDAR) {
+    calendarStationInitialized = false;
+    Serial.println("[CLEANUP] Calendar: reset");
+  }
+#endif
+
 #ifdef EFFECT_GEMINI_AI
   if (previousMode == MODE_GEMINI_AI) {
     geminiInitialized = false;
@@ -331,6 +338,13 @@ void forceDisplayUpdate() {
       initWeatherStation();               // Chiama la funzione per inizializzare la stazione meteo.
       break;
 #endif
+#ifdef EFFECT_CALENDAR
+    case MODE_CALENDAR:
+      calendarStationInitialized = false;  // Forza la reinizializzazione di calendar.
+      initCalendarStation();               // Chiama la funzione per inizializzare il calendario.
+      break;
+#endif
+
 #ifdef EFFECT_CLOCK
     case MODE_CLOCK:
       clockInitNeeded = true;             // Forza la reinizializzazione dell'orologio con skin.
@@ -600,6 +614,9 @@ bool isValidMode(DisplayMode mode) {
 #ifdef EFFECT_WEATHER_STATION
     case MODE_WEATHER_STATION:
 #endif
+#ifdef EFFECT_CALENDAR
+    case MODE_CALENDAR:
+#endif
 #ifdef EFFECT_CLOCK
     case MODE_CLOCK:
 #endif
@@ -806,6 +823,12 @@ void handleModeChange() {
 #ifdef EFFECT_WEATHER_STATION
     case MODE_WEATHER_STATION:
       modeName = "STAZIONE METEO";
+      modeColor = CYAN;
+      break;
+#endif
+#ifdef EFFECT_CALENDAR
+    case MODE_CALENDAR:
+      modeName = "CALENDARIO";
       modeColor = CYAN;
       break;
 #endif

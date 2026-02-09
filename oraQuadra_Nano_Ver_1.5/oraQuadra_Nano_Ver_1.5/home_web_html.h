@@ -1,5 +1,5 @@
 // ================== HOME PAGE HTML ==================
-// Pagina principale con monitor SPETTACOLARE del display
+// Pagina principale con monitor del display
 // Griglia 16x16 allineata con word_mappings.h
 // Accesso: http://<IP_ESP32>:8080/
 
@@ -293,6 +293,11 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
           <h3>Web TV</h3>
           <p>Italian TV streaming</p>
         </a>
+        <a href="/cal" class="nav-card clock" id="card-calendar" style="display:none">
+          <span class="icon">&#128197;</span>
+          <h3>Calendario</h3>
+          <p>Eventi e sincronizzazione Google</p>
+        </a>
       </div>
     </div>
 
@@ -370,7 +375,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     const MODES = ['Fade','Slow','Fast','Matrix','Matrix2','Snake','Water','Mario',
                    'Tron','Galaga','Flux','FlipClock','BTTF','LED Ring','Weather','Radar',
                    'Gemini','Galaga2','MJPEG','ESP32CAM','FluxCap','Christmas','Fire','FireText',
-                   'MP3 Player','Web Radio','Radio Alarm'];
+                   'MP3 Player','Web Radio','Radio Alarm','Web TV','Calendario'];
 
     let currentMode = 0;
     let currentColor = '#00ff00';
@@ -614,6 +619,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
       else if(currentMode === 24) showSpecial('🎵', 'MP3 Player', 'Music Player');
       else if(currentMode === 25) showSpecial('📻', 'Web Radio', 'Internet Radio');
       else if(currentMode === 26) showSpecial('⏰', 'Radio Alarm', 'Sveglia Radio');
+      else if(currentMode === 28) showSpecial('📅', 'Calendario', 'Google Agenda');
       else showSpecial('⏰', MODES[currentMode]||'Mode '+currentMode, '');
     }
 
@@ -629,11 +635,11 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     }
 
     async function checkPages(){
-      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player','webradio','radioalarm','webtv'];
+      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player','webradio','radioalarm','webtv','cal'];
       for(const p of pages){
         try{
           const r = await fetch('/'+p,{method:'HEAD'});
-          if(r.ok) document.getElementById('card-'+(p==='fluxcap'?'flux':p)).style.display = 'block';
+          if(r.ok) document.getElementById('card-'+(p==='fluxcap'?'flux':p==='cal'?'calendar':p)).style.display = 'block';
         }catch(e){}
       }
     }

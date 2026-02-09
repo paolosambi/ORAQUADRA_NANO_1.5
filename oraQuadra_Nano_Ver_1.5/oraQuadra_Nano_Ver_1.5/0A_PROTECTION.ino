@@ -219,7 +219,7 @@ void showCreditsError(uint8_t errorCode) {
   Serial.println("ERRORE: I crediti degli autori sono stati modificati!");
   Serial.println("Questo progetto richiede di mantenere i crediti.");
   Serial.println("Ripristina il firmware originale da:");
-  Serial.println("https://github.com/SurvivalHacking/OraquadraNano");
+  Serial.println("https://github.com/paolosambi/ORAQUADRA_NANO_1.5");
   Serial.println("================================================");
 
 

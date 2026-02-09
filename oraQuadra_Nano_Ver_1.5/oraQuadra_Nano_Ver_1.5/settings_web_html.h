@@ -447,6 +447,7 @@ input[type="number"] {
     <a href="/mp3player" class="nav-link" id="mp3playerConfigLink" style="display:none;">🎵 MP3 Player</a>
     <a href="/webradio" class="nav-link" id="webradioConfigLink" style="display:none;">📻 Web Radio</a>
     <a href="/radioalarm" class="nav-link" id="radioAlarmConfigLink" style="display:none;">⏰ Radio Alarm</a>
+    <a href="/cal" class="nav-link" id="calendarConfigLink" style="display:none;">📅 Calendario</a>
     <!-- WebTV disabilitato - troppo lag per ESP32 -->
   </div>
 
@@ -1215,7 +1216,7 @@ input[type="number"] {
   <div class="section" data-section="apikeys">
     <div class="section-header">
       <div class="section-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">🔑</div>
-      <div class="section-title">API Keys</div>
+      <div class="section-title">API Keys & Servizi</div>
       <span class="section-arrow">▼</span>
     </div>
     <div class="section-content">
@@ -1233,9 +1234,33 @@ input[type="number"] {
           </div>
           <input type="text" id="openweatherCity" placeholder="Nome città" style="width:150px; padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text);">
         </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border); margin: 15px 0;">
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">📅 Google Calendar</div>
+            <div class="setting-desc">Integrazione con Apps Script</div>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Google Web App URL</div>
+            <div class="setting-desc">Incolla l'URL fornito da Google</div>
+          </div>
+          <input type="text" id="calendarUrl" placeholder="https://script.google.com/..." style="width:150px; padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text);">
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">Calendar API Key</div>
+            <div class="setting-desc">Chiave impostata nello script</div>
+          </div>
+          <input type="password" id="calendarApiKey" placeholder="Chiave segreta" style="width:150px; padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text);">
+        </div>
+
         <div class="setting-row" id="apiKeysStatus" style="display:none;">
           <div class="setting-info">
-            <div class="setting-label" style="color: var(--success);">✓ API Keys salvate automaticamente</div>
+            <div class="setting-label" style="color: var(--success);">✓ Impostazioni salvate automaticamente</div>
           </div>
         </div>
       </div>
@@ -1322,6 +1347,7 @@ const MODES = [
   { id: 25, name: 'WEB RADIO', icon: '📻', desc: 'Web Radio' },
   { id: 26, name: 'RADIO ALARM', icon: '⏰', desc: 'Radiosveglia' },
   // { id: 27, name: 'WEB TV', icon: '📺', desc: 'TV Live' }  // DISABILITATO - Troppo lag
+  { id: 28, name: 'CALENDAR', icon: '📅', desc: 'Google Agenda' }, // AGGIUNTO ID 28
 ];
 
 let currentMode = 2;
@@ -1377,6 +1403,7 @@ function toggleMode(modeId, enabled) {
   updateMp3PlayerLink();
   updateWebRadioLink();
   updateRadioAlarmLink();
+  updateCalendarLink();
   // updateWebTVLink();  // WebTV disabilitato
 }
 
@@ -1421,6 +1448,14 @@ function updateRadioAlarmLink() {
   } else {
     alarmLink.style.display = 'none';
   }
+}
+
+// Aggiorna visibilità link Calendario
+function updateCalendarLink() {
+  var link = document.getElementById('calendarConfigLink');
+  if (!link) return;
+  var modeEnabled = enabledModes[28] === true; // 28 = MODE_CALENDAR
+  link.style.display = modeEnabled ? 'inline-block' : 'none';
 }
 
 // WebTV disabilitato - funzione commentata
@@ -1933,7 +1968,7 @@ const MODE_DEFAULT_COLORS = {
 const TEXT_MODES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 17];
 
 // Modalità che NON supportano preset colori (grafiche/speciali)
-const NO_COLOR_MODES = [10, 11, 12, 13, 14, 19, 20, 21, 22, 23, 24, 25, 26];  // 27 rimosso (WebTV disabilitato)
+const NO_COLOR_MODES = [10, 11, 12, 13, 14, 19, 20, 21, 22, 23, 24, 25, 26, 28];  // 27 rimosso (WebTV disabilitato)
 // 10=ANALOG, 11=FLIP, 12=BTTF, 13=LED RING, 14=WEATHER, 19=ESP-CAM, 20=FLUX, 21=CHRISTMAS, 22=FIRE, 23=FIRE TEXT, 24=MP3 PLAYER, 25=WEB RADIO, 26=RADIO ALARM, 27=WEB TV
 
 // Verifica se la modalità corrente supporta il colore personalizzato
@@ -3099,6 +3134,7 @@ function loadSettings() {
       updateMp3PlayerLink();
       updateWebRadioLink();
       updateRadioAlarmLink();
+      updateCalendarLink();
       // updateWebTVLink();  // WebTV disabilitato
 
       // Lingua
@@ -3234,52 +3270,40 @@ function changeLanguage(langValue) {
 let apiKeySaveTimeout = null;
 
 function saveApiKeys() {
-  setStatus('saving', 'Salvataggio impostazioni...');
+  setStatus('saving', 'Salvataggio...');
   const cityValue = document.getElementById('openweatherCity').value;
-  const cityValid = cityValue.length >= 2;
-  const wasWeatherEnabled = hasWeatherApiKey;
+  const urlValue = document.getElementById('calendarUrl').value;
+  const keyValue = document.getElementById('calendarApiKey').value;
+
   const params = new URLSearchParams({
-    openweatherCity: cityValue
+    openweatherCity: cityValue,
+    calendarUrl: urlValue,
+    calendarApiKey: keyValue
   });
+
   fetch('/settings/saveapikeys?' + params)
     .then(r => r.text())
     .then(result => {
       if (result === 'OK') {
         setStatus('online', 'Impostazioni salvate!');
         document.getElementById('apiKeysStatus').style.display = 'flex';
-        document.getElementById('lastSave').textContent = 'Salvato: ' + new Date().toLocaleTimeString();
-        // Aggiorna visibilità modalità Weather in base alla città
-        hasWeatherApiKey = cityValid;
-        // Se lo stato Weather è cambiato, fai refresh della pagina per aggiornare immediatamente
-        if (wasWeatherEnabled !== cityValid) {
-          setTimeout(() => location.reload(), 500);
-          return;
-        }
-        renderModes();
-        // Ricarica le impostazioni
-        loadApiKeys();
         setTimeout(() => {
           setStatus('online', 'Connesso');
           document.getElementById('apiKeysStatus').style.display = 'none';
         }, 3000);
-      } else {
-        setStatus('offline', 'Errore salvataggio');
       }
-    })
-    .catch(() => setStatus('offline', 'Errore'));
+    });
 }
 
 function setupApiKeysAutoSave() {
-  const apiKeyInputs = ['openweatherCity'];
+  const apiKeyInputs = ['openweatherCity', 'calendarUrl', 'calendarApiKey'];
   apiKeyInputs.forEach(inputId => {
     const input = document.getElementById(inputId);
     if (input) {
-      // Salva su blur (quando l'input perde il focus)
       input.addEventListener('blur', () => {
         if (apiKeySaveTimeout) clearTimeout(apiKeySaveTimeout);
         apiKeySaveTimeout = setTimeout(saveApiKeys, 300);
       });
-      // Salva anche dopo 1.5 secondi di inattività durante la digitazione
       input.addEventListener('input', () => {
         if (apiKeySaveTimeout) clearTimeout(apiKeySaveTimeout);
         apiKeySaveTimeout = setTimeout(saveApiKeys, 1500);
@@ -3293,8 +3317,10 @@ function loadApiKeys() {
     .then(r => r.json())
     .then(data => {
       if (data.openweatherCity) document.getElementById('openweatherCity').value = data.openweatherCity;
+      if (data.calendarUrl) document.getElementById('calendarUrl').value = data.calendarUrl;
+      if (data.calendarApiKey) document.getElementById('calendarApiKey').value = data.calendarApiKey;
     })
-    .catch(() => console.log('Impostazioni meteo non disponibili'));
+    .catch(() => console.log('Impostazioni non disponibili'));
 }
 
 function formatUptime(s) {

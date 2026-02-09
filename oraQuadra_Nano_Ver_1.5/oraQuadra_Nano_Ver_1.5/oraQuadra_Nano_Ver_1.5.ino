@@ -41,6 +41,9 @@
 // - Attivato modulo interno I2S per audio
 // - Riproduzione corretta dell'orario vocale 
 // - Correzioni e miglioramenti generali
+
+// - 09/02/2026 by Marco Camerani Paolo Sambinello
+//   Aggiunta WEB RADIO, MP3 PLAYER, RADIO ALARM, CALENDARIO APPUNTAMENTI
 //
 //---------------------------------------------------------------------------------------------------------------------------------------
 // Il quadrante è touch e se lo suddividete in 4 parti avrete 4 zone separate con diverse funzionalità.
@@ -97,6 +100,7 @@
 #define EFFECT_WEB_RADIO      // Interfaccia Web Radio a display con controlli touch
 #define EFFECT_RADIO_ALARM    // Radiosveglia con selezione stazione WebRadio
 // #define EFFECT_WEB_TV         // DISABILITATO - Troppo lag per ESP32
+#define EFFECT_CALENDAR
 
 // ================== INCLUSIONE LIBRERIE ==================
 #include <Arduino.h>             // Libreria base per la programmazione di schede Arduino (ESP32).
@@ -460,7 +464,10 @@ enum DisplayMode {
 #ifdef EFFECT_WEB_TV
   MODE_WEB_TV = 27,         // Streaming TV da server Python via MJPEG.
 #endif
-  NUM_MODES = 28    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
+#ifdef EFFECT_CALENDAR
+  MODE_CALENDAR = 28,       // Calendario Google
+#endif
+  NUM_MODES = 29    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
 };
 
 // ================== STRUTTURE DATI ==================
@@ -665,6 +672,19 @@ void updateLedRingClock();
 void initWeatherStation();
 void updateWeatherStation();
 
+// Funzioni definite in 35_CALENDAR.ino
+bool initCalendarStation();
+void updateCalendarStation();
+void fetchGoogleCalendarData();
+void drawCalendarEvents();
+void handleCalendarTouch(int x, int y);
+
+// Funzioni definite in 36_WEBSERVER_CALENDAR.ino
+void setup_calendar_webserver(AsyncWebServer* server);
+void loadLocalEventsFromLittleFS();
+void mergeLocalAndGoogleEvents();
+bool pushEventToGoogle(uint16_t id);
+
 // Funzioni definite in 8_CLOCK.ino (EFFECT_CLOCK)
 #ifdef EFFECT_CLOCK
 void updateClockMode();
@@ -697,6 +717,11 @@ extern bool weatherStationInitialized;
 #ifdef EFFECT_FLUX_CAPACITOR
 extern bool fluxCapacitorInitialized;
 #endif
+#ifdef EFFECT_CALENDAR
+extern bool calendarStationInitialized;
+extern bool calendarGridView;
+#endif
+
 
 // Funzioni definite in 14_CAPODANNO.ino
 void updateCapodanno();
@@ -1373,6 +1398,11 @@ unsigned long testModeStartTime = 0; // Tempo di inizio test mode
 bool weatherStationInitialized = false; // Variabile globale per indicare se la stazione meteo è stata inizializzata.
 #endif
 
+#ifdef EFFECT_CALENDAR
+// Variabile per il calendario
+bool calendarStationInitialized = false; // Variabile globale per indicare se il calendario è stato inizializzato.
+#endif
+
 #ifdef EFFECT_BTTF
 // Variabile per la modalità Ritorno al Futuro
 bool bttfInitialized = false; // Variabile globale per indicare se la modalità BTTF è stata inizializzata.
@@ -1998,8 +2028,10 @@ if (!LittleFS.begin(true)) {
 }
 Serial.println("LittleFS inizializzato correttamente.");
 
-   
-  // Qui prosegue il tuo controllo dei file... 
+  // Carica eventi calendario locali da LittleFS
+  #ifdef EFFECT_CALENDAR
+  loadLocalEventsFromLittleFS();
+  #endif
 
   Serial.printf("LittleFS: %d KB totali, %d KB usati\n",
                 LittleFS.totalBytes()/1024, LittleFS.usedBytes()/1024);
@@ -2123,6 +2155,11 @@ Serial.println("LittleFS inizializzato correttamente.");
     Serial.println("[WEBSERVER] Web TV disponibile su /webtv");
     #endif
 
+    #ifdef EFFECT_CALENDAR
+    setup_calendar_webserver(clockWebServer);
+    Serial.println("[WEBSERVER] Calendario disponibile su /calendar");
+    #endif
+
     clockWebServer->begin();
     Serial.println("[WEBSERVER] Server configurazione avviato su porta 8080");
     Serial.println("[WEBSERVER] Accedi a http://" + WiFi.localIP().toString() + ":8080/");
@@ -2233,6 +2270,7 @@ Serial.println("LittleFS inizializzato correttamente.");
   }
   Serial.println("Display: ACCESO");
   Serial.println("========================================\n");
+
 }
 
 // ================== IMPLEMENTAZIONI WEB RADIO ==================
@@ -2709,8 +2747,8 @@ void loop() {
         userMode = newMode;
 
         // Salva in EEPROM
-        EEPROM.write(EEPROM_MODE_ADDR, (uint8_t)newMode);
-        EEPROM.commit();
+        //EEPROM.write(EEPROM_MODE_ADDR, (uint8_t)newMode);
+        //EEPROM.commit();
 
         // Forza reinizializzazione completa della nuova modalità
         forceDisplayUpdate();
@@ -2931,6 +2969,75 @@ if (currentIsNight != lastWasNightTime) {
     updateWeatherData();  // La funzione gestisce internamente l'intervallo
   }
 
+  // ========== GESTIONE MODE SWITCH SICURO (dal webserver task) ==========
+  {
+    extern volatile bool pendingModeSwitch;
+    if (pendingModeSwitch) {
+      pendingModeSwitch = false;
+      Serial.printf("[LOOP] Mode switch sicuro: da %d a FADE\n", currentMode);
+      cleanupPreviousMode(currentMode);
+      currentMode = MODE_FADE;
+      forceDisplayUpdate();
+    }
+  }
+
+  #ifdef EFFECT_CALENDAR
+    static unsigned long lastCheck = 0;
+
+    // Flag sync/push dalla pagina web (definiti in 36_WEBSERVER_CALENDAR.ino)
+    extern volatile bool forceGoogleSync;
+    extern volatile int16_t pushToGoogleId;
+    extern String lastSyncTime;
+
+    // Gestione push evento verso Google (richiesto dalla pagina web o auto-push)
+    if (pushToGoogleId >= 0) {
+      int16_t id = pushToGoogleId;
+      pushToGoogleId = -1;
+      Serial.printf("[CALENDAR] Push evento ID %d verso Google...\n", id);
+      bool pushOk = pushEventToGoogle((uint16_t)id);
+      mergeLocalAndGoogleEvents();
+      // Aggiorna timestamp sync
+      char buf[20];
+      sprintf(buf, "%02d:%02d:%02d", currentHour, currentMinute, currentSecond);
+      lastSyncTime = String(buf);
+      if (pushOk) Serial.println("[CALENDAR] Push completato con successo");
+      else Serial.println("[CALENDAR] Push fallito");
+    }
+
+    // Gestione sync forzata dalla pagina web
+    if (forceGoogleSync) {
+      forceGoogleSync = false;
+      Serial.println("[CALENDAR] Sync Google forzata dalla pagina web...");
+      fetchGoogleCalendarData();
+      char buf[20];
+      sprintf(buf, "%02d:%02d:%02d", currentHour, currentMinute, currentSecond);
+      lastSyncTime = String(buf);
+      mergeLocalAndGoogleEvents();
+      lastCheck = millis();
+      if (currentMode == MODE_CALENDAR) {
+        drawCalendarEvents();
+      }
+      Serial.println("[CALENDAR] Sync forzata completata.");
+    }
+
+    // Controlla ogni 15 secondi (15.000 ms) per sync rapida
+    if (millis() - lastCheck > 15000 || lastCheck == 0) {
+      // 1. Scarica i dati (operazione con timeout di 4s definita nel file 35)
+      fetchGoogleCalendarData();
+      lastCheck = millis();
+
+      // 2. Merge eventi locali + Google
+      mergeLocalAndGoogleEvents();
+
+      // 3. Se l'utente sta visualizzando il calendario proprio ora,
+      // aggiorna immediatamente l'area degli eventi con i nuovi dati
+      if (currentMode == MODE_CALENDAR) {
+        drawCalendarEvents();
+        Serial.println("[CALENDAR] Dati aggiornati e visualizzati in diretta.");
+      }
+    }
+    #endif
+
   // Aggiornamento orario ogni secondo se connesso al WiFi
   if (WiFi.status() == WL_CONNECTED && currentMillis - lastUpdate > 1000) {
     currentHour = myTZ.hour();     // Ottiene l'ora dal fuso orario.
@@ -3002,6 +3109,13 @@ if (currentIsNight != lastWasNightTime) {
       #ifdef EFFECT_WEATHER_STATION
       if (currentMode != MODE_WEATHER_STATION) {
         weatherStationInitialized = false;  // Reset per reinizializzare al prossimo ingresso
+      }
+      #endif
+
+      #ifdef EFFECT_CALENDAR
+      if (currentMode != MODE_CALENDAR) {
+        calendarStationInitialized = false;  // Reset per reinizializzare al prossimo ingresso
+        calendarGridView = true;  // Torna a vista griglia al prossimo ingresso
       }
       #endif
 
@@ -3126,6 +3240,16 @@ if (currentIsNight != lastWasNightTime) {
             initWeatherStation();  // Disegna sfondo, bordi, labels e dati
           }
           updateWeatherStation();  // Aggiorna solo i dati che cambiano
+          break;
+#endif
+
+#ifdef EFFECT_CALENDAR
+        case MODE_CALENDAR:
+          // Prima volta o ritorno alla modalità: inizializza tutto
+          if (!calendarStationInitialized) {
+            initCalendarStation();  // Disegna sfondo, bordi, labels e dati
+          }
+          updateCalendarStation();  // Aggiorna solo i dati che cambiano
           break;
 #endif
 

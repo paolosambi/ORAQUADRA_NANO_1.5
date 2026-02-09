@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(\"C:/Users/Paolo/AppData/Local/Arduino15/packages/esp32/tools/xtensa-esp32s3-elf-gcc/esp-2021r2-patch5-8.4.0/bin/xtensa-esp32s3-elf-g++.exe\" --version)",
+      "Bash(\"C:/Users/Paolo/AppData/Local/Arduino15/packages/esp32/tools/xtensa-esp32s3-elf-gcc/esp-2021r2-patch5-8.4.0/libexec/gcc/xtensa-esp32s3-elf/8.4.0/cc1plus.exe\" --version)",
+      "Bash(cmd.exe /c:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(SDK_PATH=\"C:/Users/Paolo/AppData/Local/Arduino15/packages/esp32-bluepad32/hardware/esp32/4.1.0/tools/sdk/esp32s3\")",
+      "Bash(done)",
+      "Bash(xargs:*)",
+      "Bash(powershell.exe -Command \"Remove-Item -LiteralPath ''\\\\?\\\\C:\\\\Users\\\\Paolo\\\\Desktop\\\\PROGETTO_ORAQUADRA_NANO\\\\SURVIVAL_HACKING\\\\oraQuadra_Nano_Ver_1.5\\\\nul'' -Force\")",
+      "Bash(powershell.exe -Command \"Remove-Item -LiteralPath ''\\\\\\\\?\\\\C:\\\\Users\\\\Paolo\\\\Desktop\\\\PROGETTO_ORAQUADRA_NANO\\\\SURVIVAL_HACKING\\\\oraQuadra_Nano_Ver_1.5\\\\nul'' -Force\")",
+      "Bash(python3:*)",
+      "Bash(wc:*)",
+      "Bash(where:*)",
+      "Bash(arduino-cli board listall:*)",
+      "Bash(arduino-cli core:*)",
+      "Bash(arduino-cli compile:*)",
+      "Bash(\"C:\\\\Users\\\\Paolo\\\\AppData\\\\Local\\\\Arduino15\\\\packages\\\\esp32\\\\tools\\\\esp32-arduino-libs\\\\idf-release_v5.1-632e0c2a\\\\esp32s3\\\\bin\\\\arduino-cli.exe\" compile:*)",
+      "Bash(\"C:\\\\Program Files\\\\Arduino CLI\\\\arduino-cli.exe\" compile:*)"
+    ]
+  }
+}

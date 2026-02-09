@@ -15,6 +15,11 @@ extern void calibrateMagnetometerGuided();
 extern void initWeatherStation();
 #endif
 
+// Dichiarazioni esterne per Calendar
+#ifdef EFFECT_CALENDAR
+extern void handleCalendarTouch(int x, int y);
+#endif
+
 void checkButtons() {
   // Variabili statiche per mantenere lo stato tra le diverse chiamate a questa funzione.
   static bool waitingForRelease = false; // Flag che indica se stiamo aspettando che il tocco venga rilasciato.
@@ -385,6 +390,18 @@ void checkButtons() {
   #ifdef EFFECT_RADIO_ALARM
   if (currentMode == MODE_RADIO_ALARM) {
     return;  // Il touch viene gestito da updateRadioAlarm()
+  }
+  #endif
+
+  // ====================== GESTIONE TOUCH CALENDARIO ======================
+  // Il calendario gestisce i propri tocchi internamente (griglia mese + dettaglio giorno)
+  #ifdef EFFECT_CALENDAR
+  if (currentMode == MODE_CALENDAR && touchDetected && !waitingForRelease) {
+    int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+    int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+    handleCalendarTouch(x, y);
+    waitingForRelease = true;
+    return;
   }
   #endif
 

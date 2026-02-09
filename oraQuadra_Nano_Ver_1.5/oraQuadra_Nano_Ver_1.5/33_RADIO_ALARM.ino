@@ -167,7 +167,9 @@ void updateRadioAlarm() {
     static uint32_t lastSnoozeUpdate = 0;
     if (millis() - lastSnoozeUpdate > 1000) {
       lastSnoozeUpdate = millis();
-      radioAlarmNeedsRedraw = true;
+      //radioAlarmNeedsRedraw = true;
+      drawRAToggleButton();
+
     }
   }
 
@@ -206,50 +208,60 @@ void drawAlarmRingingScreen() {
     gfx->drawRect(i, i, 480 - i*2, 480 - i*2, RA_SNOOZE_COLOR);
   }
 
-  // Grande icona campana al centro
+  // 1.  CAMPANA E  ONDE 
   int centerX = 240;
-  int centerY = 180;
+  int centerY = 130; 
 
-  // Campana grande
   gfx->fillCircle(centerX, centerY - 20, 50, RA_TEXT_COLOR);
   gfx->fillRect(centerX - 50, centerY + 25, 100, 20, RA_TEXT_COLOR);
   gfx->fillCircle(centerX, centerY + 55, 15, RA_TEXT_COLOR);
 
-  // Onde sonore
   if (flashState) {
     gfx->drawCircle(centerX, centerY, 70, RA_SNOOZE_COLOR);
     gfx->drawCircle(centerX, centerY, 85, RA_SNOOZE_COLOR);
     gfx->drawCircle(centerX, centerY, 100, RA_SNOOZE_COLOR);
   }
 
-  // Testo "SVEGLIA!"
+  // 2. SCRITTA SVEGLIA! 
   gfx->setFont(u8g2_font_helvB24_tr);
   gfx->setTextColor(RA_TEXT_COLOR);
-  gfx->setCursor(145, 300);
+  gfx->setCursor(167, 260); 
   gfx->print("SVEGLIA!");
 
-  // Orario corrente grande
+  // 3. ORARIO 
   gfx->setFont(u8g2_font_logisoso42_tn);
   gfx->setTextColor(RA_SNOOZE_COLOR);
   char timeStr[6];
   snprintf(timeStr, sizeof(timeStr), "%02d:%02d", myTZ.hour(), myTZ.minute());
-  gfx->setCursor(140, 370);
+  gfx->setCursor(180, 325); 
   gfx->print(timeStr);
 
-  // Istruzioni chiare
+  // 4. TASTO SNOOZE 
+  int snzW = 200;
+  int snzH = 55;
+  int snzX = 240 - snzW / 2;
+  int snzY = 345; // Era 355, alzato a 345
+
+  gfx->fillRoundRect(snzX, snzY, snzW, snzH, 12, RA_SNOOZE_COLOR);
+  gfx->setFont(u8g2_font_helvB14_tr);
+  gfx->setTextColor(0x0000); 
+  gfx->setCursor(snzX + 53, snzY + 36);
+  gfx->print("SNOOZE");
+
+  // 5. ISTRUZIONI 
   gfx->setFont(u8g2_font_helvB18_tr);
   gfx->setTextColor(RA_TEXT_COLOR);
-  gfx->setCursor(60, 430);
+  gfx->setCursor(37, 430);
   gfx->print("TOCCA OVUNQUE PER FERMARE");
-
-  // Nome stazione in basso
+    
+  // Nome stazione - RESTA DOVE ERA (465)
   gfx->setFont(u8g2_font_helvR12_tr);
   gfx->setTextColor(RA_TEXT_DIM);
   String station = getRAStationName(radioAlarm.stationIndex);
-  if (station.length() > 35) station = station.substring(0, 32) + "...";
-  int stW = station.length() * 7;
-  gfx->setCursor(centerX - stW/2, 465);
+  // ... (logica substring)
+  gfx->setCursor(240 - (station.length() * 7)/2, 465);
   gfx->print(station);
+
 }
 
 // ================== DISEGNO UI COMPLETA ==================
@@ -286,6 +298,7 @@ void drawRadioAlarmUI() {
   drawRAExitButton();
   yield();
 }
+
 
 // ================== TOGGLE ON/OFF - CARD STILE WEBRADIO ==================
 void drawRAToggleButton() {
@@ -378,12 +391,12 @@ void drawRAHeader() {
   // Effetto Glow (ombra)
   gfx->setFont(u8g2_font_helvB18_tr);
   gfx->setTextColor(RA_ACCENT_DARK);
-  gfx->setCursor(116, RA_HEADER_Y + 32);
+  gfx->setCursor(146, RA_HEADER_Y + 32);
   gfx->print("RADIOSVEGLIA");
 
   // Testo principale
   gfx->setTextColor(RA_ACCENT_COLOR);
-  gfx->setCursor(115, RA_HEADER_Y + 31);
+  gfx->setCursor(145, RA_HEADER_Y + 31);
   gfx->print("RADIOSVEGLIA");
 
   // Icona campana stilizzata (destra)
@@ -424,13 +437,18 @@ void drawRATimeDisplay() {
   gfx->setTextColor(RA_TEXT_MUTED);
   gfx->setCursor(hourArrowX - 10, y + 68);
   gfx->print("ORA");
-
+ 
   // Orario grande centrato
   gfx->setFont(u8g2_font_logisoso42_tn);
   char timeStr[6];
   snprintf(timeStr, sizeof(timeStr), "%02d:%02d", radioAlarm.hour, radioAlarm.minute);
+  
+  // PULIZIA AREA: Disegna un rettangolo pieno per coprire l'orario precedente
+  // Usiamo il colore RA_BG_CARD per non far vedere il "buco"
+  gfx->fillRect(cardX + 5, y + 5, cardW - 10, cardH - 10, RA_BG_CARD);
+  
   gfx->setTextColor(RA_TEXT_COLOR);
-  gfx->setCursor(cardX + 45, y + 52);
+  gfx->setCursor(cardX + 70, y + 52); // X centrata 
   gfx->print(timeStr);
 
   // Frecce minuti (destra del card)
@@ -447,6 +465,10 @@ void drawRATimeDisplay() {
 void drawRADaysSelector() {
   int y = RA_DAYS_Y;
   int centerX = 240;
+
+  // PULIZIA AREA GIORNI: cancella la riga dei giorni prima di ridisegnarli
+  // Usiamo un rettangolo nero o del colore del gradiente di quella zona (RA_BG_DARK)
+  gfx->fillRect(0, y, 480, 45, RA_BG_DARK); 
 
   const char* daysFull[] = {"DOM", "LUN", "MAR", "MER", "GIO", "VEN", "SAB"};
   int btnW = 54;
@@ -509,6 +531,9 @@ void drawRAStationSelector() {
   int arrowY = y + cardH / 2;
   gfx->fillTriangle(arrowLX, arrowY, arrowLX + 12, arrowY - 8, arrowLX + 12, arrowY + 8, RA_ACCENT_COLOR);
 
+  // --- AGGIUNTA PULIZIA NOME STAZIONE ---
+  gfx->fillRect(cardX + 70, y + 5, cardW - 140, cardH - 10, RA_BG_CARD);
+
   // Nome stazione centrato
   gfx->setFont(u8g2_font_helvB12_tr);
   gfx->setTextColor(RA_TEXT_COLOR);
@@ -523,6 +548,9 @@ void drawRAStationSelector() {
   // Freccia destra
   int arrowRX = cardX + cardW - 55;
   gfx->fillTriangle(arrowRX, arrowY, arrowRX - 12, arrowY - 8, arrowRX - 12, arrowY + 8, RA_ACCENT_COLOR);
+
+  // --- AGGIUNTA PULIZIA NUMERO STAZIONE ---
+  gfx->fillRect(cardX + cardW - 45, y + 20, 40, 20, RA_BG_CARD);
 
   // Numero stazione (a fianco freccia destra)
   gfx->setFont(u8g2_font_helvR10_tr);
@@ -548,6 +576,9 @@ void drawRAVolumeBar() {
   // Onde sonore
   gfx->drawArc(spkX + 16, spkY + 4, 6, 6, 300, 60, RA_ACCENT_COLOR);
   gfx->drawArc(spkX + 16, spkY + 4, 10, 10, 300, 60, RA_ACCENT_DARK);
+
+  // --- AGGIUNTA PULIZIA BARRA E NUMERO ---
+  gfx->fillRect(barX, y + 3, barW + 60, barH, RA_BG_DARK); // RA_BG_DARK o il colore dello sfondo generale
 
   // Barra volume con ombra
   gfx->fillRoundRect(barX + 2, y + 5, barW, barH, 8, RA_BUTTON_SHADOW);
@@ -676,13 +707,28 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
 
   int centerX = 240;
 
-  // ===== TOUCH SCHERMO INTERO PER SPEGNERE ALLARME =====
-  // Quando la sveglia sta suonando, qualsiasi tocco la ferma
+// 1. GESTIONE TOCCO DURANTE ALLARME (Schermata Rossa)
   if (radioAlarmRinging) {
-    Serial.println("[RADIO-ALARM] Touch schermo intero - STOP sveglia");
-    stopRadioAlarm();
+    // Coordinate del tasto SNOOZE (snzX, snzY, snzW, snzH)
+    int snzW = 200;
+    int snzH = 55;
+    int snzX = 240 - snzW / 2;
+    int snzY = 345; 
+
+    // Se il tocco cade dentro il tasto SNOOZE
+    if (x >= snzX && x <= snzX + snzW && y >= snzY && y <= snzY + snzH) {
+      Serial.println("[RADIO-ALARM] SNOOZE ATTIVATO");
+      snoozeRadioAlarm();
+    } 
+    // Se tocca qualsiasi altra parte dello schermo (STOP)
+    else {
+      Serial.println("[RADIO-ALARM] STOP DEFINITIVO");
+      stopRadioAlarm();
+      
+    }
+    
     radioAlarmNeedsRedraw = true;
-    return false;  // Resta nella modalità radio alarm
+    return false;
   }
 
   // ===== TOGGLE ON/OFF =====
@@ -696,7 +742,8 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
       radioAlarm.enabled = !radioAlarm.enabled;
       saveRadioAlarmSettings();
       Serial.printf("[RADIO-ALARM] Toggle: Sveglia %s\n", radioAlarm.enabled ? "ATTIVATA" : "DISATTIVATA");
-      radioAlarmNeedsRedraw = true;
+      //radioAlarmNeedsRedraw = true;
+      drawRAToggleButton();
       return false;
     }
   }
@@ -713,8 +760,11 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
       } else {
         radioAlarm.hour = (radioAlarm.hour == 0) ? 23 : radioAlarm.hour - 1;
       }
-      saveRadioAlarmSettings();
-      radioAlarmNeedsRedraw = true;
+      radioAlarm.enabled = false;
+      //saveRadioAlarmSettings();
+      //radioAlarmNeedsRedraw = true;
+      drawRATimeDisplay(); // Ridisegna SUBITO solo la card dell'orario
+      drawRAToggleButton(); // Opzionale: aggiorna il tasto in rosso se vuoi vederlo subito
       return false;
     }
 
@@ -726,8 +776,11 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
       } else {
         radioAlarm.minute = (radioAlarm.minute == 0) ? 59 : radioAlarm.minute - 1;
       }
-      saveRadioAlarmSettings();
-      radioAlarmNeedsRedraw = true;
+      radioAlarm.enabled = false;
+      //saveRadioAlarmSettings();
+      //radioAlarmNeedsRedraw = true;
+      drawRATimeDisplay(); // Ridisegna SUBITO solo la card dell'orario
+      drawRAToggleButton(); // Opzionale: aggiorna il tasto in rosso se vuoi vederlo subito
       return false;
     }
   }
@@ -743,8 +796,11 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
       int bx = startX + i * (btnW + spacing);
       if (x >= bx && x <= bx + btnW) {
         radioAlarm.daysMask ^= (1 << i);
-        saveRadioAlarmSettings();
-        radioAlarmNeedsRedraw = true;
+        radioAlarm.enabled = false;
+        //saveRadioAlarmSettings();
+        //radioAlarmNeedsRedraw = true;
+        drawRADaysSelector();   // Ridisegna solo i bottoni dei giorni
+        drawRAToggleButton();   // Ridisegna solo il tastone in alto (che ora è rosso)
         return false;
       }
     }
@@ -759,16 +815,21 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
       } else {
         radioAlarm.stationIndex = webRadioStationCount - 1;
       }
-      saveRadioAlarmSettings();
-      radioAlarmNeedsRedraw = true;
+      //saveRadioAlarmSettings();
+      radioAlarm.enabled = false;
+      //radioAlarmNeedsRedraw = true;
+      drawRAStationSelector(); // Aggiorna solo questa card
+      drawRAToggleButton();    // Aggiorna il tasto in alto in ROSSO
       return false;
     }
 
     // Freccia destra
     if (x >= RA_CENTER_X + RA_CENTER_W - 70 && x <= RA_CENTER_X + RA_CENTER_W) {
       radioAlarm.stationIndex = (radioAlarm.stationIndex + 1) % webRadioStationCount;
-      saveRadioAlarmSettings();
-      radioAlarmNeedsRedraw = true;
+      //saveRadioAlarmSettings();
+      //radioAlarmNeedsRedraw = true;
+      drawRAStationSelector(); // Aggiorna solo questa card
+      drawRAToggleButton();    // Aggiorna il tasto in alto in ROSSO
       return false;
     }
   }
@@ -782,8 +843,11 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
       newVol = constrain(newVol, 0, 100);
       if (newVol != radioAlarm.volume) {
         radioAlarm.volume = newVol;
-        saveRadioAlarmSettings();
-        radioAlarmNeedsRedraw = true;
+        radioAlarm.enabled = false;
+        //saveRadioAlarmSettings();
+        //radioAlarmNeedsRedraw = true;
+        drawRAVolumeBar();     // Aggiorna solo la barra
+        drawRAToggleButton();  // Aggiorna il tasto in alto in ROSSO
       }
       return false;
     }
@@ -824,7 +888,8 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
       else if (radioAlarm.snoozeMinutes < 20) radioAlarm.snoozeMinutes = 20;
       else if (radioAlarm.snoozeMinutes < 30) radioAlarm.snoozeMinutes = 30;
       else radioAlarm.snoozeMinutes = 5;
-      saveRadioAlarmSettings();
+      radioAlarm.enabled = false;
+      //saveRadioAlarmSettings();
       radioAlarmNeedsRedraw = true;
       return false;
     }
@@ -836,6 +901,7 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
   if (y >= RA_EXIT_Y && y <= RA_EXIT_Y + 40) {
     if (x >= exitX && x <= exitX + exitBtnW) {
       Serial.println("[RADIO-ALARM] EXIT");
+      saveRadioAlarmSettings();
       return true;
     }
   }
@@ -954,8 +1020,8 @@ void triggerRadioAlarm() {
   #endif
 
   // Mostra interfaccia sveglia
-  extern void cleanupPreviousMode(DisplayMode);
-  cleanupPreviousMode(currentMode);
+  //extern void cleanupPreviousMode(DisplayMode);
+  //cleanupPreviousMode(currentMode);
   currentMode = MODE_RADIO_ALARM;
   radioAlarmNeedsRedraw = true;
 }
@@ -983,7 +1049,7 @@ void snoozeRadioAlarm() {
   radioAlarmRinging = false;
   radioAlarmSnoozed = true;
   radioAlarmSnoozeUntil = millis() + ((uint32_t)radioAlarm.snoozeMinutes * 60UL * 1000UL);
-
+  
   // Ferma la radio durante lo snooze
   #ifdef EFFECT_WEB_RADIO
   if (webRadioEnabled) {
@@ -991,7 +1057,7 @@ void snoozeRadioAlarm() {
     Serial.println("[RADIO-ALARM] Radio fermata per snooze");
   }
   #endif
-
+  
   radioAlarmNeedsRedraw = true;
 }
 

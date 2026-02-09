@@ -54,7 +54,11 @@ FRAME_WIDTH = 480
 FRAME_HEIGHT = 480
 TARGET_FPS = 15               # Ridotto a 15 FPS per ESP32 (più fluido su WiFi)
 JPEG_QUALITY = 45             # Qualità JPEG ridotta per streaming più veloce
-TV_TARGET_FPS = 12            # FPS per canali TV (stream più leggero)
+TV_TARGET_FPS = 20            # FPS per canali TV
+
+# VLC Streaming - Audio+Video sincronizzato
+VLC_PATH = r"C:\Program Files\VideoLAN\VLC\vlc.exe"
+VLC_STREAM_PORT = 8081        # Porta per lo stream VLC
 
 # ============================================================================
 # CANALI TV ITALIANI - Stream pubblici disponibili
@@ -137,10 +141,206 @@ TV_CHANNELS = [
     # === ITALIA (stream diretti) ===
     {
         "id": 10,
-        "name": "Rai News 24",
-        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=1",
+        "name": "Rai 1",
+        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=2606803&output=7&forceUserAgent=rainet/4.0.5",
         "icon": "📺",
+        "category": "TV IT"
+    },
+    {
+        "id": 11,
+        "name": "Rai 2",
+        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=308718&output=7&forceUserAgent=rainet/4.0.5",
+        "icon": "📺",
+        "category": "TV IT"
+    },
+    {
+        "id": 12,
+        "name": "Rai 3",
+        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=308709&output=7&forceUserAgent=rainet/4.0.5",
+        "icon": "📺",
+        "category": "TV IT"
+    },
+    {
+        "id": 13,
+        "name": "Rete 4",
+        "url": "https://live02-seg.msf.cdn.mediaset.net/live/ch-r4/r4-clr.isml/index.m3u8",
+        "icon": "📺",
+        "category": "TV IT"
+    },
+    {
+        "id": 14,
+        "name": "Canale 5",
+        "url": "https://live02-seg.msf.cdn.mediaset.net/live/ch-c5/c5-clr.isml/index.m3u8",
+        "icon": "📺",
+        "category": "TV IT"
+    },
+    {
+        "id": 15,
+        "name": "Italia 1",
+        "url": "https://live02-seg.msf.cdn.mediaset.net/live/ch-i1/i1-clr.isml/index.m3u8",
+        "icon": "📺",
+        "category": "TV IT"
+    },
+    {
+        "id": 16,
+        "name": "La 7",
+        "url": "https://viamotionhsi.netplus.ch/live/eds/la7/browser-HLS8/la7.m3u8",
+        "icon": "📺",
+        "category": "TV IT"
+    },
+    {
+        "id": 17,
+        "name": "TV8",
+        "url": "https://hlslive-web-gcdn-skycdn-it.akamaized.net/TACT/11223/tv8web/master.m3u8",
+        "icon": "📺",
+        "category": "TV IT"
+    },
+    {
+        "id": 18,
+        "name": "NOVE",
+        "url": "https://d31mw7o1gs0dap.cloudfront.net/v1/master/3722c60a815c199d9c0ef36c5b73da68a62b09d1/cc-y5pbi2sq9r609/NOVE_IT.m3u8",
+        "icon": "📺",
+        "category": "TV IT"
+    },
+    {
+        "id": 19,
+        "name": "Rai News 24",
+        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=1&output=7",
+        "icon": "📰",
         "category": "News IT"
+    },
+    {
+        "id": 20,
+        "name": "Sky TG24",
+        "url": "https://hlslive-web-gcdn-skycdn-it.akamaized.net/TACT/12221/web/master.m3u8",
+        "icon": "📰",
+        "category": "News IT"
+    },
+    {
+        "id": 21,
+        "name": "Rai 4",
+        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=746966&output=7",
+        "icon": "🎬",
+        "category": "TV IT"
+    },
+    {
+        "id": 22,
+        "name": "Rai Movie",
+        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=747002&output=7",
+        "icon": "🎬",
+        "category": "Cinema"
+    },
+    {
+        "id": 23,
+        "name": "Rai Premium",
+        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=746993&output=7",
+        "icon": "⭐",
+        "category": "TV IT"
+    },
+    {
+        "id": 24,
+        "name": "Rai Gulp",
+        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=746953&output=7",
+        "icon": "🧒",
+        "category": "Kids"
+    },
+    {
+        "id": 25,
+        "name": "Rai Yoyo",
+        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=746899&output=7",
+        "icon": "👶",
+        "category": "Kids"
+    },
+    {
+        "id": 26,
+        "name": "Rai 5",
+        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=395276&output=7",
+        "icon": "🎭",
+        "category": "Cultura"
+    },
+    {
+        "id": 27,
+        "name": "Rai Storia",
+        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=746957&output=7",
+        "icon": "📜",
+        "category": "Cultura"
+    },
+    {
+        "id": 28,
+        "name": "Rai Scuola",
+        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=747011&output=7",
+        "icon": "📚",
+        "category": "Cultura"
+    },
+    {
+        "id": 29,
+        "name": "Rai Sport",
+        "url": "https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=358025&output=7",
+        "icon": "⚽",
+        "category": "Sport"
+    },
+    {
+        "id": 30,
+        "name": "20 Mediaset",
+        "url": "https://live02-seg.msf.cdn.mediaset.net/live/ch-lb/lb-clr.isml/index.m3u8",
+        "icon": "🎬",
+        "category": "TV IT"
+    },
+    {
+        "id": 31,
+        "name": "Iris",
+        "url": "https://live02-seg.msf.cdn.mediaset.net/live/ch-ki/ki-clr.isml/index.m3u8",
+        "icon": "🎬",
+        "category": "Cinema"
+    },
+    {
+        "id": 32,
+        "name": "La5",
+        "url": "https://live02-seg.msf.cdn.mediaset.net/live/ch-ka/ka-clr.isml/index.m3u8",
+        "icon": "💄",
+        "category": "TV IT"
+    },
+    {
+        "id": 33,
+        "name": "Cine34",
+        "url": "https://live02-seg.msf.cdn.mediaset.net/live/ch-b6/b6-clr.isml/index.m3u8",
+        "icon": "🎬",
+        "category": "Cinema"
+    },
+    {
+        "id": 34,
+        "name": "Focus",
+        "url": "https://live02-seg.msf.cdn.mediaset.net/live/ch-fu/fu-clr.isml/index.m3u8",
+        "icon": "🔬",
+        "category": "Documentari"
+    },
+    {
+        "id": 35,
+        "name": "Top Crime",
+        "url": "https://live02-seg.msf.cdn.mediaset.net/live/ch-lt/lt-clr.isml/index.m3u8",
+        "icon": "🔍",
+        "category": "TV IT"
+    },
+    {
+        "id": 36,
+        "name": "TGCOM24",
+        "url": "https://live02-seg.msf.cdn.mediaset.net/live/ch-tb/tb-clr.isml/index.m3u8",
+        "icon": "📰",
+        "category": "News IT"
+    },
+    {
+        "id": 37,
+        "name": "Boing",
+        "url": "https://live02-seg.msf.cdn.mediaset.net/live/ch-kb/kb-clr.isml/index.m3u8",
+        "icon": "🧒",
+        "category": "Kids"
+    },
+    {
+        "id": 38,
+        "name": "Cartoonito",
+        "url": "https://live02-seg.msf.cdn.mediaset.net/live/ch-la/la-clr.isml/index.m3u8",
+        "icon": "👶",
+        "category": "Kids"
     },
 ]
 
@@ -203,7 +403,11 @@ class StreamState:
         # WebTV
         self.tv_streaming = False
         self.tv_channel = None
-        self.tv_process = None  # Processo ffmpeg per stream TV
+        self.tv_process = None  # Processo ffmpeg per stream TV video
+        self.tv_audio_process = None  # Processo ffmpeg per stream TV audio
+        self.tv_stream_url = None  # URL dello stream TV corrente
+        # VLC streaming
+        self.vlc_process = None  # Processo VLC per streaming sincronizzato
         # DOUBLE BUFFERING - due buffer per frame alternati
         self.frame_buffer_a = None  # Buffer A
         self.frame_buffer_b = None  # Buffer B
@@ -457,19 +661,20 @@ def stream_thread():
     print("[STREAM] Thread terminato")
 
 def generate_mjpeg():
-    """Generator per MJPEG stream - CON DOUBLE BUFFERING per flicker-free"""
+    """Generator per MJPEG stream - ottimizzato per TV live"""
     state.clients += 1
     print(f"[STREAM] Nuovo client connesso (totale: {state.clients})")
 
     last_sent_frame = None
-    pause_send_interval = 0.5  # Invia frame ogni 500ms quando in pausa
-    last_buffer_id = None  # Per tracciare quale buffer abbiamo già letto
+    pause_send_interval = 0.5
+    last_buffer_id = None
+    frame_interval = 1.0 / 25  # Target 25 FPS
+    last_frame_time = 0
 
     try:
         while state.is_streaming:
-            # Quando in pausa, continua a inviare l'ultimo frame periodicamente
-            # per mantenere la connessione attiva e il display stabile
-            if state.audio_muted:
+            # Quando in pausa
+            if state.audio_muted and not state.tv_streaming:
                 if last_sent_frame:
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n'
@@ -477,7 +682,7 @@ def generate_mjpeg():
                 time.sleep(pause_send_interval)
                 continue
 
-            # DOUBLE BUFFERING: leggi dal buffer attivo
+            # Leggi frame dal buffer
             frame = None
             current_buffer_id = None
             with state.buffer_lock:
@@ -487,16 +692,29 @@ def generate_mjpeg():
                 elif current_buffer_id == 'b' and state.frame_buffer_b is not None:
                     frame = state.frame_buffer_b
 
-            # Invia solo se c'è un nuovo buffer (evita di inviare lo stesso frame)
-            if frame and current_buffer_id != last_buffer_id:
-                last_buffer_id = current_buffer_id
-                last_sent_frame = frame
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n'
-                       b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
+            # Per TV streaming: invia sempre il frame corrente
+            # Per video YouTube: invia solo frame nuovi
+            now = time.time()
+            if frame:
+                if state.tv_streaming:
+                    # TV: invia frame se è nuovo O se è passato abbastanza tempo
+                    if current_buffer_id != last_buffer_id or (now - last_frame_time) > frame_interval:
+                        last_buffer_id = current_buffer_id
+                        last_sent_frame = frame
+                        last_frame_time = now
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n'
+                               b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
+                else:
+                    # Video: invia solo frame nuovi
+                    if current_buffer_id != last_buffer_id:
+                        last_buffer_id = current_buffer_id
+                        last_sent_frame = frame
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n'
+                               b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n' + frame + b'\r\n')
 
-            # Sleep ridotto per maggiore reattività
-            time.sleep(0.005)  # 5ms invece di 40ms
+            time.sleep(0.008)  # ~120 check/secondo
     finally:
         state.clients -= 1
         print(f"[STREAM] Client disconnesso (totale: {state.clients})")
@@ -676,81 +894,219 @@ def start_tv_stream(channel_id):
         state.error = "Impossibile ottenere URL stream"
         return False
 
-    # Avvia ffmpeg per convertire stream in frame JPEG
-    # Input: stream HLS/YouTube, Output: frame JPEG su stdout
+    # Salva URL stream
+    state.tv_stream_url = stream_url
+
+    # Usa solo VLC per streaming (audio+video sincronizzato)
+    state.tv_streaming = True
+    state.tv_channel = channel_id
+    state.is_streaming = True
+    state.status = f"TV: {channel['name']}"
+    state.error = None
+
+    # Avvia VLC
+    print(f"[VLC] Avvio VLC con URL: {stream_url[:60]}...")
+    if start_vlc_stream(stream_url):
+        print(f"[TV] Canale {channel['name']} avviato con VLC su porta {VLC_STREAM_PORT}")
+        return True
+    else:
+        state.error = "Errore avvio VLC"
+        state.tv_streaming = False
+        state.is_streaming = False
+        return False
+
+def stop_tv_stream():
+    """Ferma streaming TV (VLC)"""
+    global state
+
+    state.tv_streaming = False
+
+    # Ferma VLC streaming
+    stop_vlc_stream()
+
+    state.tv_channel = None
+    state.tv_stream_url = None
+
+    # Aggiorna stato
+    if not state.video_capture:
+        state.is_streaming = False
+        state.status = "Pronto"
+
+    print("[TV] Streaming TV fermato")
+
+
+def start_tv_audio(stream_url):
+    """Avvia estrazione audio da stream TV"""
+    global state
+
+    if not stream_url:
+        print("[TV-AUDIO] Nessun URL stream")
+        return False
+
+    # Ferma eventuale audio precedente
+    stop_tv_audio()
+
+    # Comando ffmpeg per estrarre audio dallo stream TV
     cmd = [
         FFMPEG_PATH,
+        '-hide_banner',
+        '-loglevel', 'error',
+        # Input options
         '-reconnect', '1',
         '-reconnect_streamed', '1',
-        '-reconnect_delay_max', '5',
+        '-reconnect_delay_max', '2',
+        '-rw_timeout', '5000000',
+        '-fflags', '+genpts+igndts+discardcorrupt',
+        '-err_detect', 'ignore_err',
+        '-probesize', '1000000',
+        '-analyzeduration', '1000000',
         '-i', stream_url,
-        '-vf', f'scale={FRAME_WIDTH}:{FRAME_HEIGHT}:force_original_aspect_ratio=decrease,pad={FRAME_WIDTH}:{FRAME_HEIGHT}:(ow-iw)/2:(oh-ih)/2',
-        '-r', str(TV_TARGET_FPS),  # FPS ridotto per TV streaming
-        '-f', 'image2pipe',
-        '-vcodec', 'mjpeg',
-        '-q:v', '5',  # Qualità JPEG (2-31, più basso=migliore)
+        # Output options
+        '-vn',                    # No video
+        '-acodec', 'libmp3lame',  # Codec MP3
+        '-ab', '128k',            # Bitrate 128kbps
+        '-ar', '44100',           # Sample rate 44.1kHz
+        '-ac', '2',               # Stereo
+        '-f', 'mp3',              # Format MP3
+        '-avoid_negative_ts', 'make_zero',
         'pipe:1'
     ]
 
-    print(f"[TV] Comando ffmpeg: {' '.join(cmd[:10])}...")
+    print(f"[TV-AUDIO] Avvio ffmpeg audio...")
 
     try:
         kwargs = {}
         if sys.platform == 'win32':
             kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
 
-        state.tv_process = subprocess.Popen(
+        state.tv_audio_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,  # Ignora stderr per evitare blocchi
+            bufsize=131072,  # Buffer 128KB
+            **kwargs
+        )
+        state.audio_streaming = True
+        print("[TV-AUDIO] Streaming audio TV avviato")
+        return True
+    except Exception as e:
+        print(f"[TV-AUDIO] Errore avvio ffmpeg: {e}")
+        return False
+
+
+def stop_tv_audio():
+    """Ferma estrazione audio TV"""
+    global state
+
+    if state.tv_audio_process:
+        try:
+            state.tv_audio_process.terminate()
+            state.tv_audio_process.wait(timeout=2)
+        except:
+            try:
+                state.tv_audio_process.kill()
+            except:
+                pass
+        state.tv_audio_process = None
+        print("[TV-AUDIO] Audio TV fermato")
+
+
+# ============================================================================
+# VLC STREAMING - Audio+Video sincronizzato
+# ============================================================================
+
+def check_vlc():
+    """Verifica se VLC è installato"""
+    global VLC_PATH
+    print(f"[VLC] Controllo VLC in: {VLC_PATH}")
+    if os.path.exists(VLC_PATH):
+        print(f"[VLC] VLC trovato: {VLC_PATH}")
+        return True
+    # Cerca in altri percorsi comuni
+    alt_paths = [
+        r"C:\Program Files (x86)\VideoLAN\VLC\vlc.exe",
+        r"C:\VideoLAN\VLC\vlc.exe",
+    ]
+    for path in alt_paths:
+        if os.path.exists(path):
+            VLC_PATH = path
+            print(f"[VLC] VLC trovato in percorso alternativo: {VLC_PATH}")
+            return True
+    print("[VLC] VLC non trovato in nessun percorso!")
+    return False
+
+
+def start_vlc_stream(stream_url):
+    """Avvia VLC per streaming HTTP con audio+video sincronizzato"""
+    global state
+
+    if not check_vlc():
+        print("[VLC] VLC non trovato!")
+        return False
+
+    # Ferma eventuale istanza precedente
+    stop_vlc_stream()
+
+    # Comando VLC per streaming HTTP
+    # OGG (Theora+Vorbis) - con User-Agent e Referrer per evitare HTTP 403
+    cmd = [
+        VLC_PATH,
+        '-I', 'dummy',
+        '--no-video-title-show',
+        '--http-user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--http-referrer', 'https://www.raiplay.it/',
+        stream_url,
+        '--sout', f'#transcode{{vcodec=theo,vb=1500,acodec=vorb,ab=128,channels=2}}:http{{mux=ogg,dst=:{VLC_STREAM_PORT}/stream}}',
+        '--sout-keep',
+    ]
+
+    print(f"[VLC] Avvio streaming su porta {VLC_STREAM_PORT}...")
+    print(f"[VLC] Comando: {' '.join(cmd[:5])}...")
+
+    try:
+        kwargs = {}
+        if sys.platform == 'win32':
+            kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+
+        state.vlc_process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            bufsize=65536,
             **kwargs
         )
 
-        state.tv_streaming = True
-        state.tv_channel = channel_id
-        state.is_streaming = True
-        state.status = f"TV: {channel['name']}"
-        state.error = None
-
-        # Avvia thread per leggere frame
-        thread = threading.Thread(target=tv_stream_thread)
-        thread.daemon = True
-        thread.start()
-
-        print(f"[TV] Streaming avviato per canale {channel['name']}")
-        return True
-
-    except Exception as e:
-        print(f"[TV] Errore avvio ffmpeg: {e}")
-        state.error = str(e)
-        return False
-
-def stop_tv_stream():
-    """Ferma streaming TV"""
-    global state
-
-    state.tv_streaming = False
-
-    if state.tv_process:
-        try:
-            state.tv_process.terminate()
-            state.tv_process.wait(timeout=3)
-        except:
+        # Thread per leggere output VLC
+        def read_vlc_output():
             try:
-                state.tv_process.kill()
+                for line in state.vlc_process.stderr:
+                    print(f"[VLC-ERR] {line.decode('utf-8', errors='ignore').strip()}")
             except:
                 pass
-        state.tv_process = None
+        import threading
+        threading.Thread(target=read_vlc_output, daemon=True).start()
+        print(f"[VLC] Streaming avviato: http://localhost:{VLC_STREAM_PORT}/stream")
+        return True
+    except Exception as e:
+        print(f"[VLC] Errore avvio: {e}")
+        return False
 
-    state.tv_channel = None
 
-    # Se non c'è altro streaming attivo, aggiorna stato
-    if not state.video_capture:
-        state.is_streaming = False
-        state.status = "Pronto"
+def stop_vlc_stream():
+    """Ferma VLC streaming"""
+    global state
 
-    print("[TV] Streaming TV fermato")
+    if state.vlc_process:
+        try:
+            state.vlc_process.terminate()
+            state.vlc_process.wait(timeout=3)
+        except:
+            try:
+                state.vlc_process.kill()
+            except:
+                pass
+        state.vlc_process = None
+        print("[VLC] Streaming fermato")
+
 
 def tv_stream_thread():
     """Thread che legge frame JPEG da ffmpeg per lo stream TV"""
@@ -781,10 +1137,9 @@ def tv_stream_thread():
 
     while state.tv_streaming and state.tv_process:
         try:
-            # Leggi chunk di dati
-            chunk = state.tv_process.stdout.read(8192)
+            # Leggi chunk grandi per streaming fluido (65KB)
+            chunk = state.tv_process.stdout.read(65536)
             if not chunk:
-                # Controlla se processo è terminato
                 if state.tv_process.poll() is not None:
                     print("[TV] Processo ffmpeg terminato")
                     break
@@ -923,6 +1278,71 @@ def generate_audio_stream():
         # Se non ci sono più client, ferma ffmpeg
         if state.audio_clients <= 0:
             stop_audio_extraction()
+
+
+def generate_tv_audio_stream():
+    """Generator per audio MP3 stream da canali TV"""
+    with audio_lock:
+        state.audio_clients += 1
+    print(f"[TV-AUDIO] Client connesso (totale: {state.audio_clients})")
+
+    bytes_sent = 0
+    retry_count = 0
+    max_retries = 10
+
+    try:
+        # Attendi che il processo audio sia pronto (max 5 secondi)
+        while retry_count < max_retries:
+            if state.tv_audio_process and state.tv_audio_process.poll() is None:
+                break
+            # Prova ad avviare se non c'è
+            if state.tv_stream_url and not state.tv_audio_process:
+                start_tv_audio(state.tv_stream_url)
+            time.sleep(0.5)
+            retry_count += 1
+            print(f"[TV-AUDIO] Attesa processo audio... ({retry_count}/{max_retries})")
+
+        if not state.tv_audio_process or state.tv_audio_process.poll() is not None:
+            print("[TV-AUDIO] Processo audio non disponibile")
+            yield b''
+            return
+
+        print("[TV-AUDIO] Processo audio pronto, inizio streaming")
+
+        # Leggi e invia chunk audio senza rate limiting (lascia fare al browser)
+        chunk_size = 8192
+        while state.tv_streaming and state.tv_audio_process:
+            try:
+                # Verifica che il processo sia ancora in esecuzione
+                if state.tv_audio_process.poll() is not None:
+                    print(f"[TV-AUDIO] ffmpeg terminato, riavvio...")
+                    if state.tv_stream_url:
+                        time.sleep(0.5)
+                        if not start_tv_audio(state.tv_stream_url):
+                            break
+                        time.sleep(0.5)
+                        continue
+                    else:
+                        break
+
+                chunk = state.tv_audio_process.stdout.read(chunk_size)
+                if chunk:
+                    bytes_sent += len(chunk)
+                    yield chunk
+                else:
+                    time.sleep(0.02)
+
+            except Exception as e:
+                print(f"[TV-AUDIO] Errore lettura: {e}")
+                break
+
+        print(f"[TV-AUDIO] Totale bytes inviati: {bytes_sent}")
+
+    finally:
+        with audio_lock:
+            state.audio_clients -= 1
+        print(f"[TV-AUDIO] Client disconnesso (totale: {state.audio_clients})")
+
 
 # ============================================================================
 # ROUTES FLASK
@@ -1698,23 +2118,17 @@ HTML_TV_TEMPLATE = """
         <p class="subtitle">Streaming TV su ESP32 - OraQuadra Nano</p>
 
         <div class="main-layout">
-            <!-- Video Preview -->
+            <!-- VLC Video Player -->
             <div class="card" id="video-card">
-                <h2>Anteprima Stream</h2>
+                <h2>📺 Player TV (VLC)</h2>
                 <div class="video-container" id="video-container">
                     <div class="no-video" id="no-video">
                         <div class="icon">📺</div>
                         <p>Seleziona un canale per iniziare</p>
                     </div>
-                    <img id="preview" src="" alt="TV Stream" style="display:none;">
+                    <video id="vlc-video" controls style="width:100%;display:none;border-radius:10px;"></video>
                     <div class="loading" id="loading">
                         <div class="spinner"></div>
-                    </div>
-                    <div class="video-overlay" id="overlay" style="display:none;">
-                        <div class="now-playing">
-                            <span class="channel-icon" id="current-icon">📺</span>
-                            <span id="current-name">Nessun canale</span>
-                        </div>
                     </div>
                 </div>
 
@@ -1729,12 +2143,8 @@ HTML_TV_TEMPLATE = """
                         <div class="status-value" id="status">Pronto</div>
                     </div>
                     <div class="status-item">
-                        <div class="status-label">Client</div>
-                        <div class="status-value" id="clients">0</div>
-                    </div>
-                    <div class="status-item">
-                        <div class="status-label">Frame</div>
-                        <div class="status-value" id="frames">0</div>
+                        <div class="status-label">Canale</div>
+                        <div class="status-value" id="current-channel">-</div>
                     </div>
                 </div>
             </div>
@@ -1756,6 +2166,7 @@ HTML_TV_TEMPLATE = """
                 http://{{host}}:{{port}}/stream
             </code>
         </div>
+
     </div>
 
     <script>
@@ -1770,6 +2181,27 @@ HTML_TV_TEMPLATE = """
                     channels = data.channels;
                     renderChannels();
                 });
+        }
+
+        // Avvia player VLC
+        function startVLCPlayer(vlcUrl) {
+            const video = document.getElementById('vlc-video');
+            document.getElementById('no-video').style.display = 'none';
+            video.style.display = 'block';
+
+            console.log('Avvio VLC player:', vlcUrl);
+            video.src = vlcUrl;
+            video.load();
+            video.play().catch(e => console.log('Autoplay blocked, click play:', e));
+        }
+
+        // Ferma player VLC
+        function stopVLCPlayer() {
+            const video = document.getElementById('vlc-video');
+            video.pause();
+            video.src = '';
+            video.style.display = 'none';
+            document.getElementById('no-video').style.display = 'flex';
         }
 
         // Renderizza lista canali
@@ -1792,10 +2224,12 @@ HTML_TV_TEMPLATE = """
             const channel = channels.find(c => c.id === channelId);
             if (!channel) return;
 
+            // Ferma player precedente
+            stopVLCPlayer();
+
             // Mostra loading
             document.getElementById('loading').classList.add('active');
             document.getElementById('no-video').style.display = 'none';
-            document.getElementById('preview').style.display = 'none';
 
             fetch('/api/tv/play', {
                 method: 'POST',
@@ -1807,18 +2241,22 @@ HTML_TV_TEMPLATE = """
                 if (data.success) {
                     currentChannel = channelId;
                     renderChannels();
-
-                    // Aggiorna UI
-                    document.getElementById('current-icon').textContent = channel.icon;
-                    document.getElementById('current-name').textContent = channel.name;
-                    document.getElementById('overlay').style.display = 'block';
+                    document.getElementById('current-channel').textContent = channel.name;
                     document.getElementById('video-card').classList.add('streaming');
 
-                    // Mostra preview con delay per dare tempo a ffmpeg
+                    // Avvia VLC player dopo delay
                     setTimeout(() => {
                         document.getElementById('loading').classList.remove('active');
-                        document.getElementById('preview').src = '/stream?' + Date.now();
-                        document.getElementById('preview').style.display = 'block';
+                        fetch('/api/tv/vlc_url')
+                            .then(r => r.json())
+                            .then(vlcData => {
+                                if (vlcData.success && vlcData.local_url) {
+                                    startVLCPlayer(vlcData.local_url);
+                                } else {
+                                    alert('Errore VLC: ' + (vlcData.error || 'sconosciuto'));
+                                    document.getElementById('no-video').style.display = 'flex';
+                                }
+                            });
                     }, 2000);
                 } else {
                     alert('Errore: ' + data.error);
@@ -1835,16 +2273,15 @@ HTML_TV_TEMPLATE = """
 
         // Ferma TV
         function stopTV() {
+            stopVLCPlayer();
+
             fetch('/api/tv/stop', {method: 'POST'})
                 .then(r => r.json())
                 .then(data => {
                     currentChannel = null;
                     renderChannels();
-
-                    document.getElementById('preview').style.display = 'none';
-                    document.getElementById('preview').src = '';
+                    document.getElementById('current-channel').textContent = '-';
                     document.getElementById('no-video').style.display = 'flex';
-                    document.getElementById('overlay').style.display = 'none';
                     document.getElementById('video-card').classList.remove('streaming');
                     document.getElementById('status').textContent = 'Pronto';
                 });
@@ -1856,8 +2293,6 @@ HTML_TV_TEMPLATE = """
                 .then(r => r.json())
                 .then(data => {
                     document.getElementById('status').textContent = data.status;
-                    document.getElementById('clients').textContent = data.clients;
-                    document.getElementById('frames').textContent = data.frame_count;
                 });
         }
 
@@ -1872,10 +2307,9 @@ HTML_TV_TEMPLATE = """
 
 @app.route('/')
 def index():
-    """Pagina principale"""
-    import socket
-    host = socket.gethostbyname(socket.gethostname())
-    return render_template_string(HTML_TEMPLATE, host=host, port=SERVER_PORT)
+    """Redirect a WebTV"""
+    from flask import redirect
+    return redirect('/tv')
 
 @app.route('/tv')
 def tv_page():
@@ -1953,6 +2387,39 @@ def api_tv_status():
         'clients': state.clients
     })
 
+@app.route('/api/tv/hls_url')
+def api_tv_hls_url():
+    """Restituisce l'URL HLS diretto per il canale corrente (per HLS.js)"""
+    if state.tv_stream_url:
+        return jsonify({
+            'success': True,
+            'url': state.tv_stream_url
+        })
+    return jsonify({
+        'success': False,
+        'error': 'Nessun canale attivo'
+    })
+
+@app.route('/api/tv/vlc_url')
+def api_tv_vlc_url():
+    """Restituisce l'URL dello stream VLC (audio+video sincronizzato)"""
+    import socket
+    host = socket.gethostbyname(socket.gethostname())
+    print(f"[API] vlc_url richiesto - vlc_process: {state.vlc_process}, tv_streaming: {state.tv_streaming}")
+    if state.vlc_process and state.tv_streaming:
+        url = f'http://localhost:{VLC_STREAM_PORT}/stream'
+        print(f"[API] Restituisco URL VLC: {url}")
+        return jsonify({
+            'success': True,
+            'url': f'http://{host}:{VLC_STREAM_PORT}/stream',
+            'local_url': url
+        })
+    print("[API] VLC non attivo!")
+    return jsonify({
+        'success': False,
+        'error': 'VLC non attivo'
+    })
+
 @app.route('/stream')
 def stream():
     """Endpoint MJPEG stream"""
@@ -1977,23 +2444,34 @@ def audio():
     if not state.is_streaming:
         return "Stream non attivo", 503
 
-    if not state.video_path:
-        return "Nessun video caricato", 503
-
     if not check_ffmpeg():
         return "ffmpeg non installato", 503
+
+    # Verifica se è streaming TV o YouTube
+    if state.tv_streaming:
+        # Streaming TV - usa il processo audio TV
+        stream_name = 'WebTV Audio Stream'
+        bitrate = '128'
+        generator = generate_tv_audio_stream()
+    elif state.video_path:
+        # Streaming YouTube/video - usa il processo audio normale
+        stream_name = 'MJPEG Audio Stream'
+        bitrate = '96'
+        generator = generate_audio_stream()
+    else:
+        return "Nessun video o canale TV attivo", 503
 
     # Header compatibili con AudioFileSourceICYStream di ESP8266Audio
     # Questi header sono essenziali per la libreria ESP32
     return Response(
-        generate_audio_stream(),
+        generator,
         mimetype='audio/mpeg',
         headers={
             'Content-Type': 'audio/mpeg',
             'Cache-Control': 'no-cache, no-store',
             'Connection': 'close',
-            'icy-br': '96',                    # Bitrate ICY
-            'icy-name': 'MJPEG Audio Stream',  # Nome stream
+            'icy-br': bitrate,                 # Bitrate ICY
+            'icy-name': stream_name,           # Nome stream
             'icy-genre': 'Video Audio',        # Genere
             'icy-pub': '1',                    # Pubblico
             'icy-metaint': '0',                # Nessun metadata inline

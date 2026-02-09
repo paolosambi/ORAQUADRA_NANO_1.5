@@ -72,6 +72,11 @@ extern float weatherTempOutdoor;
 extern float weatherHumOutdoor;
 extern bool weatherDataValid;
 
+// Dichiarazioni extern per calendar (definite in 35_CALENDAR.ino)
+extern String calendarGoogleUrl;
+extern String calendarApiKey;
+
+
 // Dichiarazioni extern per magnetometro QMC5883P (definite in 25_MAGNETOMETER.ino)
 extern bool magnetometerConnected;
 extern float magnetometerHeading;
@@ -127,10 +132,15 @@ extern bool isMP3Playing();  // Funzione helper per controllare se MP3 sta ripro
 extern bool xmasSceneDrawn;
 #endif
 
+
+
 // ================== VARIABILI PER GESTIONE MODALITÀ ABILITATE ==================
 // Bitmask per memorizzare quali modalità sono abilitate (salvato in EEPROM)
 // Ogni bit rappresenta una modalità (bit 0 = MODE_FADE, bit 1 = MODE_SLOW, ecc.)
 uint32_t enabledModesMask = 0xFFFFFFFF;  // Default: tutte abilitate
+
+// Flag per mode switch sicuro dal main loop (evita crash da accesso concorrente a gfx)
+volatile bool pendingModeSwitch = false;
 
 // Indirizzo EEPROM per salvare le modalità abilitate (4 bytes)
 // SPOSTATO a 700+ per evitare conflitti
@@ -149,7 +159,9 @@ bool rainbowModeEnabled = false;      // Flag per modalità rainbow
 // Mappa da ID modalità a indice array (0-21)
 // Include tutte le modalità che supportano preset colore
 // Esclude solo 16 (GEMINI) e 18 (MJPEG) che sono disabilitate
-const uint8_t TEXT_MODE_IDS[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23};
+//const uint8_t TEXT_MODE_IDS[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23};
+const uint8_t TEXT_MODE_IDS[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 28};
+//const uint8_t NUM_TEXT_MODES = 22;
 const uint8_t NUM_TEXT_MODES = 22;
 
 // Colori default per ogni modalità (ordine corrisponde a TEXT_MODE_IDS)
@@ -175,7 +187,8 @@ const uint8_t DEFAULT_MODE_COLORS[][3] = {
   {255, 128, 0},    // 20: FLUX_CAP - Arancione
   {255, 0, 0},      // 21: CHRISTMAS - Rosso
   {255, 100, 0},    // 22: FIRE - Arancione fuoco
-  {255, 100, 0}     // 23: FIRE_TEXT - Arancione fuoco
+  {255, 100, 0},     // 23: FIRE_TEXT - Arancione fuoco
+  {255, 255, 0}     // 28: CALENDAR - Giallo (AGGIUNTO)
 };
 
 // Converte ID modalità in indice array (0-10), ritorna -1 se non è modalità testuale
@@ -265,7 +278,8 @@ const uint8_t DEFAULT_MODE_PRESETS[] = {
   PRESET_NONE,  // 20: FLUX_CAP - nessun preset
   PRESET_NONE,  // 21: CHRISTMAS - nessun preset
   PRESET_NONE,  // 22: FIRE - nessun preset
-  PRESET_NONE   // 23: FIRE_TEXT - nessun preset
+  PRESET_NONE,   // 23: FIRE_TEXT - nessun preset
+  PRESET_NONE   // 28: CALENDAR (AGGIUNTO)
 };
 
 // Carica preset per una modalità specifica da EEPROM
@@ -308,17 +322,21 @@ String apiOpenWeatherCity = "";   // Nome città per meteo (es. "Roma", "Milano"
 
 // ================== FUNZIONI PER API KEYS ==================
 
-// Salva le impostazioni meteo su LittleFS
+// Salva le impostazioni su LittleFS
 void saveApiKeysToLittleFS() {
-  Serial.println("[METEO] === SALVATAGGIO SU LittleFS ===");
+  Serial.println("[API] === SALVATAGGIO SU LittleFS ===");
   Serial.printf("[METEO] Città da salvare: '%s'\n", apiOpenWeatherCity.c_str());
+  Serial.printf("[CALENDAR] URL da salvare: '%s'\n", calendarGoogleUrl.c_str());
+  Serial.printf("[CALENDAR] API da salvare: '%s'\n", calendarApiKey.c_str());
   File file = LittleFS.open(API_KEYS_FILE, "w");
   if (file) {
     file.println(apiOpenWeatherCity);  // Solo città, Open-Meteo non richiede API key
+    file.println(calendarGoogleUrl); // Salviamo url script calendar
+    file.println(calendarApiKey);    // Salviamo API accesso calendar
     file.close();
-    Serial.println("[METEO] Salvato su LittleFS con successo");
+    Serial.println("[API] Salvate su LittleFS con successo");
   } else {
-    Serial.println("[METEO] ERRORE apertura file LittleFS per scrittura!");
+    Serial.println("[API] ERRORE apertura file LittleFS per scrittura!");
   }
 }
 
@@ -330,49 +348,49 @@ void loadApiKeysFromLittleFS() {
     if (file) {
       String line1 = "";
       String line2 = "";
+      String line3 = ""; // Nuova per la chiave calendario
 
-      if (file.available()) {
-        line1 = file.readStringUntil('\n');
-        line1.trim();
-      }
-      if (file.available()) {
-        line2 = file.readStringUntil('\n');
-        line2.trim();
-      }
+      if (file.available()) { line1 = file.readStringUntil('\n'); line1.trim(); }
+      if (file.available()) { line2 = file.readStringUntil('\n'); line2.trim(); }
+      if (file.available()) { line3 = file.readStringUntil('\n'); line3.trim(); }
       file.close();
 
-      // Verifica se è il vecchio formato (line1 = API key, line2 = città)
-      // Le API key OpenWeatherMap sono lunghe 32 caratteri esadecimali
-      // I nomi città sono più corti e contengono lettere
-      bool isOldFormat = (line1.length() >= 20 && line2.length() > 0 && line2.length() < 50);
+      // --- LOGICA DI MIGRAZIONE ESISTENTE ---
+      // Se line1 è una chiave API (lunga) e line2 è una città, è il formato vecchissimo
+      bool isOldFormat = (line1.length() >= 20 && line2.length() > 0 && line2.length() < 50 && !line2.startsWith("http"));
 
       if (isOldFormat) {
-        // Vecchio formato: line1=apiKey, line2=city
         apiOpenWeatherCity = line2;
-        Serial.println("[METEO] Migrazione da vecchio formato file");
-        Serial.printf("[METEO] Città recuperata: %s\n", apiOpenWeatherCity.c_str());
-        // Salva nel nuovo formato
-        saveApiKeysToLittleFS();
-      } else if (line1.length() > 0 && line1.length() < 50) {
-        // Nuovo formato: line1=city
+        calendarGoogleUrl = ""; 
+        calendarApiKey = "";
+        Serial.println("[SYSTEM] Migrazione da formato vecchissimo (API Key OWM)");
+        saveApiKeysToLittleFS(); // Converte subito nel nuovo formato a 3 righe
+      } 
+      // --- NUOVA LOGICA A 3 RIGHE ---
+      else {
         apiOpenWeatherCity = line1;
-        Serial.println("[METEO] Caricato da LittleFS (nuovo formato)");
-        Serial.printf("[METEO] Città meteo: %s\n", apiOpenWeatherCity.c_str());
-      } else {
-        Serial.println("[METEO] File corrotto o vuoto, configurare da /settings");
-        apiOpenWeatherCity = "";
+        calendarGoogleUrl = line2; // La seconda riga ora è l'URL
+        calendarApiKey = line3;    // La terza riga è la chiave segreta
+        
+        Serial.println("[SYSTEM] Caricamento completato:");
+        Serial.printf(" - Città: %s\n", apiOpenWeatherCity.c_str());
+        Serial.printf(" - Cal URL: %s\n", (calendarGoogleUrl.length() > 0 ? "Configurato" : "Vuoto"));
       }
     }
   } else {
-    Serial.println("[METEO] File non trovato, configurare città da pagina /settings");
+    Serial.println("[SYSTEM] File apikeys.txt non trovato.");
   }
 }
 
 // Handler GET /settings/getapikeys - Restituisce le impostazioni meteo
 void handleGetApiKeys(AsyncWebServerRequest *request) {
   String json = "{\n";
-  // NOTA: Open-Meteo non richiede API key, solo il nome della città
-  json += "  \"openweatherCity\": \"" + apiOpenWeatherCity + "\"\n";
+  // Aggiunta la virgola dopo apiOpenWeatherCity
+  json += "  \"openweatherCity\": \"" + apiOpenWeatherCity + "\",\n"; 
+  // Aggiunta la virgola dopo calendarGoogleUrl
+  json += "  \"calendarUrl\": \"" + calendarGoogleUrl + "\",\n"; 
+  // L'ultima riga NON deve avere la virgola
+  json += "  \"calendarApiKey\": \"" + calendarApiKey + "\"\n"; 
   json += "}";
 
   request->send(200, "application/json", json);
@@ -380,33 +398,55 @@ void handleGetApiKeys(AsyncWebServerRequest *request) {
 
 // Handler GET /settings/saveapikeys - Salva le impostazioni meteo
 void handleSaveApiKeys(AsyncWebServerRequest *request) {
-  Serial.println("[METEO] Salvataggio città...");
+  Serial.println("[API] Ricevuta richiesta di salvataggio chiavi...");
   bool changed = false;
 
-  // Dichiarazione extern per funzione reset coordinate meteo (definita in 19_WEATHER.ino)
-  extern void resetWeatherCoords();
-
+  // 1. Gestione Città Meteo
   if (request->hasParam("openweatherCity")) {
     String val = request->getParam("openweatherCity")->value();
     val.trim();
-    Serial.printf("[METEO] Città ricevuta: '%s', attuale: '%s'\n",
-                  val.c_str(), apiOpenWeatherCity.c_str());
     if (val != apiOpenWeatherCity) {
       apiOpenWeatherCity = val;
       changed = true;
-      Serial.printf("[METEO] Città meteo %s: %s\n", val.length() > 0 ? "CAMBIATA in" : "cancellata", val.c_str());
+      Serial.printf("[METEO] Nuova città: %s\n", apiOpenWeatherCity.c_str());
     }
   }
 
-  if (changed) {
-    saveApiKeysToLittleFS();
-    Serial.println("[METEO] ✓ Salvato con successo");
+  // 2. Gestione URL Google Calendar
+  if (request->hasParam("calendarUrl")) {
+    String val = request->getParam("calendarUrl")->value();
+    val.trim();
+    if (val != calendarGoogleUrl) {
+      calendarGoogleUrl = val;
+      changed = true;
+      Serial.println("[CALENDAR] Nuovo URL configurato");
+    }
+  }
 
-    // Resetta coordinate e forza nuovo geocoding
-    resetWeatherCoords();  // Forza nuovo geocoding con Open-Meteo
-    extern uint32_t lastWeatherUpdate;
-    lastWeatherUpdate = 0;
-    Serial.println("[METEO] Forzato nuovo geocoding e aggiornamento meteo");
+  // 3. Gestione Password/Key Script
+  if (request->hasParam("calendarApiKey")) {
+    String val = request->getParam("calendarApiKey")->value();
+    val.trim();
+    if (val != calendarApiKey) {
+      calendarApiKey = val;
+      changed = true;
+      Serial.println("[CALENDAR] Nuova API Key configurata");
+    }
+  }
+
+  // Se qualcosa è cambiato, salviamo tutto su LittleFS
+  if (changed) {
+    saveApiKeysToLittleFS(); // Questa funzione scriverà le 3 righe nel file
+    
+    // Reset meteo per forzare il ricalcolo delle coordinate (Geocoding)
+    extern void resetWeatherCoords();
+    resetWeatherCoords();
+    
+    // Reset flag calendario per forzare il download dei dati nuovi
+    extern bool calendarStationInitialized;
+    calendarStationInitialized = false; 
+    
+    Serial.println("[API] ✓ Modifiche salvate e moduli resettati");
   }
 
   request->send(200, "text/plain", "OK");
@@ -575,7 +615,9 @@ void handleSettingsConfig(AsyncWebServerRequest *request) {
   bool first = true;
   // Lista delle modalità valide (esclude 16=GEMINI, 18=MJPEG, 27=WEB_TV disabilitato)
   // 24=MP3_PLAYER, 25=WEB_RADIO, 26=RADIO_ALARM sono modalità valide
-  const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26};
+  //const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26};
+  // Array delle modalità abilitate (Aggiunto 28)
+  const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 28};
   const int numValidModes = sizeof(validModes) / sizeof(validModes[0]);
   for (int i = 0; i < numValidModes; i++) {
     int modeId = validModes[i];
@@ -1382,6 +1424,10 @@ void handleSettingsSetMode(AsyncWebServerRequest *request) {
       #ifdef EFFECT_FIRE_TEXT
       fireTextInitialized = false;
       #endif
+      #ifdef EFFECT_CALENDAR
+      extern bool calendarStationInitialized;
+      calendarStationInitialized = false;
+      #endif
       fluxCapacitorInitialized = false;
       matrixInitialized = false;
       tronInitialized = false;
@@ -1430,15 +1476,14 @@ void handleSettingsSaveModes(AsyncWebServerRequest *request) {
     saveEnabledModes();
 
     // Se la modalità corrente è stata disabilitata, passa a FADE
+    // NOTA: NON chiamare forceDisplayUpdate() da qui (task webserver)
+    // perché gfx non è thread-safe. Usa flag per il main loop.
     if (!isModeEnabled((uint8_t)currentMode)) {
-      Serial.printf("[SETTINGS] Modalità corrente %d disabilitata, passo a FADE\n", currentMode);
-      // Cleanup della modalità precedente prima di cambiare
-      cleanupPreviousMode(currentMode);
-      currentMode = MODE_FADE;
+      Serial.printf("[SETTINGS] Modalità corrente %d disabilitata, segnalo switch a FADE\n", currentMode);
       userMode = MODE_FADE;
       EEPROM.write(EEPROM_MODE_ADDR, (uint8_t)MODE_FADE);
       EEPROM.commit();
-      forceDisplayUpdate();
+      pendingModeSwitch = true;  // Il main loop farà cleanup + forceDisplayUpdate
     }
 
     // Se Web Radio è stata disabilitata, ferma lo streaming
