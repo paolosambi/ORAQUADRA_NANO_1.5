@@ -678,6 +678,10 @@ void updateCalendarStation();
 void fetchGoogleCalendarData();
 void drawCalendarEvents();
 void handleCalendarTouch(int x, int y);
+void checkCalendarAlarm();
+void updateCalendarAlarmSound();
+void stopCalendarAlarm();
+void snoozeCalendarAlarm();
 
 // Funzioni definite in 36_WEBSERVER_CALENDAR.ino
 void setup_calendar_webserver(AsyncWebServer* server);
@@ -720,6 +724,7 @@ extern bool fluxCapacitorInitialized;
 #ifdef EFFECT_CALENDAR
 extern bool calendarStationInitialized;
 extern bool calendarGridView;
+extern bool calendarAlarmActive;
 #endif
 
 
@@ -1925,7 +1930,11 @@ void drawAlarmIndicator() {
   gfx->fillCircle(LED_X, LED_Y, LED_RADIUS + 3, BLACK);
 
   // ========== PRIORITÀ 1: ALLARME STA SUONANDO ==========
-  if (bttfAlarmRinging) {
+  if (bttfAlarmRinging
+  #ifdef EFFECT_CALENDAR
+      || calendarAlarmActive
+  #endif
+  ) {
     // LED ROSSO lampeggiante ogni 500ms
     static unsigned long lastBlink = 0;
     static bool ledState = false;
@@ -2948,6 +2957,12 @@ if (currentIsNight != lastWasNightTime) {
   updateBTTFAlarmSound();
   #endif
 
+  // ========== GESTIONE ALLARME CALENDARIO ==========
+  #ifdef EFFECT_CALENDAR
+  checkCalendarAlarm();          // Controlla se scatta un allarme
+  updateCalendarAlarmSound();    // Gestisce beep continuo + lampeggio
+  #endif
+
   // ========== CONTROLLO ANNUNCIO ORARIO (ogni 10 secondi) ==========
   // Annunci orari tramite ESP32C3 audio WiFi esterno
   static unsigned long lastTimeCheck = 0;
@@ -3119,8 +3134,12 @@ if (currentIsNight != lastWasNightTime) {
       }
       #endif
 
-      // Se allarme gas attivo, non aggiornare display (mantieni schermata rossa)
-      if (!gasAlarmActive) {
+      // Se allarme gas o calendario attivo, non aggiornare display (mantieni schermata allarme)
+      if (!gasAlarmActive
+      #ifdef EFFECT_CALENDAR
+          && !calendarAlarmActive
+      #endif
+      ) {
 
       switch (currentMode) {
         case MODE_MATRIX:

@@ -704,4 +704,195 @@ void updateCalendarStation() {
   }
 }
 
+// ============================================================================
+// SISTEMA ALLARME CALENDARIO
+// ============================================================================
+bool calendarAlarmActive = false;          // Allarme in corso
+bool calendarAlarmEnabled = true;          // Abilitato globalmente
+unsigned long calendarAlarmLastBeep = 0;   // Timestamp ultimo beep
+unsigned long calendarAlarmStartTime = 0;  // Quando e' scattato
+String calendarAlarmTitle = "";            // Titolo evento
+String calendarAlarmTime = "";             // Orario "HH:mm"
+String calendarAlarmEnd = "";              // Fine "HH:mm"
+int calendarAlarmSnoozeUntil = -1;         // minuti mezzanotte per snooze (-1=nessuno)
+int calendarAlarmLastTriggeredMinute = -1; // Evita re-trigger stesso minuto
+uint16_t calendarAlarmTriggeredId = 0;     // ID evento che ha triggerato
+static bool calendarAlarmFlashState = false; // Per lampeggio barra
+
+#define CAL_ALARM_BEEP_INTERVAL 1500       // Beep ogni 1.5 secondi
+#define CAL_ALARM_TIMEOUT 300000           // Auto-stop dopo 5 minuti
+#define CAL_ALARM_SNOOZE_MINUTES 5         // Posticipa di 5 minuti
+
+extern void forceDisplayUpdate();
+
+// ---------- Schermata overlay allarme ----------
+void showCalendarAlarmScreen() {
+  gfx->fillScreen(BLACK);
+
+  // Barra superiore rossa con "APPUNTAMENTO!"
+  gfx->fillRect(0, 0, 480, 80, RED);
+  gfx->setFont(u8g2_font_helvB18_tr);
+  gfx->setUTF8Print(true);
+  gfx->setTextColor(WHITE);
+  gfx->setCursor(100, 52);
+  gfx->print("APPUNTAMENTO!");
+
+  // Titolo evento grande al centro
+  gfx->setFont(u8g2_font_helvB18_tr);
+  gfx->setTextColor(CAL_ACCENT);
+  // Centra il titolo (max ~25 caratteri visibili)
+  String displayTitle = calendarAlarmTitle;
+  if (displayTitle.length() > 25) {
+    displayTitle = displayTitle.substring(0, 24) + "..";
+  }
+  int titleLen = displayTitle.length();
+  int titleX = (480 - titleLen * 12) / 2;
+  if (titleX < 10) titleX = 10;
+  gfx->setCursor(titleX, 220);
+  gfx->print(displayTitle);
+
+  // Orario sotto al titolo
+  gfx->setFont(u8g2_font_helvB14_tr);
+  gfx->setTextColor(WHITE);
+  String timeStr = calendarAlarmTime;
+  if (calendarAlarmEnd.length() > 0) {
+    timeStr += " - " + calendarAlarmEnd;
+  }
+  int timeLen = timeStr.length();
+  int timeX = (480 - timeLen * 10) / 2;
+  if (timeX < 10) timeX = 10;
+  gfx->setCursor(timeX, 280);
+  gfx->print(timeStr);
+
+  // Pulsante STOP (verde, lato sinistro)
+  gfx->fillRoundRect(20, 370, 210, 80, 12, 0x07E0);  // Verde
+  gfx->setFont(u8g2_font_helvB18_tr);
+  gfx->setTextColor(BLACK);
+  gfx->setCursor(80, 420);
+  gfx->print("STOP");
+
+  // Pulsante POSTICIPA (arancione, lato destro)
+  gfx->fillRoundRect(250, 370, 210, 80, 12, 0xFD20);  // Arancione
+  gfx->setTextColor(BLACK);
+  gfx->setCursor(275, 420);
+  gfx->print("POSTICIPA");
+}
+
+// ---------- Trigger allarme ----------
+void triggerCalendarAlarm(CalendarEvent& ev) {
+  int nowMinutes = currentHour * 60 + currentMinute;
+
+  calendarAlarmActive = true;
+  calendarAlarmTitle = ev.title;
+  calendarAlarmTime = ev.start;
+  calendarAlarmEnd = ev.end;
+  calendarAlarmTriggeredId = ev.id;
+  calendarAlarmLastBeep = 0;  // Forza beep immediato
+  calendarAlarmStartTime = millis();
+  calendarAlarmLastTriggeredMinute = nowMinutes;
+  calendarAlarmSnoozeUntil = -1;
+  calendarAlarmFlashState = false;
+
+  Serial.printf("[CAL ALARM] Allarme scattato: %s alle %s\n",
+                ev.title.c_str(), ev.start.c_str());
+
+  showCalendarAlarmScreen();
+  playLocalMP3("beep.mp3");
+}
+
+// ---------- Check trigger (chiamata nel loop ogni ciclo) ----------
+void checkCalendarAlarm() {
+  if (!calendarAlarmEnabled || calendarAlarmActive) return;
+
+  int nowMinutes = currentHour * 60 + currentMinute;
+
+  // Evita re-trigger nello stesso minuto
+  if (nowMinutes == calendarAlarmLastTriggeredMinute) return;
+
+  // Gestione snooze
+  if (calendarAlarmSnoozeUntil >= 0) {
+    if (nowMinutes < calendarAlarmSnoozeUntil) return;
+    // Snooze scaduto, reset e continua check
+    calendarAlarmSnoozeUntil = -1;
+  }
+
+  // Cerca eventi che matchano l'orario corrente
+  int todayDay = myTZ.day();
+  int todayMonth = myTZ.month();
+  int todayYear = myTZ.year();
+  char todayStr[12];
+  sprintf(todayStr, "%02d/%02d/%04d", todayDay, todayMonth, todayYear);
+  String todayDate = String(todayStr);
+
+  for (int i = 0; i < mergedEventCount; i++) {
+    CalendarEvent& ev = mergedEventsBuffer[i];
+    if (ev.date == todayDate && ev.startMinutes == nowMinutes) {
+      triggerCalendarAlarm(ev);
+      return;
+    }
+  }
+}
+
+// ---------- Beep loop + lampeggio (chiamata nel loop) ----------
+void updateCalendarAlarmSound() {
+  if (!calendarAlarmActive) return;
+
+  unsigned long currentTime = millis();
+
+  // Timeout automatico 5 minuti
+  if (currentTime - calendarAlarmStartTime >= CAL_ALARM_TIMEOUT) {
+    Serial.println("[CAL ALARM] Timeout 5 minuti - allarme spento");
+    stopCalendarAlarm();
+    return;
+  }
+
+  // Beep ogni CAL_ALARM_BEEP_INTERVAL
+  if (currentTime - calendarAlarmLastBeep >= CAL_ALARM_BEEP_INTERVAL) {
+    playLocalMP3("beep.mp3");
+    calendarAlarmLastBeep = currentTime;
+
+    // Lampeggio barra superiore
+    calendarAlarmFlashState = !calendarAlarmFlashState;
+    gfx->fillRect(0, 0, 480, 80, calendarAlarmFlashState ? BLACK : RED);
+    if (!calendarAlarmFlashState) {
+      gfx->setFont(u8g2_font_helvB18_tr);
+      gfx->setUTF8Print(true);
+      gfx->setTextColor(WHITE);
+      gfx->setCursor(100, 52);
+      gfx->print("APPUNTAMENTO!");
+    }
+  }
+}
+
+// ---------- Stop allarme ----------
+void stopCalendarAlarm() {
+  if (!calendarAlarmActive) return;
+  calendarAlarmActive = false;
+  calendarAlarmTitle = "";
+  calendarAlarmTime = "";
+  calendarAlarmEnd = "";
+  Serial.println("[CAL ALARM] Allarme fermato");
+
+  // Forza ridisegno del modo corrente
+  forceDisplayUpdate();
+}
+
+// ---------- Snooze (posticipa) ----------
+void snoozeCalendarAlarm() {
+  int nowMinutes = currentHour * 60 + currentMinute;
+  calendarAlarmSnoozeUntil = nowMinutes + CAL_ALARM_SNOOZE_MINUTES;
+  calendarAlarmActive = false;
+  calendarAlarmLastTriggeredMinute = -1;  // Permette re-trigger dopo snooze
+  calendarAlarmTitle = "";
+  calendarAlarmTime = "";
+  calendarAlarmEnd = "";
+
+  Serial.printf("[CAL ALARM] Posticipato di %d minuti (snooze fino a %d:%02d)\n",
+                CAL_ALARM_SNOOZE_MINUTES,
+                calendarAlarmSnoozeUntil / 60, calendarAlarmSnoozeUntil % 60);
+
+  // Forza ridisegno del modo corrente
+  forceDisplayUpdate();
+}
+
 #endif // EFFECT_CALENDAR

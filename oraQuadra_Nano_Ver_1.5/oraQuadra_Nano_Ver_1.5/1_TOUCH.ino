@@ -18,6 +18,9 @@ extern void initWeatherStation();
 // Dichiarazioni esterne per Calendar
 #ifdef EFFECT_CALENDAR
 extern void handleCalendarTouch(int x, int y);
+extern bool calendarAlarmActive;
+extern void stopCalendarAlarm();
+extern void snoozeCalendarAlarm();
 #endif
 
 void checkButtons() {
@@ -130,6 +133,25 @@ void checkButtons() {
       delay(10);          // Piccolo ritardo tra un tentativo e l'altro.
     }
   }
+
+  // ====================== STOP/SNOOZE ALLARME CALENDARIO ======================
+  #ifdef EFFECT_CALENDAR
+  if (touchDetected && calendarAlarmActive) {
+    int cx = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+    int cy = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+    // Pulsante STOP: x=20-230, y=370-450
+    if (cx >= 20 && cx <= 230 && cy >= 370 && cy <= 450) {
+      stopCalendarAlarm();
+      playTouchSound();
+    }
+    // Pulsante POSTICIPA: x=250-460, y=370-450
+    else if (cx >= 250 && cx <= 460 && cy >= 370 && cy <= 450) {
+      snoozeCalendarAlarm();
+      playTouchSound();
+    }
+    return;  // Blocca qualsiasi altra azione touch durante allarme
+  }
+  #endif
 
   // ====================== FERMA ALLARME BTTF AL TOCCO ======================
   #ifdef EFFECT_BTTF
