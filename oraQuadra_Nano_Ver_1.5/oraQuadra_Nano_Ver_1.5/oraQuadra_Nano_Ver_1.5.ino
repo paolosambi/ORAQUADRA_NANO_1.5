@@ -3004,14 +3004,13 @@ if (currentIsNight != lastWasNightTime) {
     extern volatile int16_t pushToGoogleId;
     extern String lastSyncTime;
 
-    // Gestione push evento verso Google (richiesto dalla pagina web o auto-push)
+    // Gestione push evento verso Google (richiesto dalla pagina web)
     if (pushToGoogleId >= 0) {
       int16_t id = pushToGoogleId;
       pushToGoogleId = -1;
       Serial.printf("[CALENDAR] Push evento ID %d verso Google...\n", id);
       bool pushOk = pushEventToGoogle((uint16_t)id);
       mergeLocalAndGoogleEvents();
-      // Aggiorna timestamp sync
       char buf[20];
       sprintf(buf, "%02d:%02d:%02d", currentHour, currentMinute, currentSecond);
       lastSyncTime = String(buf);
@@ -3035,18 +3034,12 @@ if (currentIsNight != lastWasNightTime) {
       Serial.println("[CALENDAR] Sync forzata completata.");
     }
 
-    // Controlla ogni 15 secondi (15.000 ms) per sync rapida
-    if (millis() - lastCheck > 15000 || lastCheck == 0) {
-      // 1. Scarica i dati (operazione con timeout di 4s definita nel file 35)
-      fetchGoogleCalendarData();
-      lastCheck = millis();
-
-      // 2. Merge eventi locali + Google
-      mergeLocalAndGoogleEvents();
-
-      // 3. Se l'utente sta visualizzando il calendario proprio ora,
-      // aggiorna immediatamente l'area degli eventi con i nuovi dati
-      if (currentMode == MODE_CALENDAR) {
+    // Fetch Google solo quando il calendario e' visualizzato
+    if (currentMode == MODE_CALENDAR) {
+      if (millis() - lastCheck > 120000 || lastCheck == 0) {
+        fetchGoogleCalendarData();
+        lastCheck = millis();
+        mergeLocalAndGoogleEvents();
         drawCalendarEvents();
         Serial.println("[CALENDAR] Dati aggiornati e visualizzati in diretta.");
       }
