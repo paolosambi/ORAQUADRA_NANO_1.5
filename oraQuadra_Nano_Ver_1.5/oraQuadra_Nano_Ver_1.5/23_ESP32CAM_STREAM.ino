@@ -51,7 +51,7 @@ static bool esp32camServicesSuspended = false;
 // ================== CONFIGURAZIONE STREAMING ==================
 #define ESPCAM_JPEG_BUFFER_SIZE 300000   // Buffer per singolo frame JPEG (300KB) - supporta fino a 1600x1200
 #define ESPCAM_RECONNECT_DELAY 2000      // Delay tra tentativi di riconnessione (ms)
-#define ESPCAM_FRAME_TIMEOUT 15000       // Timeout per frame singolo (ms) - aumentato per reti lente
+#define ESPCAM_FRAME_TIMEOUT 5000        // Timeout per frame singolo (ms) - entro limite watchdog ESP32
 #define ESPCAM_CONNECTION_TIMEOUT 10000  // Timeout connessione stream (ms)
 #define ESPCAM_READ_BUFFER_SIZE 8192     // Buffer lettura TCP (8KB) - più veloce per frame grandi
 #define ESPCAM_DISPLAY_SIZE 480          // Dimensione display (480x480)
@@ -303,8 +303,8 @@ int readEsp32camFrame() {
 
   // Attendi dati disponibili con timeout minimo
   int waitCount = 0;
-  while (!stream->available() && waitCount < 200) {
-    delayMicroseconds(500);
+  while (!stream->available() && waitCount < 100) {
+    delay(1);  // delay(1) include yield() implicito - previene watchdog
     waitCount++;
   }
 
@@ -323,6 +323,7 @@ int readEsp32camFrame() {
       // Leggi a blocchi per massima velocita'
       int toRead = min(available, ESPCAM_READ_BUFFER_SIZE);
       int bytesRead = stream->readBytes(esp32camReadBuffer, toRead);
+      yield();  // Cede CPU dopo ogni blocco letto - previene watchdog con stream continui
 
       for (int i = 0; i < bytesRead; i++) {
         uint8_t b = esp32camReadBuffer[i];
@@ -350,6 +351,8 @@ int readEsp32camFrame() {
           }
         }
       }
+    } else {
+      yield();  // Cede CPU quando non ci sono dati - previene watchdog con stream MJPEG continui
     }
   }
 
@@ -638,6 +641,15 @@ void showEsp32camConnectionError() {
 
 // ================== UPDATE PRINCIPALE ESP32-CAM ==================
 void updateEsp32camStream() {
+  // Frame rate limiter: minimo 80ms tra frame (~12 FPS max)
+  // Permette al loop principale di gestire touch, web server, etc.
+  static unsigned long lastFrameUpdate = 0;
+  unsigned long nowUpdate = millis();
+  if (nowUpdate - lastFrameUpdate < 80) {
+    return;  // Troppo presto per il prossimo frame
+  }
+  lastFrameUpdate = nowUpdate;
+
   // Controlla se c'è un URL da salvare in EEPROM (differito dal web handler)
   esp32camCheckPendingSave();
 
@@ -692,8 +704,12 @@ void updateEsp32camStream() {
       esp32camFramesThisSecond++;
       esp32camLastFrameTime = millis();
 
-      // Disegna overlay sempre sopra il video (per renderlo fisso, non lampeggiante)
-      drawEsp32camOverlay();
+      // Disegna overlay ogni 500ms (non ogni frame) per risparmiare CPU
+      static unsigned long lastOverlayUpdate = 0;
+      if (millis() - lastOverlayUpdate >= 500) {
+        drawEsp32camOverlay();
+        lastOverlayUpdate = millis();
+      }
     }
   } else if (jpegSize < 0) {
     // Connessione persa
