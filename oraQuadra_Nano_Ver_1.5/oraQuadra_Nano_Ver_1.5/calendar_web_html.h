@@ -175,6 +175,17 @@ const char CALENDAR_HTML[] PROGMEM = R"rawliteral(
       </div>
     </div>
 
+    <!-- Impostazioni Posticipo -->
+    <div class="sync-bar" style="margin-top:15px">
+      <div class="sync-info" style="flex:1">
+        Posticipo allarme: <span id="snoozeVal" style="color:var(--accent);font-weight:700">--</span> minuti
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="number" id="snoozeInput" min="1" max="60" value="5" style="width:65px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:8px 10px;color:#fff;font-size:0.95rem;text-align:center;outline:none">
+        <button class="btn btn-primary" onclick="setSnooze()">Salva</button>
+      </div>
+    </div>
+
     <div class="footer">
       <p>OraQuadra Nano v1.5 &bull; <a href="/">Home</a> &bull; <a href="/settings">Settings</a></p>
     </div>
@@ -225,7 +236,32 @@ const char CALENDAR_HTML[] PROGMEM = R"rawliteral(
       viewYear = now.getFullYear();
       viewMonth = now.getMonth();
       renderCalendar();
+      loadSnooze();
       startAutoRefresh();
+    }
+
+    async function loadSnooze() {
+      try {
+        const r = await fetch('/calendar/getsnooze?_=' + Date.now(), {cache:'no-store'});
+        const d = await r.json();
+        document.getElementById('snoozeVal').textContent = d.minutes;
+        document.getElementById('snoozeInput').value = d.minutes;
+      } catch(e) {}
+    }
+
+    async function setSnooze() {
+      const val = parseInt(document.getElementById('snoozeInput').value);
+      if (isNaN(val) || val < 1 || val > 60) { showToast('Valore 1-60 minuti', true); return; }
+      try {
+        const r = await fetch('/calendar/setsnooze?minutes=' + val + '&_=' + Date.now(), {cache:'no-store'});
+        const d = await r.json();
+        if (d.ok) {
+          document.getElementById('snoozeVal').textContent = val;
+          showToast('Posticipo salvato: ' + val + ' min');
+        } else {
+          showToast(d.error || 'Errore', true);
+        }
+      } catch(e) { showToast('Errore rete', true); }
     }
 
     // Auto-refresh ogni 10 secondi per sync rapida

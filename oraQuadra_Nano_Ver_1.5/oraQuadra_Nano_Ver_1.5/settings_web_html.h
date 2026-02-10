@@ -1252,8 +1252,8 @@ input[type="number"] {
         </div>
         <div class="setting-row">
           <div class="setting-info">
-            <div class="setting-label">Calendar API Key</div>
-            <div class="setting-desc">Chiave impostata nello script</div>
+            <div class="setting-label">Password API Key</div>
+            <div class="setting-desc">Password impostata nello script</div>
           </div>
           <input type="password" id="calendarApiKey" placeholder="Chiave segreta" style="width:150px; padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text);">
         </div>

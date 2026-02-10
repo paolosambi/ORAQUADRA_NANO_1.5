@@ -719,11 +719,39 @@ int calendarAlarmLastTriggeredMinute = -1; // Evita re-trigger stesso minuto
 uint16_t calendarAlarmTriggeredId = 0;     // ID evento che ha triggerato
 static bool calendarAlarmFlashState = false; // Per lampeggio barra
 
+// Dati evento snoozato (per re-trigger dopo scadenza snooze)
+String snoozedEventTitle = "";
+String snoozedEventStart = "";
+String snoozedEventEnd = "";
+String snoozedEventDate = "";
+
 #define CAL_ALARM_BEEP_INTERVAL 1500       // Beep ogni 1.5 secondi
 #define CAL_ALARM_TIMEOUT 300000           // Auto-stop dopo 5 minuti
-#define CAL_ALARM_SNOOZE_MINUTES 5         // Posticipa di 5 minuti
+
+// Snooze configurabile via web - EEPROM addr 580
+#define EEPROM_CAL_SNOOZE_ADDR  580
+#define EEPROM_CAL_SNOOZE_VALID 581        // Marker validita' (0xBB)
+int calAlarmSnoozeMinutes = 5;             // Default 5 minuti, caricato da EEPROM
 
 extern void forceDisplayUpdate();
+
+// ---------- Load/Save snooze da EEPROM ----------
+void loadCalSnoozeFromEEPROM() {
+  if (EEPROM.read(EEPROM_CAL_SNOOZE_VALID) == 0xBB) {
+    int val = EEPROM.read(EEPROM_CAL_SNOOZE_ADDR);
+    if (val >= 1 && val <= 60) {
+      calAlarmSnoozeMinutes = val;
+    }
+  }
+  Serial.printf("[CAL ALARM] Snooze caricato: %d minuti\n", calAlarmSnoozeMinutes);
+}
+
+void saveCalSnoozeToEEPROM() {
+  EEPROM.write(EEPROM_CAL_SNOOZE_ADDR, (uint8_t)calAlarmSnoozeMinutes);
+  EEPROM.write(EEPROM_CAL_SNOOZE_VALID, 0xBB);
+  EEPROM.commit();
+  Serial.printf("[CAL ALARM] Snooze salvato: %d minuti\n", calAlarmSnoozeMinutes);
+}
 
 // ---------- Schermata overlay allarme ----------
 void showCalendarAlarmScreen() {
@@ -771,10 +799,16 @@ void showCalendarAlarmScreen() {
   gfx->setCursor(80, 420);
   gfx->print("STOP");
 
-  // Pulsante POSTICIPA (arancione, lato destro)
+  // Pulsante POSTICIPA (arancione, lato destro) con minuti
   gfx->fillRoundRect(250, 370, 210, 80, 12, 0xFD20);  // Arancione
   gfx->setTextColor(BLACK);
-  gfx->setCursor(275, 420);
+  char snzLabel[20];
+  sprintf(snzLabel, "+%d min", calAlarmSnoozeMinutes);
+  gfx->setFont(u8g2_font_helvB14_tr);
+  gfx->setCursor(310, 408);
+  gfx->print(snzLabel);
+  gfx->setFont(u8g2_font_helvB10_tr);
+  gfx->setCursor(305, 440);
   gfx->print("POSTICIPA");
 }
 
@@ -809,11 +843,29 @@ void checkCalendarAlarm() {
   // Evita re-trigger nello stesso minuto
   if (nowMinutes == calendarAlarmLastTriggeredMinute) return;
 
-  // Gestione snooze
+  // Gestione snooze: se scaduto, ri-triggera l'evento snoozato direttamente
   if (calendarAlarmSnoozeUntil >= 0) {
     if (nowMinutes < calendarAlarmSnoozeUntil) return;
-    // Snooze scaduto, reset e continua check
+    // Snooze scaduto! Ri-triggera l'evento snoozato
     calendarAlarmSnoozeUntil = -1;
+    if (snoozedEventTitle.length() > 0) {
+      calendarAlarmActive = true;
+      calendarAlarmTitle = snoozedEventTitle;
+      calendarAlarmTime = snoozedEventStart;
+      calendarAlarmEnd = snoozedEventEnd;
+      calendarAlarmLastBeep = 0;
+      calendarAlarmStartTime = millis();
+      calendarAlarmLastTriggeredMinute = nowMinutes;
+      calendarAlarmFlashState = false;
+      snoozedEventTitle = "";
+      snoozedEventStart = "";
+      snoozedEventEnd = "";
+      snoozedEventDate = "";
+      Serial.printf("[CAL ALARM] Snooze scaduto, ri-allarme: %s\n", calendarAlarmTitle.c_str());
+      showCalendarAlarmScreen();
+      playLocalMP3("beep.mp3");
+      return;
+    }
   }
 
   // Cerca eventi che matchano l'orario corrente
@@ -871,6 +923,12 @@ void stopCalendarAlarm() {
   calendarAlarmTitle = "";
   calendarAlarmTime = "";
   calendarAlarmEnd = "";
+  // Cancella anche eventuali dati snooze pendenti
+  snoozedEventTitle = "";
+  snoozedEventStart = "";
+  snoozedEventEnd = "";
+  snoozedEventDate = "";
+  calendarAlarmSnoozeUntil = -1;
   Serial.println("[CAL ALARM] Allarme fermato");
 
   // Forza ridisegno del modo corrente
@@ -880,7 +938,13 @@ void stopCalendarAlarm() {
 // ---------- Snooze (posticipa) ----------
 void snoozeCalendarAlarm() {
   int nowMinutes = currentHour * 60 + currentMinute;
-  calendarAlarmSnoozeUntil = nowMinutes + CAL_ALARM_SNOOZE_MINUTES;
+  calendarAlarmSnoozeUntil = nowMinutes + calAlarmSnoozeMinutes;
+
+  // Salva dati evento PRIMA di pulire (per re-trigger dopo snooze)
+  snoozedEventTitle = calendarAlarmTitle;
+  snoozedEventStart = calendarAlarmTime;
+  snoozedEventEnd = calendarAlarmEnd;
+
   calendarAlarmActive = false;
   calendarAlarmLastTriggeredMinute = -1;  // Permette re-trigger dopo snooze
   calendarAlarmTitle = "";
@@ -888,7 +952,7 @@ void snoozeCalendarAlarm() {
   calendarAlarmEnd = "";
 
   Serial.printf("[CAL ALARM] Posticipato di %d minuti (snooze fino a %d:%02d)\n",
-                CAL_ALARM_SNOOZE_MINUTES,
+                calAlarmSnoozeMinutes,
                 calendarAlarmSnoozeUntil / 60, calendarAlarmSnoozeUntil % 60);
 
   // Forza ridisegno del modo corrente

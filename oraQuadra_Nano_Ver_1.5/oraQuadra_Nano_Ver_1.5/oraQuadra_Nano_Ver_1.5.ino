@@ -682,12 +682,15 @@ void checkCalendarAlarm();
 void updateCalendarAlarmSound();
 void stopCalendarAlarm();
 void snoozeCalendarAlarm();
+void loadCalSnoozeFromEEPROM();
+void saveCalSnoozeToEEPROM();
 
 // Funzioni definite in 36_WEBSERVER_CALENDAR.ino
 void setup_calendar_webserver(AsyncWebServer* server);
 void loadLocalEventsFromLittleFS();
 void mergeLocalAndGoogleEvents();
 bool pushEventToGoogle(uint16_t id);
+bool deleteEventFromGoogleById(uint16_t id);
 
 // Funzioni definite in 8_CLOCK.ino (EFFECT_CLOCK)
 #ifdef EFFECT_CLOCK
@@ -725,6 +728,7 @@ extern bool fluxCapacitorInitialized;
 extern bool calendarStationInitialized;
 extern bool calendarGridView;
 extern bool calendarAlarmActive;
+extern int calAlarmSnoozeMinutes;
 #endif
 
 
@@ -2037,9 +2041,10 @@ if (!LittleFS.begin(true)) {
 }
 Serial.println("LittleFS inizializzato correttamente.");
 
-  // Carica eventi calendario locali da LittleFS
+  // Carica eventi calendario locali da LittleFS + snooze da EEPROM
   #ifdef EFFECT_CALENDAR
   loadLocalEventsFromLittleFS();
+  loadCalSnoozeFromEEPROM();
   #endif
 
   Serial.printf("LittleFS: %d KB totali, %d KB usati\n",

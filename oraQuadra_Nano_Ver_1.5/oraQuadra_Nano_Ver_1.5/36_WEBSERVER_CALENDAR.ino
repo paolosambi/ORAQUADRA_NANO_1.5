@@ -157,6 +157,8 @@ extern int mergedEventCount;
 extern CalendarEvent googleEventsBuffer[];
 extern int googleEventCount;
 extern bool isCalendarUpdating;
+extern int calAlarmSnoozeMinutes;
+extern void saveCalSnoozeToEEPROM();
 
 void mergeLocalAndGoogleEvents() {
   mergedEventCount = 0;
@@ -265,79 +267,181 @@ void mergeLocalAndGoogleEvents() {
 // PUSH EVENTO VERSO GOOGLE
 // ============================================================================
 
+
+String manualUrlEncode(String str) {
+  String encodedString = "";
+  char c;
+  char code0;
+  char code1;
+  for (int i = 0; i < str.length(); i++) {
+    c = str.charAt(i);
+    if (isalnum(c)) {
+      encodedString += c;
+    } else if (c == ' ') {
+      encodedString += "%20";
+    } else {
+      code1 = (c & 0xf) + '0';
+      if ((c & 0xf) > 9) code1 = (c & 0xf) - 10 + 'A';
+      c = (c >> 4) & 0xf;
+      code0 = c + '0';
+      if (c > 9) code0 = c - 10 + 'A';
+      encodedString += '%';
+      encodedString += code0;
+      encodedString += code1;
+    }
+  }
+  return encodedString;
+}
+
 bool pushEventToGoogle(uint16_t id) {
-  // Trova l'evento locale
   int idx = -1;
   for (int i = 0; i < localEventCount; i++) {
     if (localEvents[i].id == id) { idx = i; break; }
   }
   if (idx < 0) return false;
 
-  if (calendarGoogleUrl.length() == 0 || calendarApiKey.length() == 0) {
-    Serial.println("[CAL-PUSH] URL o API key Google non configurati");
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setTimeout(15000);
+
+  String url = calendarGoogleUrl;
+  if (url.indexOf("?key=") == -1) url += "?key=" + calendarApiKey;
+  
+  // Usiamo manualUrlEncode invece di http.urlEncode
+  url += "&action=create";
+  url += "&title=" + manualUrlEncode(localEvents[idx].title);
+  url += "&date="  + manualUrlEncode(localEvents[idx].date);
+  url += "&start=" + manualUrlEncode(localEvents[idx].start);
+  url += "&end="   + manualUrlEncode(localEvents[idx].end);
+
+  Serial.printf("[CAL-PUSH] GET: %s\n", url.c_str());
+
+  if (http.begin(client, url)) {
+    int httpCode = http.GET();
+    if (httpCode == 200) {
+      String response = http.getString();
+      DynamicJsonDocument resp(1024);
+      deserializeJson(resp, response);
+      if (resp["success"] == true) {
+        localEvents[idx].googleId = resp["googleId"].as<String>();
+        saveLocalEventsToLittleFS();
+        http.end();
+        return true;
+      }
+    }
+    http.end();
+  }
+  return false;
+}
+
+// ============================================================================
+// CANCELLA EVENTO DA GOOGLE
+// ============================================================================
+
+bool deleteEventFromGoogleById(uint16_t id) {
+  // 1. Cerca l'evento locale
+  int idx = -1;
+  for (int i = 0; i < localEventCount; i++) {
+    if (localEvents[i].id == id) {
+      idx = i;
+      break;
+    }
+  }
+
+  // Se l'evento non esiste localmente o non ha un googleId, 
+  // non possiamo cancellarlo su Google, ma consideriamo l'operazione "finita"
+  if (idx < 0 || localEvents[idx].googleId.length() == 0) {
+    Serial.printf("[CAL-DEL] Evento %d saltato (no googleId)\n", id);
+    return true; 
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  
+  // Fondamentale per Google Apps Script
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setTimeout(15000);
+
+  // 2. Costruzione URL per la cancellazione via GET
+  String url = calendarGoogleUrl;
+  if (url.indexOf("?key=") == -1) {
+    url += "?key=" + calendarApiKey;
+  }
+  
+  // Aggiungiamo i parametri specifici per la cancellazione
+  url += "&action=delete";
+  url += "&googleId=" + manualUrlEncode(localEvents[idx].googleId);
+
+  Serial.printf("[CAL-DEL] Richiesta cancellazione: %s\n", url.c_str());
+
+  bool success = false;
+  if (http.begin(client, url)) {
+    int httpCode = http.GET(); // Usiamo GET
+    Serial.printf("[CAL-DEL] HTTP code: %d\n", httpCode);
+
+    if (httpCode == 200) {
+      String response = http.getString();
+      Serial.printf("[CAL-DEL] Risposta: %s\n", response.c_str());
+      
+      // Verifichiamo se il JSON restituito contiene success:true
+      if (response.indexOf("\"success\":true") != -1) {
+        Serial.println("[CAL-DEL] Evento rimosso con successo da Google");
+        success = true;
+      }
+    } else {
+      Serial.printf("[CAL-DEL] Errore HTTP: %d\n", httpCode);
+    }
+    http.end();
+  }
+  
+  return success;
+}
+
+bool updateEventOnGoogle(uint16_t id) {
+  int idx = -1;
+  for (int i = 0; i < localEventCount; i++) {
+    if (localEvents[i].id == id) { idx = i; break; }
+  }
+
+  // Se non ha un googleId, non possiamo modificarlo sul cloud
+  if (idx < 0 || localEvents[idx].googleId.length() == 0) {
+    Serial.println("[CAL-UPDATE] Errore: googleId mancante");
     return false;
   }
 
   WiFiClientSecure client;
   client.setInsecure();
-
   HTTPClient http;
-  // FORCE: segue i redirect 302 anche per POST (necessario per Google Apps Script)
-  http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   http.setTimeout(15000);
 
-  String baseUrl = calendarGoogleUrl;
-  int keyIdx = baseUrl.indexOf("?key=");
-  if (keyIdx > 0) baseUrl = baseUrl.substring(0, keyIdx);
+  String url = calendarGoogleUrl;
+  if (url.indexOf("?key=") == -1) url += "?key=" + calendarApiKey;
+  
+  url += "&action=update";
+  url += "&googleId=" + manualUrlEncode(localEvents[idx].googleId);
+  url += "&title="    + manualUrlEncode(localEvents[idx].title);
+  url += "&date="     + manualUrlEncode(localEvents[idx].date);
+  url += "&start="    + manualUrlEncode(localEvents[idx].start);
+  url += "&end="      + manualUrlEncode(localEvents[idx].end);
 
-  String url = baseUrl + "?key=" + calendarApiKey;
+  Serial.printf("[CAL-UPDATE] Invio modifica GET...\n");
 
-  if (!http.begin(client, url)) {
-    Serial.println("[CAL-PUSH] Errore connessione");
-    return false;
-  }
-
-  http.addHeader("Content-Type", "application/json");
-
-  // Crea JSON payload
-  DynamicJsonDocument doc(512);
-  doc["action"] = "create";
-  doc["title"] = localEvents[idx].title;
-  doc["date"] = localEvents[idx].date;
-  doc["start"] = localEvents[idx].start;
-  doc["end"] = localEvents[idx].end;
-
-  String payload;
-  serializeJson(doc, payload);
-
-  Serial.printf("[CAL-PUSH] POST %s\n", url.c_str());
-  Serial.printf("[CAL-PUSH] Payload: %s\n", payload.c_str());
-  int httpCode = http.POST(payload);
-  Serial.printf("[CAL-PUSH] HTTP code: %d\n", httpCode);
-
-  bool success = false;
-  if (httpCode == 200) {
-    String response = http.getString();
-    Serial.printf("[CAL-PUSH] Risposta: %s\n", response.c_str());
-    DynamicJsonDocument resp(512);
-    deserializeJson(resp, response);
-    if (resp["success"] == true) {
-      String gid = resp["googleId"].as<String>();
-      if (gid.length() > 0) {
-        localEvents[idx].googleId = gid;
-        saveLocalEventsToLittleFS();
-        Serial.printf("[CAL-PUSH] Evento %d sincronizzato, googleId: %s\n", id, gid.c_str());
+  if (http.begin(client, url)) {
+    int httpCode = http.GET();
+    if (httpCode == 200) {
+      if (http.getString().indexOf("\"success\":true") != -1) {
+        Serial.println("[CAL-UPDATE] Evento aggiornato con successo");
+        http.end();
+        return true;
       }
-      success = true;
-    } else {
-      Serial.printf("[CAL-PUSH] Errore dal server: %s\n", response.c_str());
     }
-  } else {
-    Serial.printf("[CAL-PUSH] Errore HTTP: %d\n", httpCode);
+    http.end();
   }
-
-  http.end();
-  return success;
+  return false;
 }
 
 // ============================================================================
@@ -460,35 +564,72 @@ void setup_calendar_webserver(AsyncWebServer* server) {
 
     uint16_t id = request->getParam("id")->value().toInt();
     String title = request->hasParam("title") ? request->getParam("title")->value() : "";
-    String date = request->hasParam("date") ? calFixDate(request->getParam("date")->value()) : "";
+    String date  = request->hasParam("date")  ? calFixDate(request->getParam("date")->value()) : "";
     String start = request->hasParam("start") ? calFixTime(request->getParam("start")->value()) : "";
-    String end = request->hasParam("end") ? calFixTime(request->getParam("end")->value()) : "";
+    String end   = request->hasParam("end")   ? calFixTime(request->getParam("end")->value()) : "";
 
+    // 1. Aggiorna l'evento nella memoria locale (array + LittleFS)
     if (editLocalEvent(id, title, date, start, end)) {
+      
+      // 2. Cerchiamo se l'evento ha un googleId (ovvero se era già sincronizzato)
+      int idx = -1;
+      for (int i = 0; i < localEventCount; i++) {
+        if (localEvents[i].id == id) { idx = i; break; }
+      }
+
+      if (idx >= 0 && localEvents[idx].googleId.length() > 0) {
+        Serial.printf("[CAL-WEB] Evento %d ha googleId, avvio UPDATE cloud...\n", id);
+        // Chiamata alla nuova funzione UPDATE via GET
+        bool successUpdate = updateEventOnGoogle(id); 
+        if (successUpdate) {
+          Serial.println("[CAL-WEB] Update Google riuscito");
+        } else {
+          Serial.println("[CAL-WEB] Update Google fallito");
+        }
+      }
+
       mergeLocalAndGoogleEvents();
-      forceGoogleSync = true; // Refresh dati Google dopo modifica
+      forceGoogleSync = true; // Refresh dati Google per sicurezza
       request->send(200, "application/json", "{\"ok\":true}");
     } else {
       request->send(200, "application/json", "{\"ok\":false,\"error\":\"Evento non trovato\"}");
     }
   });
-
-  // Elimina evento locale
+    
+  // Elimina evento locale + REMOTO (Google)
   server->on("/calendar/delete", HTTP_GET, [](AsyncWebServerRequest *request) {
     if (!request->hasParam("id")) {
       request->send(200, "application/json", "{\"ok\":false,\"error\":\"ID mancante\"}");
       return;
     }
 
-    uint16_t id = request->getParam("id")->value().toInt();
-    if (deleteLocalEvent(id)) {
-      mergeLocalAndGoogleEvents();
-      forceGoogleSync = true; // Refresh dati Google dopo eliminazione
-      request->send(200, "application/json", "{\"ok\":true}");
-    } else {
-      request->send(200, "application/json", "{\"ok\":false,\"error\":\"Evento non trovato\"}");
-    }
-  });
+  // Prende l'ID dall'URL (es: /calendar/delete?id=123)
+  uint16_t id = (uint16_t)request->getParam("id")->value().toInt();
+
+  Serial.printf("[CAL-WEB] Richiesta cancellazione ID: %d\n", id);
+
+  // 1. Tenta la cancellazione su Google Calendar
+  bool successG = deleteEventFromGoogleById(id);
+  
+  if (successG) {
+    Serial.println("[CAL-WEB] Sincronizzazione cancellazione Google riuscita (o non necessaria)");
+  } else {
+    Serial.println("[CAL-WEB] Avviso: cancellazione su Google fallita o evento non trovato online");
+  }
+
+  // 2. Elimina l'evento dal file system LittleFS dell'ESP32
+  if (deleteLocalEvent(id)) {
+    // Ricalcola il merge dei buffer per aggiornare la visualizzazione
+    mergeLocalAndGoogleEvents();
+    
+    // Attiva la sync per assicurarsi che la lista Google sia aggiornata
+    forceGoogleSync = true; 
+    
+    request->send(200, "application/json", "{\"ok\":true}");
+  } else {
+    request->send(200, "application/json", "{\"ok\":false,\"error\":\"Evento locale non trovato\"}");
+  }
+});
 
   // Forza sincronizzazione con Google (non-bloccante: setta flag, il loop fa il fetch)
   server->on("/calendar/sync", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -531,6 +672,31 @@ void setup_calendar_webserver(AsyncWebServer* server) {
     AsyncWebServerResponse *response = request->beginResponse(200, "application/json", json);
     response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     request->send(response);
+  });
+
+  // GET snooze minutes
+  server->on("/calendar/getsnooze", HTTP_GET, [](AsyncWebServerRequest *request) {
+    DynamicJsonDocument doc(64);
+    doc["minutes"] = calAlarmSnoozeMinutes;
+    String json;
+    serializeJson(doc, json);
+    request->send(200, "application/json", json);
+  });
+
+  // SET snooze minutes
+  server->on("/calendar/setsnooze", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (!request->hasParam("minutes")) {
+      request->send(200, "application/json", "{\"ok\":false,\"error\":\"Parametro mancante\"}");
+      return;
+    }
+    int val = request->getParam("minutes")->value().toInt();
+    if (val < 1 || val > 60) {
+      request->send(200, "application/json", "{\"ok\":false,\"error\":\"Valore 1-60\"}");
+      return;
+    }
+    calAlarmSnoozeMinutes = val;
+    saveCalSnoozeToEEPROM();
+    request->send(200, "application/json", "{\"ok\":true}");
   });
 
   Serial.println("[CALENDAR WEB] Endpoints registrati su /calendar/*");
