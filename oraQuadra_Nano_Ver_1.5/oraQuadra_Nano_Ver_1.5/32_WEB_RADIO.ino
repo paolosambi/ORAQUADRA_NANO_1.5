@@ -908,6 +908,14 @@ bool handleWebRadioTouch(int16_t x, int16_t y) {
     return false;
   }
 
+  // ===== EXIT (controllato PRIMA dello scroll per evitare sovrapposizione area y) =====
+  int exitBtnW = 140;
+  int exitBtnH = 46;
+  int exitX = (480 - exitBtnW) / 2;
+  if (y >= WR_EXIT_Y && y <= WR_EXIT_Y + exitBtnH) {
+    if (x >= exitX && x <= exitX + exitBtnW) return true;
+  }
+
   // ===== SCROLL MANUALE (Aree sopra/sotto la lista) =====
   if (y >= WR_LIST_Y - 30 && y < WR_LIST_Y && webRadioScrollOffset > 0) {
     webRadioScrollOffset--;
@@ -922,14 +930,6 @@ bool handleWebRadioTouch(int16_t x, int16_t y) {
       webRadioNeedsRedraw = true;
     }
     return false;
-  }
-
-  // ===== EXIT =====
-  int exitBtnW = 140;
-  int exitBtnH = 46;
-  int exitX = (480 - exitBtnW) / 2;
-  if (y >= WR_EXIT_Y && y <= WR_EXIT_Y + exitBtnH) {
-    if (x >= exitX && x <= exitX + exitBtnW) return true;
   }
 
   return false;

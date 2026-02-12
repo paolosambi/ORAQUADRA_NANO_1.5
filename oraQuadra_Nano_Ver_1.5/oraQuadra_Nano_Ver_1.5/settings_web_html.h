@@ -448,6 +448,7 @@ input[type="number"] {
     <a href="/webradio" class="nav-link" id="webradioConfigLink" style="display:none;">📻 Web Radio</a>
     <a href="/radioalarm" class="nav-link" id="radioAlarmConfigLink" style="display:none;">⏰ Radio Alarm</a>
     <a href="/cal" class="nav-link" id="calendarConfigLink" style="display:none;">📅 Calendario</a>
+    <a href="/ledrgb" class="nav-link" id="ledrgbConfigLink" style="display:none;">💡 LED RGB</a>
     <!-- WebTV disabilitato - troppo lag per ESP32 -->
   </div>
 
@@ -724,6 +725,16 @@ input[type="number"] {
           </div>
           <label class="toggle">
             <input type="checkbox" id="powerSave">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="setting-row" id="ledRgbRow" style="display:none;">
+          <div class="setting-info">
+            <div class="setting-label">LED RGB</div>
+            <div class="setting-desc">Accendi/spegni anello LED WS2812</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="ledRgbEnabled" checked>
             <span class="toggle-slider"></span>
           </label>
         </div>
@@ -1404,6 +1415,7 @@ function toggleMode(modeId, enabled) {
   updateWebRadioLink();
   updateRadioAlarmLink();
   updateCalendarLink();
+  updateLedRgbLink();
   // updateWebTVLink();  // WebTV disabilitato
 }
 
@@ -1456,6 +1468,14 @@ function updateCalendarLink() {
   if (!link) return;
   var modeEnabled = enabledModes[28] === true; // 28 = MODE_CALENDAR
   link.style.display = modeEnabled ? 'inline-block' : 'none';
+}
+
+// Aggiorna visibilità link LED RGB
+function updateLedRgbLink() {
+  var link = document.getElementById('ledrgbConfigLink');
+  if (!link) return;
+  // Mostra sempre se ledRgbEnabled è definito (EFFECT_LED_RGB compilato)
+  fetch('/ledrgb/status').then(r => r.ok ? link.style.display = 'inline-block' : null).catch(() => {});
 }
 
 // WebTV disabilitato - funzione commentata
@@ -2947,6 +2967,12 @@ function loadSettings() {
       document.getElementById('brightnessNightVal').textContent = data.brightnessNight || 90;
       document.getElementById('autoNightMode').checked = data.autoNightMode !== false;
       document.getElementById('powerSave').checked = data.powerSave === true;
+      if (data.ledRgbEnabled !== undefined) {
+        document.getElementById('ledRgbEnabled').checked = data.ledRgbEnabled;
+        document.getElementById('ledRgbRow').style.display = '';
+      } else {
+        document.getElementById('ledRgbRow').style.display = 'none';
+      }
       document.getElementById('radarBrightnessControl').checked = data.radarBrightnessControl !== false;
       document.getElementById('radarBrightnessMin').value = data.radarBrightnessMin || 90;
       document.getElementById('radarBrightnessMinVal').textContent = data.radarBrightnessMin || 90;
@@ -3135,6 +3161,7 @@ function loadSettings() {
       updateWebRadioLink();
       updateRadioAlarmLink();
       updateCalendarLink();
+      updateLedRgbLink();
       // updateWebTVLink();  // WebTV disabilitato
 
       // Lingua
@@ -3182,6 +3209,7 @@ function saveAllSettings() {
     brightnessNight: document.getElementById('brightnessNight').value,
     autoNightMode: document.getElementById('autoNightMode').checked ? 1 : 0,
     powerSave: document.getElementById('powerSave').checked ? 1 : 0,
+    ledRgbEnabled: document.getElementById('ledRgbEnabled').checked ? 1 : 0,
     radarBrightnessControl: document.getElementById('radarBrightnessControl').checked ? 1 : 0,
     radarBrightnessMin: document.getElementById('radarBrightnessMin').value,
     radarBrightnessMax: document.getElementById('radarBrightnessMax').value,
@@ -3512,6 +3540,9 @@ function refreshStatusNow() {
       if (data.powerSave !== undefined) {
         document.getElementById('powerSave').checked = data.powerSave;
       }
+      if (data.ledRgbEnabled !== undefined) {
+        document.getElementById('ledRgbEnabled').checked = data.ledRgbEnabled;
+      }
       // Aggiorna Radar Brightness Control e slider min/max
       if (data.radarBrightnessControl !== undefined) {
         document.getElementById('radarBrightnessControl').checked = data.radarBrightnessControl;
@@ -3720,6 +3751,12 @@ function startAutoRefresh() {
           const el = document.getElementById('powerSave');
           if (el.checked !== data.powerSave) {
             el.checked = data.powerSave;
+          }
+        }
+        if (data.ledRgbEnabled !== undefined) {
+          const el = document.getElementById('ledRgbEnabled');
+          if (el.checked !== data.ledRgbEnabled) {
+            el.checked = data.ledRgbEnabled;
           }
         }
         // Sincronizza Radar Brightness Control e slider min/max

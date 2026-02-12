@@ -298,6 +298,11 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
           <h3>Calendario</h3>
           <p>Eventi e sincronizzazione Google</p>
         </a>
+        <a href="/ledrgb" class="nav-card led" id="card-ledrgb" style="display:none">
+          <span class="icon">&#128308;</span>
+          <h3>LED RGB</h3>
+          <p>Anello WS2812 colori e luminosit&agrave;</p>
+        </a>
       </div>
     </div>
 
@@ -635,7 +640,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     }
 
     async function checkPages(){
-      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player','webradio','radioalarm','webtv','cal'];
+      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player','webradio','radioalarm','webtv','cal','ledrgb'];
       for(const p of pages){
         try{
           const r = await fetch('/'+p,{method:'HEAD'});

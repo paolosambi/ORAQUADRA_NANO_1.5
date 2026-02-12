@@ -417,10 +417,23 @@ void checkButtons() {
 
   // ====================== GESTIONE TOUCH CALENDARIO ======================
   // Il calendario gestisce i propri tocchi internamente (griglia mese + dettaglio giorno)
+  // Il pulsante MODE >> (basso centro) viene gestito qui per seguire lo stesso
+  // percorso di cambio pagina delle altre modalita'
   #ifdef EFFECT_CALENDAR
   if (currentMode == MODE_CALENDAR && touchDetected && !waitingForRelease) {
     int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
     int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+
+    // Pulsante MODE >> (basso centro y>455, x 180-310)
+    if (y > 455 && x >= 180 && x <= 310) {
+      Serial.println("[CAL-TOUCH] Pulsante MODE >> - cambio modalita'");
+      calendarGridView = true;  // Reset a griglia per prossimo ingresso
+      playTouchSound();
+      handleModeChange();
+      waitingForRelease = true;
+      return;
+    }
+
     handleCalendarTouch(x, y);
     waitingForRelease = true;
     return;

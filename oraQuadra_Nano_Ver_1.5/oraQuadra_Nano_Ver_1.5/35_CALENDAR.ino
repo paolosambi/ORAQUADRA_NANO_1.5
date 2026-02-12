@@ -292,7 +292,13 @@ void drawCalendarStatusBar() {
   gfx->setCursor(5, 479);
   gfx->print(timeBuf);
 
+  // Pulsante MODE >> al centro della status bar
+  gfx->setTextColor(CAL_ACCENT);
+  gfx->setCursor(210, 479);
+  gfx->print("MODE >>");
+
   // Conteggio eventi
+  gfx->setTextColor(CAL_ACCENT_DARK);
   char countBuf[20];
   sprintf(countBuf, "%d eventi", mergedEventCount);
   gfx->setCursor(400, 479);
@@ -359,6 +365,11 @@ void drawCalendarDayDetail(int day) {
     gfx->setTextColor(CAL_OTHER_MONTH);
     gfx->setCursor(150, 300);
     gfx->print("Nessun evento");
+    // Pulsante MODE >> in basso al centro
+    gfx->setFont(u8g2_font_helvR08_tr);
+    gfx->setTextColor(CAL_ACCENT);
+    gfx->setCursor(210, 479);
+    gfx->print("MODE >>");
     return;
   }
 
@@ -420,6 +431,12 @@ void drawCalendarDayDetail(int day) {
     gfx->setCursor(180, 460);
     gfx->print(moreBuf);
   }
+
+  // Pulsante MODE >> in basso al centro
+  gfx->setFont(u8g2_font_helvR08_tr);
+  gfx->setTextColor(CAL_ACCENT);
+  gfx->setCursor(210, 479);
+  gfx->print("MODE >>");
 }
 
 // ============================================================================

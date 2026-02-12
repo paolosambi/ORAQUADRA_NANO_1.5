@@ -101,6 +101,7 @@
 #define EFFECT_RADIO_ALARM    // Radiosveglia con selezione stazione WebRadio
 // #define EFFECT_WEB_TV         // DISABILITATO - Troppo lag per ESP32
 #define EFFECT_CALENDAR
+#define EFFECT_LED_RGB        // LED RGB WS2812 (12 LED) su GPIO43 - colori per tema
 
 // ================== INCLUSIONE LIBRERIE ==================
 #include <Arduino.h>             // Libreria base per la programmazione di schede Arduino (ESP32).
@@ -122,6 +123,9 @@
 #include <JPEGDEC.h>             // Libreria per decodificare immagini JPEG.
 #include <ESPAsyncWebServer.h>   // Libreria per web server asincrono ad alte prestazioni.
 #include <AsyncTCP.h>            // Libreria per comunicazioni TCP asincrone (richiesta da ESPAsyncWebServer).
+#ifdef EFFECT_LED_RGB
+#include <Adafruit_NeoPixel.h>   // Libreria per LED RGB WS2812
+#endif
 #include "home_web_html.h"       // HTML per homepage con link a tutte le pagine
 
 /////////////////TEST NUOVO I2S AUDIO////////////////////////////////////////////////////
@@ -691,6 +695,22 @@ void loadLocalEventsFromLittleFS();
 void mergeLocalAndGoogleEvents();
 bool pushEventToGoogle(uint16_t id);
 bool deleteEventFromGoogleById(uint16_t id);
+
+// Funzioni definite in 37_LED_RGB.ino e 38_WEBSERVER_LED_RGB.ino
+#ifdef EFFECT_LED_RGB
+void setup_led_rgb();
+void updateLedRgb();
+void saveLedRgbSettings();
+void getLedColorForMode(DisplayMode mode, uint8_t &r, uint8_t &g, uint8_t &b);
+void setup_ledrgb_webserver(AsyncWebServer* server);
+extern bool    ledRgbEnabled;
+extern uint8_t ledRgbBrightness;
+extern bool    ledRgbOverride;
+extern uint8_t ledRgbOverrideR;
+extern uint8_t ledRgbOverrideG;
+extern uint8_t ledRgbOverrideB;
+extern uint8_t ledAudioReactive;
+#endif
 
 // Funzioni definite in 8_CLOCK.ino (EFFECT_CLOCK)
 #ifdef EFFECT_CLOCK
@@ -2174,6 +2194,11 @@ Serial.println("LittleFS inizializzato correttamente.");
     Serial.println("[WEBSERVER] Calendario disponibile su /calendar");
     #endif
 
+    #ifdef EFFECT_LED_RGB
+    setup_ledrgb_webserver(clockWebServer);
+    Serial.println("[WEBSERVER] LED RGB disponibile su /ledrgb");
+    #endif
+
     clockWebServer->begin();
     Serial.println("[WEBSERVER] Server configurazione avviato su porta 8080");
     Serial.println("[WEBSERVER] Accedi a http://" + WiFi.localIP().toString() + ":8080/");
@@ -2222,6 +2247,10 @@ Serial.println("LittleFS inizializzato correttamente.");
   // Inizializza magnetometro QMC5883P (I2C condiviso con touch GT911)
   // NOTA: È un QMC5883P (non QMC5883L!), indirizzo 0x0C, libreria Adafruit_QMC5883P
   setup_magnetometer();
+
+  #ifdef EFFECT_LED_RGB
+  setup_led_rgb();
+  #endif
 
   // Inizializzazione delle opzioni di setup (caricamento dalla EEPROM o valori predefiniti)
   initSetupOptions();
@@ -3382,6 +3411,12 @@ if (currentIsNight != lastWasNightTime) {
   // Disegna il LED rosso in alto a destra se un allarme è attivo
   // Chiamato qui per funzionare in TUTTE le modalità, ogni ciclo del loop
   drawAlarmIndicator();
+
+  // ========== AGGIORNAMENTO LED RGB WS2812 ==========
+  // Aggiorna colore anello LED in base al tema/modalità corrente
+  #ifdef EFFECT_LED_RGB
+  updateLedRgb();
+  #endif
 
   // Permette al watchdog timer dell'ESP32 di non resettare il dispositivo
   yield();

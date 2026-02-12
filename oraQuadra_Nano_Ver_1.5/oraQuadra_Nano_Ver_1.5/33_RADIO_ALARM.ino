@@ -142,7 +142,7 @@ void updateRadioAlarm() {
 
   // Gestione touch
   ts.read();
-  if (ts.isTouched && ts.touches > 0) {
+  if (ts.isTouched) {
     static uint32_t lastTouch = 0;
     uint32_t now = millis();
     if (now - lastTouch > 400) {  // Aumentato da 300 a 400ms

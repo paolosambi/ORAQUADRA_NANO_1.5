@@ -560,6 +560,9 @@ void handleSettingsConfig(AsyncWebServerRequest *request) {
   json += "  \"brightnessNight\": " + String(brightnessNight) + ",\n";
   json += "  \"autoNightMode\": " + String(setupOptions.autoNightModeEnabled ? "true" : "false") + ",\n";
   json += "  \"powerSave\": " + String(setupOptions.powerSaveEnabled ? "true" : "false") + ",\n";
+  #ifdef EFFECT_LED_RGB
+  json += "  \"ledRgbEnabled\": " + String(ledRgbEnabled ? "true" : "false") + ",\n";
+  #endif
 
   // Orari
   json += "  \"dayStartHour\": " + String(dayStartHour) + ",\n";
@@ -875,6 +878,17 @@ void handleSettingsSave(AsyncWebServerRequest *request) {
       Serial.printf("[SETTINGS] powerSave = %s\n", val ? "ON" : "OFF");
     }
   }
+
+  #ifdef EFFECT_LED_RGB
+  if (request->hasParam("ledRgbEnabled")) {
+    bool val = (request->getParam("ledRgbEnabled")->value().toInt() == 1);
+    if (val != ledRgbEnabled) {
+      ledRgbEnabled = val;
+      saveLedRgbSettings();
+      Serial.printf("[SETTINGS] ledRgbEnabled = %s\n", val ? "ON" : "OFF");
+    }
+  }
+  #endif
 
   if (request->hasParam("radarBrightnessControl")) {
     bool val = (request->getParam("radarBrightnessControl")->value().toInt() == 1);
