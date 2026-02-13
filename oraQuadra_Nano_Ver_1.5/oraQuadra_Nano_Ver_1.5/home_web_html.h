@@ -303,6 +303,16 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
           <h3>LED RGB</h3>
           <p>Anello WS2812 colori e luminosit&agrave;</p>
         </a>
+        <a href="/youtube" class="nav-card video" id="card-youtube" style="display:none">
+          <span class="icon">&#9654;</span>
+          <h3>YouTube Stats</h3>
+          <p>Statistiche canale YouTube</p>
+        </a>
+        <a href="/news" class="nav-card primary" id="card-news" style="display:none">
+          <span class="icon">&#128240;</span>
+          <h3>News RSS</h3>
+          <p>Notizie in tempo reale</p>
+        </a>
       </div>
     </div>
 
@@ -380,7 +390,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     const MODES = ['Fade','Slow','Fast','Matrix','Matrix2','Snake','Water','Mario',
                    'Tron','Galaga','Flux','FlipClock','BTTF','LED Ring','Weather','Radar',
                    'Gemini','Galaga2','MJPEG','ESP32CAM','FluxCap','Christmas','Fire','FireText',
-                   'MP3 Player','Web Radio','Radio Alarm','Web TV','Calendario'];
+                   'MP3 Player','Web Radio','Radio Alarm','Web TV','Calendario','YouTube','News'];
 
     let currentMode = 0;
     let currentColor = '#00ff00';
@@ -625,6 +635,8 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
       else if(currentMode === 25) showSpecial('📻', 'Web Radio', 'Internet Radio');
       else if(currentMode === 26) showSpecial('⏰', 'Radio Alarm', 'Sveglia Radio');
       else if(currentMode === 28) showSpecial('📅', 'Calendario', 'Google Agenda');
+      else if(currentMode === 29) showSpecial('▶️', 'YouTube Stats', 'Channel Statistics');
+      else if(currentMode === 30) showSpecial('📰', 'News', 'ANSA / BBC / Repubblica');
       else showSpecial('⏰', MODES[currentMode]||'Mode '+currentMode, '');
     }
 
@@ -640,7 +652,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     }
 
     async function checkPages(){
-      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player','webradio','radioalarm','webtv','cal','ledrgb'];
+      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player','webradio','radioalarm','webtv','cal','ledrgb','youtube','news'];
       for(const p of pages){
         try{
           const r = await fetch('/'+p,{method:'HEAD'});

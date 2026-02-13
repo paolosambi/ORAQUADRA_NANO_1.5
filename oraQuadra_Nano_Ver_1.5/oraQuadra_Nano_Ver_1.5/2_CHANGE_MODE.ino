@@ -191,6 +191,20 @@ void cleanupPreviousMode(DisplayMode previousMode) {
   }
 #endif
 
+#ifdef EFFECT_YOUTUBE
+  if (previousMode == MODE_YOUTUBE) {
+    youtubeInitialized = false;
+    Serial.println("[CLEANUP] YouTube: reset");
+  }
+#endif
+
+#ifdef EFFECT_NEWS
+  if (previousMode == MODE_NEWS) {
+    newsInitialized = false;
+    Serial.println("[CLEANUP] News: reset");
+  }
+#endif
+
 #ifdef EFFECT_GEMINI_AI
   if (previousMode == MODE_GEMINI_AI) {
     geminiInitialized = false;
@@ -342,6 +356,20 @@ void forceDisplayUpdate() {
     case MODE_CALENDAR:
       calendarStationInitialized = false;  // Forza la reinizializzazione di calendar.
       initCalendarStation();               // Chiama la funzione per inizializzare il calendario.
+      break;
+#endif
+
+#ifdef EFFECT_YOUTUBE
+    case MODE_YOUTUBE:
+      youtubeInitialized = false;          // Forza la reinizializzazione di YouTube Stats.
+      initYoutubeStation();                // Chiama la funzione per inizializzare YouTube Stats.
+      break;
+#endif
+
+#ifdef EFFECT_NEWS
+    case MODE_NEWS:
+      newsInitialized = false;             // Forza la reinizializzazione di News Feed.
+      initNewsStation();                   // Chiama la funzione per inizializzare News Feed.
       break;
 #endif
 
@@ -617,6 +645,12 @@ bool isValidMode(DisplayMode mode) {
 #ifdef EFFECT_CALENDAR
     case MODE_CALENDAR:
 #endif
+#ifdef EFFECT_YOUTUBE
+    case MODE_YOUTUBE:
+#endif
+#ifdef EFFECT_NEWS
+    case MODE_NEWS:
+#endif
 #ifdef EFFECT_CLOCK
     case MODE_CLOCK:
 #endif
@@ -829,6 +863,18 @@ void handleModeChange() {
 #ifdef EFFECT_CALENDAR
     case MODE_CALENDAR:
       modeName = "CALENDARIO";
+      modeColor = CYAN;
+      break;
+#endif
+#ifdef EFFECT_YOUTUBE
+    case MODE_YOUTUBE:
+      modeName = "YOUTUBE";
+      modeColor = RED;
+      break;
+#endif
+#ifdef EFFECT_NEWS
+    case MODE_NEWS:
+      modeName = "NEWS";
       modeColor = CYAN;
       break;
 #endif

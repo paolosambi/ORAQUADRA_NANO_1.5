@@ -76,6 +76,12 @@ extern bool weatherDataValid;
 extern String calendarGoogleUrl;
 extern String calendarApiKey;
 
+// Dichiarazioni extern per YouTube API (definite in 39_YOUTUBE.ino)
+#ifdef EFFECT_YOUTUBE
+extern String youtubeApiKey;
+extern String youtubeChannelId;
+#endif
+
 
 // Dichiarazioni extern per magnetometro QMC5883P (definite in 25_MAGNETOMETER.ino)
 extern bool magnetometerConnected;
@@ -328,11 +334,23 @@ void saveApiKeysToLittleFS() {
   Serial.printf("[METEO] Città da salvare: '%s'\n", apiOpenWeatherCity.c_str());
   Serial.printf("[CALENDAR] URL da salvare: '%s'\n", calendarGoogleUrl.c_str());
   Serial.printf("[CALENDAR] API da salvare: '%s'\n", calendarApiKey.c_str());
+#ifdef EFFECT_YOUTUBE
+  Serial.printf("[YOUTUBE] API Key da salvare: '%s'\n", youtubeApiKey.length() > 0 ? "***configurata***" : "(vuota)");
+  Serial.printf("[YOUTUBE] Channel ID da salvare: '%s'\n", youtubeChannelId.c_str());
+#endif
   File file = LittleFS.open(API_KEYS_FILE, "w");
   if (file) {
-    file.println(apiOpenWeatherCity);  // Solo città, Open-Meteo non richiede API key
-    file.println(calendarGoogleUrl); // Salviamo url script calendar
-    file.println(calendarApiKey);    // Salviamo API accesso calendar
+    file.println(apiOpenWeatherCity);  // Riga 1: città meteo
+    file.println(calendarGoogleUrl);   // Riga 2: URL script calendar
+    file.println(calendarApiKey);      // Riga 3: API key calendar
+#ifdef EFFECT_YOUTUBE
+    file.println(youtubeApiKey);       // Riga 4: YouTube API Key
+    file.println(youtubeChannelId);    // Riga 5: YouTube Channel ID
+#else
+    file.println("");                  // Riga 4: placeholder
+    file.println("");                  // Riga 5: placeholder
+#endif
+    file.println("");                  // Riga 6: riservata (ex News API Key)
     file.close();
     Serial.println("[API] Salvate su LittleFS con successo");
   } else {
@@ -340,41 +358,52 @@ void saveApiKeysToLittleFS() {
   }
 }
 
-// Carica le impostazioni meteo da LittleFS
-// Gestisce anche la migrazione dal vecchio formato (4 righe) al nuovo (1 riga)
+// Carica le impostazioni da LittleFS
+// Gestisce migrazione dal vecchio formato (3 righe) al nuovo (6 righe)
 void loadApiKeysFromLittleFS() {
   if (LittleFS.exists(API_KEYS_FILE)) {
     File file = LittleFS.open(API_KEYS_FILE, "r");
     if (file) {
       String line1 = "";
       String line2 = "";
-      String line3 = ""; // Nuova per la chiave calendario
+      String line3 = "";
+      String line4 = "";
+      String line5 = "";
+      String line6 = "";
 
       if (file.available()) { line1 = file.readStringUntil('\n'); line1.trim(); }
       if (file.available()) { line2 = file.readStringUntil('\n'); line2.trim(); }
       if (file.available()) { line3 = file.readStringUntil('\n'); line3.trim(); }
+      if (file.available()) { line4 = file.readStringUntil('\n'); line4.trim(); }
+      if (file.available()) { line5 = file.readStringUntil('\n'); line5.trim(); }
+      if (file.available()) { line6 = file.readStringUntil('\n'); line6.trim(); }
       file.close();
 
       // --- LOGICA DI MIGRAZIONE ESISTENTE ---
-      // Se line1 è una chiave API (lunga) e line2 è una città, è il formato vecchissimo
       bool isOldFormat = (line1.length() >= 20 && line2.length() > 0 && line2.length() < 50 && !line2.startsWith("http"));
 
       if (isOldFormat) {
         apiOpenWeatherCity = line2;
-        calendarGoogleUrl = ""; 
+        calendarGoogleUrl = "";
         calendarApiKey = "";
         Serial.println("[SYSTEM] Migrazione da formato vecchissimo (API Key OWM)");
-        saveApiKeysToLittleFS(); // Converte subito nel nuovo formato a 3 righe
-      } 
-      // --- NUOVA LOGICA A 3 RIGHE ---
+        saveApiKeysToLittleFS();
+      }
       else {
         apiOpenWeatherCity = line1;
-        calendarGoogleUrl = line2; // La seconda riga ora è l'URL
-        calendarApiKey = line3;    // La terza riga è la chiave segreta
-        
-        Serial.println("[SYSTEM] Caricamento completato:");
+        calendarGoogleUrl = line2;
+        calendarApiKey = line3;
+#ifdef EFFECT_YOUTUBE
+        youtubeApiKey = line4;
+        youtubeChannelId = line5;
+#endif
+
+        Serial.println("[SYSTEM] API Keys caricamento completato:");
         Serial.printf(" - Città: %s\n", apiOpenWeatherCity.c_str());
         Serial.printf(" - Cal URL: %s\n", (calendarGoogleUrl.length() > 0 ? "Configurato" : "Vuoto"));
+#ifdef EFFECT_YOUTUBE
+        Serial.printf(" - YouTube: %s\n", (youtubeApiKey.length() > 0 ? "Configurato" : "Vuoto"));
+#endif
       }
     }
   } else {
@@ -382,24 +411,48 @@ void loadApiKeysFromLittleFS() {
   }
 }
 
-// Handler GET /settings/getapikeys - Restituisce le impostazioni meteo
-void handleGetApiKeys(AsyncWebServerRequest *request) {
-  String json = "{\n";
-  // Aggiunta la virgola dopo apiOpenWeatherCity
-  json += "  \"openweatherCity\": \"" + apiOpenWeatherCity + "\",\n"; 
-  // Aggiunta la virgola dopo calendarGoogleUrl
-  json += "  \"calendarUrl\": \"" + calendarGoogleUrl + "\",\n"; 
-  // L'ultima riga NON deve avere la virgola
-  json += "  \"calendarApiKey\": \"" + calendarApiKey + "\"\n"; 
-  json += "}";
-
-  request->send(200, "application/json", json);
+// Helper: escape stringa per JSON (gestisce " e \ nelle API keys)
+String jsonEscape(const String& s) {
+  String out = "";
+  out.reserve(s.length() + 10);
+  for (unsigned int i = 0; i < s.length(); i++) {
+    char c = s.charAt(i);
+    if (c == '"') out += "\\\"";
+    else if (c == '\\') out += "\\\\";
+    else out += c;
+  }
+  return out;
 }
 
-// Handler GET /settings/saveapikeys - Salva le impostazioni meteo
+// Handler GET /settings/getapikeys - Restituisce tutte le API keys
+void handleGetApiKeys(AsyncWebServerRequest *request) {
+  String json = "{";
+  json += "\"openweatherCity\":\"" + jsonEscape(apiOpenWeatherCity) + "\",";
+  json += "\"calendarUrl\":\"" + jsonEscape(calendarGoogleUrl) + "\",";
+  json += "\"calendarApiKey\":\"" + jsonEscape(calendarApiKey) + "\",";
+#ifdef EFFECT_YOUTUBE
+  json += "\"youtubeApiKey\":\"" + jsonEscape(youtubeApiKey) + "\",";
+  json += "\"youtubeChannelId\":\"" + jsonEscape(youtubeChannelId) + "\",";
+#else
+  json += "\"youtubeApiKey\":\"\",";
+  json += "\"youtubeChannelId\":\"\",";
+#endif
+  json += "\"_\":0";
+  json += "}";
+
+  AsyncWebServerResponse *response = request->beginResponse(200, "application/json", json);
+  response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  response->addHeader("Pragma", "no-cache");
+  request->send(response);
+}
+
+// Handler GET /settings/saveapikeys - Salva tutte le API keys
 void handleSaveApiKeys(AsyncWebServerRequest *request) {
   Serial.println("[API] Ricevuta richiesta di salvataggio chiavi...");
   bool changed = false;
+  bool meteoChanged = false;
+  bool calendarChanged = false;
+  bool youtubeChanged = false;
 
   // 1. Gestione Città Meteo
   if (request->hasParam("openweatherCity")) {
@@ -408,6 +461,7 @@ void handleSaveApiKeys(AsyncWebServerRequest *request) {
     if (val != apiOpenWeatherCity) {
       apiOpenWeatherCity = val;
       changed = true;
+      meteoChanged = true;
       Serial.printf("[METEO] Nuova città: %s\n", apiOpenWeatherCity.c_str());
     }
   }
@@ -419,6 +473,7 @@ void handleSaveApiKeys(AsyncWebServerRequest *request) {
     if (val != calendarGoogleUrl) {
       calendarGoogleUrl = val;
       changed = true;
+      calendarChanged = true;
       Serial.println("[CALENDAR] Nuovo URL configurato");
     }
   }
@@ -430,22 +485,61 @@ void handleSaveApiKeys(AsyncWebServerRequest *request) {
     if (val != calendarApiKey) {
       calendarApiKey = val;
       changed = true;
+      calendarChanged = true;
       Serial.println("[CALENDAR] Nuova API Key configurata");
     }
   }
 
+  // 4. Gestione YouTube API Key
+#ifdef EFFECT_YOUTUBE
+  if (request->hasParam("youtubeApiKey")) {
+    String val = request->getParam("youtubeApiKey")->value();
+    val.trim();
+    if (val != youtubeApiKey) {
+      youtubeApiKey = val;
+      changed = true;
+      youtubeChanged = true;
+      Serial.println("[YOUTUBE] Nuova API Key configurata");
+    }
+  }
+
+  // 5. Gestione YouTube Channel ID
+  if (request->hasParam("youtubeChannelId")) {
+    String val = request->getParam("youtubeChannelId")->value();
+    val.trim();
+    if (val != youtubeChannelId) {
+      youtubeChannelId = val;
+      changed = true;
+      youtubeChanged = true;
+      Serial.println("[YOUTUBE] Nuovo Channel ID configurato");
+    }
+  }
+#endif
+
+
   // Se qualcosa è cambiato, salviamo tutto su LittleFS
   if (changed) {
-    saveApiKeysToLittleFS(); // Questa funzione scriverà le 3 righe nel file
-    
-    // Reset meteo per forzare il ricalcolo delle coordinate (Geocoding)
-    extern void resetWeatherCoords();
-    resetWeatherCoords();
-    
-    // Reset flag calendario per forzare il download dei dati nuovi
-    extern bool calendarStationInitialized;
-    calendarStationInitialized = false; 
-    
+    saveApiKeysToLittleFS();
+
+    if (meteoChanged) {
+      extern void resetWeatherCoords();
+      resetWeatherCoords();
+    }
+
+    if (calendarChanged) {
+      extern bool calendarStationInitialized;
+      calendarStationInitialized = false;
+    }
+
+#ifdef EFFECT_YOUTUBE
+    if (youtubeChanged) {
+      extern bool youtubeInitialized;
+      youtubeInitialized = false;
+      Serial.println("[YOUTUBE] Reset per nuove credenziali");
+    }
+#endif
+
+
     Serial.println("[API] ✓ Modifiche salvate e moduli resettati");
   }
 
@@ -618,9 +712,8 @@ void handleSettingsConfig(AsyncWebServerRequest *request) {
   bool first = true;
   // Lista delle modalità valide (esclude 16=GEMINI, 18=MJPEG, 27=WEB_TV disabilitato)
   // 24=MP3_PLAYER, 25=WEB_RADIO, 26=RADIO_ALARM sono modalità valide
-  //const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26};
-  // Array delle modalità abilitate (Aggiunto 28)
-  const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 28};
+  // Array delle modalità valide (esclude 16=GEMINI, 18=MJPEG, 27=WEB_TV)
+  const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30};
   const int numValidModes = sizeof(validModes) / sizeof(validModes[0]);
   for (int i = 0; i < numValidModes; i++) {
     int modeId = validModes[i];

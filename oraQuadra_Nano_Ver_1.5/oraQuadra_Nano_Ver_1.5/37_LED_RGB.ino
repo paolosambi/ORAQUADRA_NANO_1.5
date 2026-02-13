@@ -258,6 +258,18 @@ void getLedColorForMode(DisplayMode mode, uint8_t &r, uint8_t &g, uint8_t &b) {
       break;
 #endif
 
+#ifdef EFFECT_YOUTUBE
+    case MODE_YOUTUBE:
+      r = 255; g = 0; b = 0;  // Rosso YouTube
+      break;
+#endif
+
+#ifdef EFFECT_NEWS
+    case MODE_NEWS:
+      r = 0; g = 180; b = 255;  // Azzurro news
+      break;
+#endif
+
     default:
       // Fallback: bianco caldo
       r = 255; g = 200; b = 100;

@@ -449,6 +449,8 @@ input[type="number"] {
     <a href="/radioalarm" class="nav-link" id="radioAlarmConfigLink" style="display:none;">⏰ Radio Alarm</a>
     <a href="/cal" class="nav-link" id="calendarConfigLink" style="display:none;">📅 Calendario</a>
     <a href="/ledrgb" class="nav-link" id="ledrgbConfigLink" style="display:none;">💡 LED RGB</a>
+    <a href="/youtube" class="nav-link" id="youtubeConfigLink" style="display:none;">▶️ YouTube Stats</a>
+    <a href="/news" class="nav-link" id="newsConfigLink" style="display:none;">📰 News</a>
     <!-- WebTV disabilitato - troppo lag per ESP32 -->
   </div>
 
@@ -1269,9 +1271,36 @@ input[type="number"] {
           <input type="password" id="calendarApiKey" placeholder="Chiave segreta" style="width:150px; padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text);">
         </div>
 
+        <hr style="border: 0; border-top: 1px solid var(--border); margin: 15px 0;">
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">▶️ YouTube Data API v3</div>
+            <div class="setting-desc">Statistiche canale YouTube</div>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">YouTube API Key</div>
+            <div class="setting-desc">Da console.cloud.google.com</div>
+          </div>
+          <input type="text" id="youtubeApiKey" placeholder="AIzaSy..." style="width:150px; padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text);">
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">YouTube Channel ID</div>
+            <div class="setting-desc">Es: UCxxxxxxxxxxxxxxxx</div>
+          </div>
+          <input type="text" id="youtubeChannelId" placeholder="UCxxxxxxxx..." style="width:150px; padding:8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text);">
+        </div>
+
+
+        <div class="setting-row" style="justify-content:center; margin-top:10px;">
+          <button onclick="saveApiKeys()" style="padding:10px 30px; border-radius:8px; border:none; background:linear-gradient(135deg, #f59e0b, #d97706); color:#fff; font-weight:bold; font-size:0.9rem; cursor:pointer;">💾 Salva API Keys</button>
+        </div>
         <div class="setting-row" id="apiKeysStatus" style="display:none;">
           <div class="setting-info">
-            <div class="setting-label" style="color: var(--success);">✓ Impostazioni salvate automaticamente</div>
+            <div class="setting-label" style="color: var(--success);">✓ Impostazioni salvate!</div>
           </div>
         </div>
       </div>
@@ -1359,6 +1388,8 @@ const MODES = [
   { id: 26, name: 'RADIO ALARM', icon: '⏰', desc: 'Radiosveglia' },
   // { id: 27, name: 'WEB TV', icon: '📺', desc: 'TV Live' }  // DISABILITATO - Troppo lag
   { id: 28, name: 'CALENDAR', icon: '📅', desc: 'Google Agenda' }, // AGGIUNTO ID 28
+  { id: 29, name: 'YOUTUBE', icon: '▶️', desc: 'YouTube Stats' },
+  { id: 30, name: 'NEWS', icon: '📰', desc: 'News RSS' },
 ];
 
 let currentMode = 2;
@@ -1416,6 +1447,8 @@ function toggleMode(modeId, enabled) {
   updateRadioAlarmLink();
   updateCalendarLink();
   updateLedRgbLink();
+  updateYoutubeLink();
+  updateNewsLink();
   // updateWebTVLink();  // WebTV disabilitato
 }
 
@@ -1476,6 +1509,30 @@ function updateLedRgbLink() {
   if (!link) return;
   // Mostra sempre se ledRgbEnabled è definito (EFFECT_LED_RGB compilato)
   fetch('/ledrgb/status').then(r => r.ok ? link.style.display = 'inline-block' : null).catch(() => {});
+}
+
+// Aggiorna visibilità link YouTube Stats
+function updateYoutubeLink() {
+  var link = document.getElementById('youtubeConfigLink');
+  if (!link) return;
+  var modeEnabled = enabledModes[29] === true; // 29 = MODE_YOUTUBE
+  if (modeEnabled) {
+    fetch('/youtube/status').then(r => r.ok ? link.style.display = 'inline-block' : null).catch(() => {});
+  } else {
+    link.style.display = 'none';
+  }
+}
+
+// Aggiorna visibilità link News
+function updateNewsLink() {
+  var link = document.getElementById('newsConfigLink');
+  if (!link) return;
+  var modeEnabled = enabledModes[30] === true; // 30 = MODE_NEWS
+  if (modeEnabled) {
+    fetch('/news/status').then(r => r.ok ? link.style.display = 'inline-block' : null).catch(() => {});
+  } else {
+    link.style.display = 'none';
+  }
 }
 
 // WebTV disabilitato - funzione commentata
@@ -3162,6 +3219,8 @@ function loadSettings() {
       updateRadioAlarmLink();
       updateCalendarLink();
       updateLedRgbLink();
+      updateYoutubeLink();
+      updateNewsLink();
       // updateWebTVLink();  // WebTV disabilitato
 
       // Lingua
@@ -3299,32 +3358,43 @@ let apiKeySaveTimeout = null;
 
 function saveApiKeys() {
   setStatus('saving', 'Salvataggio...');
-  const cityValue = document.getElementById('openweatherCity').value;
-  const urlValue = document.getElementById('calendarUrl').value;
-  const keyValue = document.getElementById('calendarApiKey').value;
+  var cityValue = document.getElementById('openweatherCity') ? document.getElementById('openweatherCity').value : '';
+  var urlValue = document.getElementById('calendarUrl') ? document.getElementById('calendarUrl').value : '';
+  var keyValue = document.getElementById('calendarApiKey') ? document.getElementById('calendarApiKey').value : '';
+  var ytKeyValue = document.getElementById('youtubeApiKey') ? document.getElementById('youtubeApiKey').value : '';
+  var ytChValue = document.getElementById('youtubeChannelId') ? document.getElementById('youtubeChannelId').value : '';
 
-  const params = new URLSearchParams({
+  var params = new URLSearchParams({
     openweatherCity: cityValue,
     calendarUrl: urlValue,
-    calendarApiKey: keyValue
+    calendarApiKey: keyValue,
+    youtubeApiKey: ytKeyValue,
+    youtubeChannelId: ytChValue
   });
 
-  fetch('/settings/saveapikeys?' + params)
+  fetch('/settings/saveapikeys?' + params.toString() + '&t=' + Date.now())
     .then(r => r.text())
     .then(result => {
       if (result === 'OK') {
-        setStatus('online', 'Impostazioni salvate!');
-        document.getElementById('apiKeysStatus').style.display = 'flex';
+        setStatus('online', 'API Keys salvate!');
+        var st = document.getElementById('apiKeysStatus');
+        if (st) st.style.display = 'flex';
         setTimeout(() => {
           setStatus('online', 'Connesso');
-          document.getElementById('apiKeysStatus').style.display = 'none';
+          if (st) st.style.display = 'none';
         }, 3000);
+      } else {
+        setStatus('error', 'Errore salvataggio: ' + result);
       }
+    })
+    .catch(e => {
+      setStatus('error', 'Errore connessione');
+      console.error('saveApiKeys error:', e);
     });
 }
 
 function setupApiKeysAutoSave() {
-  const apiKeyInputs = ['openweatherCity', 'calendarUrl', 'calendarApiKey'];
+  const apiKeyInputs = ['openweatherCity', 'calendarUrl', 'calendarApiKey', 'youtubeApiKey', 'youtubeChannelId'];
   apiKeyInputs.forEach(inputId => {
     const input = document.getElementById(inputId);
     if (input) {
@@ -3341,14 +3411,19 @@ function setupApiKeysAutoSave() {
 }
 
 function loadApiKeys() {
-  fetch('/settings/getapikeys')
+  fetch('/settings/getapikeys?t=' + Date.now())
     .then(r => r.json())
     .then(data => {
       if (data.openweatherCity) document.getElementById('openweatherCity').value = data.openweatherCity;
       if (data.calendarUrl) document.getElementById('calendarUrl').value = data.calendarUrl;
       if (data.calendarApiKey) document.getElementById('calendarApiKey').value = data.calendarApiKey;
+      var el;
+      el = document.getElementById('youtubeApiKey');
+      if (el && data.youtubeApiKey) el.value = data.youtubeApiKey;
+      el = document.getElementById('youtubeChannelId');
+      if (el && data.youtubeChannelId) el.value = data.youtubeChannelId;
     })
-    .catch(() => console.log('Impostazioni non disponibili'));
+    .catch(e => console.log('Errore caricamento API keys:', e));
 }
 
 function formatUptime(s) {

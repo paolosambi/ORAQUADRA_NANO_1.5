@@ -23,6 +23,14 @@ extern void stopCalendarAlarm();
 extern void snoozeCalendarAlarm();
 #endif
 
+// Dichiarazioni esterne per News
+#ifdef EFFECT_NEWS
+extern void newsSetCategory(int index);
+extern int  newsGetTappedTab(int tx, int ty);
+extern bool newsIsSourcePillTapped(int tx, int ty);
+extern void newsNextSource();
+#endif
+
 void checkButtons() {
   // Variabili statiche per mantenere lo stato tra le diverse chiamate a questa funzione.
   static bool waitingForRelease = false; // Flag che indica se stiamo aspettando che il tocco venga rilasciato.
@@ -435,6 +443,47 @@ void checkButtons() {
     }
 
     handleCalendarTouch(x, y);
+    waitingForRelease = true;
+    return;
+  }
+  #endif
+
+  // ====================== GESTIONE TOUCH NEWS FEED ======================
+  // Tocco su tab specifica = seleziona quella categoria
+  // Pulsante MODE >> in basso centro per cambio modalita'
+  #ifdef EFFECT_NEWS
+  if (currentMode == MODE_NEWS && touchDetected && !waitingForRelease) {
+    int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+    int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+
+    // Pulsante MODE >> (basso centro y>455, x 180-310)
+    if (y > 455 && x >= 180 && x <= 310) {
+      Serial.println("[NEWS-TOUCH] Pulsante MODE >> - cambio modalita'");
+      playTouchSound();
+      handleModeChange();
+      waitingForRelease = true;
+      return;
+    }
+
+    // Pill fonte in alto a destra: tocca per cambiare fonte (ANSA/BBC/Repubblica)
+    if (newsIsSourcePillTapped(x, y)) {
+      playTouchSound();
+      newsNextSource();
+      Serial.println("[NEWS-TOUCH] Cambio fonte");
+      waitingForRelease = true;
+      return;
+    }
+
+    // Zona tabs categorie: hit-test preciso sulla tab toccata
+    int tappedTab = newsGetTappedTab(x, y);
+    if (tappedTab >= 0) {
+      playTouchSound();
+      newsSetCategory(tappedTab);
+      Serial.printf("[NEWS-TOUCH] Tab %d selezionata\n", tappedTab);
+      waitingForRelease = true;
+      return;
+    }
+
     waitingForRelease = true;
     return;
   }

@@ -102,6 +102,8 @@
 // #define EFFECT_WEB_TV         // DISABILITATO - Troppo lag per ESP32
 #define EFFECT_CALENDAR
 #define EFFECT_LED_RGB        // LED RGB WS2812 (12 LED) su GPIO43 - colori per tema
+#define EFFECT_YOUTUBE        // Statistiche canale YouTube via API v3
+#define EFFECT_NEWS           // News Feed da newsapi.org per categorie
 
 // ================== INCLUSIONE LIBRERIE ==================
 #include <Arduino.h>             // Libreria base per la programmazione di schede Arduino (ESP32).
@@ -471,7 +473,13 @@ enum DisplayMode {
 #ifdef EFFECT_CALENDAR
   MODE_CALENDAR = 28,       // Calendario Google
 #endif
-  NUM_MODES = 29    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
+#ifdef EFFECT_YOUTUBE
+  MODE_YOUTUBE = 29,        // Statistiche canale YouTube
+#endif
+#ifdef EFFECT_NEWS
+  MODE_NEWS = 30,           // News Feed Italia da newsapi.org
+#endif
+  NUM_MODES = 31    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
 };
 
 // ================== STRUTTURE DATI ==================
@@ -710,6 +718,46 @@ extern uint8_t ledRgbOverrideR;
 extern uint8_t ledRgbOverrideG;
 extern uint8_t ledRgbOverrideB;
 extern uint8_t ledAudioReactive;
+#endif
+
+// Funzioni definite in 39_YOUTUBE.ino e 40_WEBSERVER_YOUTUBE.ino
+#ifdef EFFECT_YOUTUBE
+void initYoutubeStation();
+void updateYoutubeStation();
+void fetchYoutubeStats();
+void setup_youtube_webserver(AsyncWebServer* server);
+extern bool   youtubeInitialized;
+extern String youtubeApiKey;
+extern String youtubeChannelId;
+extern String ytChannelName;
+extern long   ytSubscribers;
+extern long   ytViews;
+extern long   ytVideos;
+extern String ytLastUpdate;
+extern String ytError;
+#endif
+
+// Funzioni definite in 41_NEWS.ino e 42_WEBSERVER_NEWS.ino
+#ifdef EFFECT_NEWS
+void initNewsStation();
+void updateNewsStation();
+void fetchNews();
+void newsSetCategory(int index);
+void newsNextCategory();
+void newsPrevCategory();
+void newsNextSource();
+int  newsGetTappedTab(int tx, int ty);
+bool newsIsSourcePillTapped(int tx, int ty);
+void setup_news_webserver(AsyncWebServer* server);
+extern bool   newsInitialized;
+extern int    newsArticleCount;
+extern String newsCategory;
+extern String newsLastUpdate;
+extern String newsError;
+extern int    newsCategoryIndex;
+extern int    newsSourceIndex;
+extern const char* newsSourceNames[];
+extern const char* newsSourceFlags[];
 #endif
 
 // Funzioni definite in 8_CLOCK.ino (EFFECT_CLOCK)
@@ -2199,6 +2247,16 @@ Serial.println("LittleFS inizializzato correttamente.");
     Serial.println("[WEBSERVER] LED RGB disponibile su /ledrgb");
     #endif
 
+    #ifdef EFFECT_YOUTUBE
+    setup_youtube_webserver(clockWebServer);
+    Serial.println("[WEBSERVER] YouTube Stats disponibile su /youtube");
+    #endif
+
+    #ifdef EFFECT_NEWS
+    setup_news_webserver(clockWebServer);
+    Serial.println("[WEBSERVER] News Feed disponibile su /news");
+    #endif
+
     clockWebServer->begin();
     Serial.println("[WEBSERVER] Server configurazione avviato su porta 8080");
     Serial.println("[WEBSERVER] Accedi a http://" + WiFi.localIP().toString() + ":8080/");
@@ -3171,6 +3229,18 @@ if (currentIsNight != lastWasNightTime) {
       }
       #endif
 
+      #ifdef EFFECT_YOUTUBE
+      if (currentMode != MODE_YOUTUBE) {
+        youtubeInitialized = false;  // Reset per reinizializzare al prossimo ingresso
+      }
+      #endif
+
+      #ifdef EFFECT_NEWS
+      if (currentMode != MODE_NEWS) {
+        newsInitialized = false;  // Reset per reinizializzare al prossimo ingresso
+      }
+      #endif
+
       // Se allarme gas o calendario attivo, non aggiornare display (mantieni schermata allarme)
       if (!gasAlarmActive
       #ifdef EFFECT_CALENDAR
@@ -3306,6 +3376,24 @@ if (currentIsNight != lastWasNightTime) {
             initCalendarStation();  // Disegna sfondo, bordi, labels e dati
           }
           updateCalendarStation();  // Aggiorna solo i dati che cambiano
+          break;
+#endif
+
+#ifdef EFFECT_YOUTUBE
+        case MODE_YOUTUBE:
+          if (!youtubeInitialized) {
+            initYoutubeStation();  // Disegna schermo completo YouTube
+          }
+          updateYoutubeStation();  // Smart update ogni 5 min
+          break;
+#endif
+
+#ifdef EFFECT_NEWS
+        case MODE_NEWS:
+          if (!newsInitialized) {
+            initNewsStation();  // Disegna schermo completo News
+          }
+          updateNewsStation();  // Smart update ogni 10 min
           break;
 #endif
 
