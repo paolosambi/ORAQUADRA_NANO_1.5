@@ -3037,6 +3037,7 @@ if (currentIsNight != lastWasNightTime) {
     extern volatile bool forceGoogleSync;
     extern volatile int16_t pushToGoogleId;
     extern String lastSyncTime;
+    extern int mergedEventCount;
 
     // Gestione push evento verso Google (richiesto dalla pagina web)
     if (pushToGoogleId >= 0) {
@@ -3068,7 +3069,7 @@ if (currentIsNight != lastWasNightTime) {
       Serial.println("[CALENDAR] Sync forzata completata.");
     }
 
-    // Fetch Google solo quando il calendario e' visualizzato
+    // Fetch Google: in calendario ogni 2 min, in background ogni 5 min (per allarmi)
     if (currentMode == MODE_CALENDAR) {
       if (millis() - lastCheck > 120000 || lastCheck == 0) {
         fetchGoogleCalendarData();
@@ -3076,6 +3077,15 @@ if (currentIsNight != lastWasNightTime) {
         mergeLocalAndGoogleEvents();
         drawCalendarEvents();
         Serial.println("[CALENDAR] Dati aggiornati e visualizzati in diretta.");
+      }
+    } else {
+      // Sync in background ogni 5 minuti per tenere aggiornati gli allarmi
+      if (millis() - lastCheck > 300000 || lastCheck == 0) {
+        Serial.println("[CALENDAR] Sync background per allarmi...");
+        fetchGoogleCalendarData();
+        lastCheck = millis();
+        mergeLocalAndGoogleEvents();
+        Serial.printf("[CALENDAR] Sync background completata: %d eventi\n", mergedEventCount);
       }
     }
     #endif

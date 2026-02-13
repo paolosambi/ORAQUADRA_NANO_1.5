@@ -586,17 +586,39 @@ void handleCalendarTouch(int x, int y) {
 // ============================================================================
 // FETCH GOOGLE CALENDAR DATA (RISCRITTA CON STRUCT ESTESA)
 // ============================================================================
+static unsigned long isCalendarUpdatingSince = 0; // Anti-blocco flag stuck
+
 void fetchGoogleCalendarData() {
-  if (WiFi.status() != WL_CONNECTED || isCalendarUpdating) return;
-  if (calendarGoogleUrl.length() == 0) return;
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[CALENDAR] WiFi non connesso, sync saltata");
+    return;
+  }
+  if (calendarGoogleUrl.length() == 0) {
+    Serial.println("[CALENDAR] URL Google non configurato, sync saltata");
+    return;
+  }
+
+  // Protezione anti-blocco: se isCalendarUpdating e' stuck da >30 secondi, resettalo
+  if (isCalendarUpdating) {
+    if (millis() - isCalendarUpdatingSince > 30000) {
+      Serial.println("[CALENDAR] ATTENZIONE: flag isCalendarUpdating bloccato da >30s, reset forzato!");
+      isCalendarUpdating = false;
+    } else {
+      Serial.println("[CALENDAR] Sync gia' in corso, saltata");
+      return;
+    }
+  }
+
   isCalendarUpdating = true;
+  isCalendarUpdatingSince = millis();
 
   WiFiClientSecure client;
   client.setInsecure();
+  client.setTimeout(20); // 20 secondi timeout TLS handshake
 
   HTTPClient http;
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setTimeout(10000);
+  http.setTimeout(15000); // 15s - Google Apps Script cold start puo' essere lento
 
   String baseUrl = calendarGoogleUrl;
   int keyIdx = baseUrl.indexOf("?key=");
@@ -605,71 +627,111 @@ void fetchGoogleCalendarData() {
   String url = baseUrl + "?key=" + calendarApiKey;
   Serial.printf("[CALENDAR] Fetch URL: %s\n", url.c_str());
 
-  if (http.begin(client, url)) {
-    int httpCode = http.GET();
-    Serial.printf("[CALENDAR] HTTP code: %d\n", httpCode);
-    if (httpCode == 200) {
-      DynamicJsonDocument doc(8192);
-      deserializeJson(doc, http.getString());
-      JsonArray arr = doc.as<JsonArray>();
-      googleEventCount = 0;
-      for (JsonObject obj : arr) {
-        if (googleEventCount < 10) {
-          googleEventsBuffer[googleEventCount].id = 0;
-          googleEventsBuffer[googleEventCount].title = obj["title"].as<String>();
+  if (!http.begin(client, url)) {
+    Serial.println("[CALENDAR] ERRORE: http.begin() fallito - URL non valido?");
+    isCalendarUpdating = false;
+    return;
+  }
 
-          // Supporta sia il vecchio formato "DD/MM" sia il nuovo "DD/MM/YYYY"
-          String dateVal = obj["date"].as<String>();
-          if (dateVal.length() <= 5) {
-            // Vecchio formato DD/MM -> aggiungi anno corrente
-            dateVal += "/" + String(myTZ.year());
-          }
-          googleEventsBuffer[googleEventCount].date = dateVal;
-          googleEventsBuffer[googleEventCount].dateShort = dateVal.substring(0, 5);
+  int httpCode = http.GET();
+  Serial.printf("[CALENDAR] HTTP code: %d\n", httpCode);
 
-          googleEventsBuffer[googleEventCount].start = obj["start"].as<String>();
-
-          // End time (nuovo campo, opzionale)
-          if (obj.containsKey("end")) {
-            googleEventsBuffer[googleEventCount].end = obj["end"].as<String>();
-          } else {
-            googleEventsBuffer[googleEventCount].end = "";
-          }
-
-          // Google ID (nuovo campo, opzionale)
-          if (obj.containsKey("id")) {
-            googleEventsBuffer[googleEventCount].googleId = obj["id"].as<String>();
-          } else {
-            googleEventsBuffer[googleEventCount].googleId = "";
-          }
-
-          // Calcola minutes
-          String startStr = googleEventsBuffer[googleEventCount].start;
-          if (startStr.length() >= 5) {
-            int hh = startStr.substring(0, 2).toInt();
-            int mm = startStr.substring(3, 5).toInt();
-            googleEventsBuffer[googleEventCount].startMinutes = (hh * 60) + mm;
-          } else {
-            googleEventsBuffer[googleEventCount].startMinutes = 0;
-          }
-
-          String endStr = googleEventsBuffer[googleEventCount].end;
-          if (endStr.length() >= 5) {
-            int hh = endStr.substring(0, 2).toInt();
-            int mm = endStr.substring(3, 5).toInt();
-            googleEventsBuffer[googleEventCount].endMinutes = (hh * 60) + mm;
-          } else {
-            googleEventsBuffer[googleEventCount].endMinutes = googleEventsBuffer[googleEventCount].startMinutes + 60;
-          }
-
-          googleEventsBuffer[googleEventCount].source = 1; // Google
-          googleEventCount++;
-        }
-      }
-      Serial.printf("[CALENDAR] Ricevuti %d eventi Google\n", googleEventCount);
+  if (httpCode != 200) {
+    Serial.printf("[CALENDAR] ERRORE HTTP: codice %d (atteso 200)\n", httpCode);
+    if (httpCode < 0) {
+      Serial.printf("[CALENDAR] Errore connessione: %s\n", http.errorToString(httpCode).c_str());
     }
     http.end();
+    isCalendarUpdating = false;
+    return;
   }
+
+  // Leggi risposta
+  String payload = http.getString();
+  http.end(); // Chiudi connessione SUBITO per liberare risorse
+
+  if (payload.length() == 0) {
+    Serial.println("[CALENDAR] ERRORE: risposta vuota da Google");
+    isCalendarUpdating = false;
+    return;
+  }
+
+  Serial.printf("[CALENDAR] Risposta ricevuta: %d bytes\n", payload.length());
+
+  // Parse JSON con controllo errore
+  DynamicJsonDocument doc(8192);
+  DeserializationError jsonErr = deserializeJson(doc, payload);
+  payload = ""; // Libera memoria subito
+
+  if (jsonErr) {
+    Serial.printf("[CALENDAR] ERRORE parsing JSON: %s\n", jsonErr.c_str());
+    isCalendarUpdating = false;
+    return;
+  }
+
+  JsonArray arr = doc.as<JsonArray>();
+  if (arr.isNull()) {
+    Serial.println("[CALENDAR] ERRORE: risposta non e' un array JSON");
+    isCalendarUpdating = false;
+    return;
+  }
+
+  googleEventCount = 0;
+  for (JsonObject obj : arr) {
+    if (googleEventCount >= 10) break;
+
+    googleEventsBuffer[googleEventCount].id = 0;
+    googleEventsBuffer[googleEventCount].title = obj["title"].as<String>();
+
+    // Supporta sia il vecchio formato "DD/MM" sia il nuovo "DD/MM/YYYY"
+    String dateVal = obj["date"].as<String>();
+    if (dateVal.length() <= 5) {
+      // Vecchio formato DD/MM -> aggiungi anno corrente
+      dateVal += "/" + String(myTZ.year());
+    }
+    googleEventsBuffer[googleEventCount].date = dateVal;
+    googleEventsBuffer[googleEventCount].dateShort = dateVal.substring(0, 5);
+
+    googleEventsBuffer[googleEventCount].start = obj["start"].as<String>();
+
+    // End time (nuovo campo, opzionale)
+    if (obj.containsKey("end")) {
+      googleEventsBuffer[googleEventCount].end = obj["end"].as<String>();
+    } else {
+      googleEventsBuffer[googleEventCount].end = "";
+    }
+
+    // Google ID (nuovo campo, opzionale)
+    if (obj.containsKey("id")) {
+      googleEventsBuffer[googleEventCount].googleId = obj["id"].as<String>();
+    } else {
+      googleEventsBuffer[googleEventCount].googleId = "";
+    }
+
+    // Calcola minutes
+    String startStr = googleEventsBuffer[googleEventCount].start;
+    if (startStr.length() >= 5) {
+      int hh = startStr.substring(0, 2).toInt();
+      int mm = startStr.substring(3, 5).toInt();
+      googleEventsBuffer[googleEventCount].startMinutes = (hh * 60) + mm;
+    } else {
+      googleEventsBuffer[googleEventCount].startMinutes = 0;
+    }
+
+    String endStr = googleEventsBuffer[googleEventCount].end;
+    if (endStr.length() >= 5) {
+      int hh = endStr.substring(0, 2).toInt();
+      int mm = endStr.substring(3, 5).toInt();
+      googleEventsBuffer[googleEventCount].endMinutes = (hh * 60) + mm;
+    } else {
+      googleEventsBuffer[googleEventCount].endMinutes = googleEventsBuffer[googleEventCount].startMinutes + 60;
+    }
+
+    googleEventsBuffer[googleEventCount].source = 1; // Google
+    googleEventCount++;
+  }
+
+  Serial.printf("[CALENDAR] Ricevuti %d eventi Google\n", googleEventCount);
   isCalendarUpdating = false;
 }
 
