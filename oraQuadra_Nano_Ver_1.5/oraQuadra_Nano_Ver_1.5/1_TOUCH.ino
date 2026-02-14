@@ -29,6 +29,12 @@ extern void newsSetCategory(int index);
 extern int  newsGetTappedTab(int tx, int ty);
 extern bool newsIsSourcePillTapped(int tx, int ty);
 extern void newsNextSource();
+extern void newsScrollDown();
+extern void newsScrollUp();
+extern int  newsGetArticlesStartY();
+extern int  newsArticleCount;
+extern int  newsGetTappedArticle(int tapY);
+extern void newsOpenArticle(int index);
 #endif
 
 void checkButtons() {
@@ -40,6 +46,13 @@ void checkButtons() {
   static uint32_t lastCornerCheck = 0;   // Memorizza il timestamp dell'ultimo controllo degli angoli per il reset WiFi.
   static uint8_t cornerTouchLostCounter = 0; // Contatore per tenere traccia di quanti controlli consecutivi degli angoli non hanno rilevato tutti e quattro.
   static uint8_t touchSampleCounter = 0;   // Contatore per gestire la frequenza di campionamento del touch durante l'antirimbalzo.
+
+  // ======= VARIABILI PER SWIPE SCROLL NEWS =======
+  #ifdef EFFECT_NEWS
+  static bool newsSwipeActive = false;
+  static int  newsSwipeStartY = 0;
+  static bool newsSwipeScrolled = false;
+  #endif
 
   // ======= VARIABILI PER LONG PRESS BTTF ALARM SETUP =======
   static bool bttfLongPressActive = false;      // True se stiamo monitorando un long press centrale in BTTF
@@ -141,6 +154,38 @@ void checkButtons() {
       delay(10);          // Piccolo ritardo tra un tentativo e l'altro.
     }
   }
+
+  // ====================== SWIPE SCROLL NEWS ======================
+  #ifdef EFFECT_NEWS
+  // Reset swipe tracking quando il dito viene sollevato
+  if (newsSwipeActive && !touchDetected) {
+    // Se non ha scrollato, era un tap: apri articolo nel browser
+    if (!newsSwipeScrolled) {
+      int article = newsGetTappedArticle(newsSwipeStartY);
+      if (article >= 0) {
+        playTouchSound();
+        newsOpenArticle(article);
+      }
+    }
+    newsSwipeActive = false;
+    newsSwipeScrolled = false;
+  }
+  // Tracking continuo swipe: calcola delta Y e scrolla di 1 articolo
+  if (newsSwipeActive && touchDetected) {
+    int sy = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+    int deltaY = newsSwipeStartY - sy;
+    if (deltaY >= 40) {
+      newsScrollDown();   // Dito sale = articoli successivi
+      newsSwipeStartY = sy;
+      newsSwipeScrolled = true;
+    } else if (deltaY <= -40) {
+      newsScrollUp();     // Dito scende = articoli precedenti
+      newsSwipeStartY = sy;
+      newsSwipeScrolled = true;
+    }
+    return;
+  }
+  #endif
 
   // ====================== STOP/SNOOZE ALLARME CALENDARIO ======================
   #ifdef EFFECT_CALENDAR
@@ -458,7 +503,6 @@ void checkButtons() {
 
     // Pulsante MODE >> (basso centro y>455, x 180-310)
     if (y > 455 && x >= 180 && x <= 310) {
-      Serial.println("[NEWS-TOUCH] Pulsante MODE >> - cambio modalita'");
       playTouchSound();
       handleModeChange();
       waitingForRelease = true;
@@ -469,7 +513,6 @@ void checkButtons() {
     if (newsIsSourcePillTapped(x, y)) {
       playTouchSound();
       newsNextSource();
-      Serial.println("[NEWS-TOUCH] Cambio fonte");
       waitingForRelease = true;
       return;
     }
@@ -479,9 +522,31 @@ void checkButtons() {
     if (tappedTab >= 0) {
       playTouchSound();
       newsSetCategory(tappedTab);
-      Serial.printf("[NEWS-TOUCH] Tab %d selezionata\n", tappedTab);
       waitingForRelease = true;
       return;
+    }
+
+    // Area articoli: tap per aprire link / swipe per scroll
+    if (newsArticleCount > 0) {
+      int artStartY = newsGetArticlesStartY();
+      if (y >= artStartY && y <= 440) {
+        if (newsArticleCount > 4) {
+          // Avvia tracking swipe (scroll + tap al rilascio)
+          newsSwipeActive = true;
+          newsSwipeStartY = y;
+          newsSwipeScrolled = false;
+          return;  // NON impostare waitingForRelease - serve tracking continuo
+        } else {
+          // Nessuno scroll, tap diretto per aprire articolo
+          int article = newsGetTappedArticle(y);
+          if (article >= 0) {
+            playTouchSound();
+            newsOpenArticle(article);
+          }
+          waitingForRelease = true;
+          return;
+        }
+      }
     }
 
     waitingForRelease = true;
@@ -573,7 +638,7 @@ if ((currentMode == MODE_BTTF && isBTTFCenter) || (currentMode != MODE_BTTF && i
 
   // NON cancelliamo il display - rimane visibile durante l'annuncio audio
 
-  Serial.println(">>> TOCCO CENTRALE - ANNUNCIO ORA MANUALE <<<");
+  // Log ridotto - evita output seriale eccessivo
 
   // Annuncia ora solo se annuncio orario abilitato
   if (hourlyAnnounceEnabled) {

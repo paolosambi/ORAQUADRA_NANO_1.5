@@ -47,9 +47,17 @@ const char NEWS_HTML[] PROGMEM = R"rawliteral(
     .nav-back{display:inline-block;color:var(--nw-accent);text-decoration:none;margin-bottom:15px;font-size:0.85rem}
     .nav-back:hover{text-decoration:underline}
     .rss-badge{display:inline-block;background:#f60;color:#fff;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle}
+    .open-notify{position:fixed;top:0;left:0;right:0;background:linear-gradient(135deg,#00b4ff,#0088cc);color:#fff;padding:14px 20px;text-align:center;display:none;z-index:1000;font-size:0.9rem;box-shadow:0 2px 12px rgba(0,180,255,0.4);animation:slideDown 0.3s}
+    .open-notify a{color:#fff;font-weight:700;text-decoration:underline}
+    .open-notify .close-btn{background:none;border:none;color:rgba(255,255,255,0.8);font-size:1.3rem;cursor:pointer;margin-left:12px;vertical-align:middle}
+    @keyframes slideDown{from{transform:translateY(-100%)}to{transform:translateY(0)}}
   </style>
 </head>
 <body>
+  <div id="openNotify" class="open-notify">
+    &#128240; Articolo aperto dal display &mdash; <a id="openLink" href="#" target="_blank">Clicca qui se non si apre</a>
+    <button class="close-btn" onclick="this.parentElement.style.display='none'">&times;</button>
+  </div>
   <div class="container">
     <a href="/" class="nav-back">&larr; Home</a>
     <div class="header">
@@ -197,6 +205,22 @@ const char NEWS_HTML[] PROGMEM = R"rawliteral(
 
     fetchNews();
     refreshTimer = setInterval(fetchNews, 120000);
+
+    // Polling apertura articoli dal display (ogni 2 sec)
+    setInterval(async () => {
+      try {
+        const r = await fetch('/news/openarticle');
+        const d = await r.json();
+        if (d.url && d.url.length > 0) {
+          window.open(d.url, '_blank');
+          const notify = document.getElementById('openNotify');
+          const link = document.getElementById('openLink');
+          link.href = d.url;
+          notify.style.display = 'block';
+          setTimeout(() => { notify.style.display = 'none'; }, 6000);
+        }
+      } catch(e) {}
+    }, 2000);
   </script>
 </body>
 </html>

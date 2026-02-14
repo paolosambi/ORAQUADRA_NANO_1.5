@@ -107,6 +107,7 @@
 
 // ================== INCLUSIONE LIBRERIE ==================
 #include <Arduino.h>             // Libreria base per la programmazione di schede Arduino (ESP32).
+#include <esp_log.h>             // Per esp_log_level_set() - silenziare log interni ESP-IDF
 #include <WiFi.h>                // Libreria per la gestione della connessione Wi-Fi.
 #include <ESPmDNS.h>             // Libreria per il supporto del servizio mDNS (Multicast DNS), che permette di accedere al dispositivo tramite un nome host sulla rete locale.
 #include <ArduinoOTA.h>          // Libreria per l'Over-The-Air (OTA) update, che consente di aggiornare il firmware del dispositivo via Wi-Fi.
@@ -2101,6 +2102,10 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
+  // Silenzia i log interni ESP-IDF (WiFi, TLS, I2C, HTTP...)
+  // che altrimenti riempiono la seriale di caratteri "strani"
+  esp_log_level_set("*", ESP_LOG_NONE);
+
   Serial.println("\n\nOraQuadra2 Display 480x480 - Inizializzazione");
   
 if (!LittleFS.begin(true)) {
@@ -2899,7 +2904,7 @@ void loop() {
 
           // Se radar remoto è abilitato, NON gestire luminosità dal radar locale
           if (radarServerEnabled) {
-            Serial.println("[RADAR LOCALE] Presenza rilevata, ma radar remoto abilitato - ignoro");
+            // Ignoro - radar remoto abilitato
           } else {
             // Forza riaccensione immediata del display (solo se radar remoto non abilitato)
             uint8_t wakeupBrightness;
@@ -2907,12 +2912,11 @@ void loop() {
               // Usa sensore luce radar per luminosità con range configurabile (min-max)
               uint8_t lightLevel = radar.getLightLevel();
               wakeupBrightness = map(constrain(lightLevel, 0, 255), 0, 255, radarBrightnessMin, radarBrightnessMax);
-              Serial.printf("[RADAR] Presenza! Luce:%d Lum:%d (min:%d max:%d)\n", lightLevel, wakeupBrightness, radarBrightnessMin, radarBrightnessMax);
             } else {
               // Usa luminosità manuale giorno/notte
               wakeupBrightness = checkIsNightTime(currentHour, currentMinute) ? brightnessNight : brightnessDay;
-              Serial.printf("[RADAR] Presenza! Lum manuale:%d\n", wakeupBrightness);
             }
+            Serial.printf("[RADAR] Presenza rilevata, lum:%d\n", wakeupBrightness);
             ledcWrite(PWM_CHANNEL, wakeupBrightness);
             lastAppliedBrightness = wakeupBrightness;
           }
@@ -2921,23 +2925,22 @@ void loop() {
     } else {
       // Radar non connesso - tenta riconnessione ogni 10 secondi
       static uint32_t lastReconnectAttempt = 0;
+      static uint8_t radarReconnectFails = 0;
       if (currentMillis - lastReconnectAttempt > 10000) {
         lastReconnectAttempt = currentMillis;
-        Serial.println("\n⚠ Radar non connesso - Tentativo riconnessione...");
 
         // Prova a reinizializzare
         if (radar.begin()) {
-          Serial.println("✓ Radar riconnesso!");
-          radarConnectedOnce = false; // Reset per mostrare il messaggio di connessione
-
-          // Riattiva Enhanced Mode
+          Serial.println("[RADAR] Riconnesso OK");
+          radarConnectedOnce = false;
+          radarReconnectFails = 0;
           radar.enhancedMode(true);
         } else {
-          Serial.println("✗ Riconnessione fallita. Verifica:");
-          Serial.println("  1. Alimentazione radar (LED acceso?)");
-          Serial.println("  2. TX radar -> Pin 2 (IO2)");
-          Serial.println("  3. RX radar -> Pin 1 (IO1)");
-          Serial.println("  4. Cavo di alimentazione 5V stabile");
+          radarReconnectFails++;
+          // Stampa solo al primo fallimento, poi ogni 6 tentativi (~60 sec)
+          if (radarReconnectFails == 1 || radarReconnectFails % 6 == 0) {
+            Serial.printf("[RADAR] Non connesso (tentativo %d)\n", radarReconnectFails);
+          }
         }
       }
     }

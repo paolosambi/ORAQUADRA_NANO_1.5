@@ -15,6 +15,7 @@ extern String newsLastUpdate;
 extern String newsError;
 extern int    newsCategoryIndex;
 extern int    newsSourceIndex;
+extern String newsOpenUrl;
 extern const char* newsSourceNames[];
 extern const char* newsSourceFlags[];
 
@@ -108,6 +109,14 @@ void setup_news_webserver(AsyncWebServer* server) {
     }
 
     json += "]}";
+    request->send(200, "application/json", json);
+  });
+
+  // Endpoint apertura articolo dal display (polling dal browser)
+  server->on("/news/openarticle", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String url = newsOpenUrl;
+    newsOpenUrl = "";  // Consuma URL dopo averlo servito
+    String json = "{\"url\":\"" + url + "\"}";
     request->send(200, "application/json", json);
   });
 

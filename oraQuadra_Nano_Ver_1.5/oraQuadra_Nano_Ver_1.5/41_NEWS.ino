@@ -6,13 +6,24 @@
 
 #ifdef EFFECT_NEWS
 
+// Decommentare per abilitare log seriali di debug NEWS
+// #define DEBUG_NEWS
+
+#ifdef DEBUG_NEWS
+  #define NEWS_LOG(fmt, ...) Serial.printf(fmt, ##__VA_ARGS__)
+  #define NEWS_LOGLN(msg)    Serial.println(msg)
+#else
+  #define NEWS_LOG(fmt, ...)
+  #define NEWS_LOGLN(msg)
+#endif
+
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 
 // ===== Configurazione =====
 #define NEWS_FETCH_INTERVAL   600000  // 10 minuti
-#define NEWS_MAX_ARTICLES     5
+#define NEWS_MAX_ARTICLES     15
 
 // ===== Colori display =====
 #define NW_BG_COLOR     0x0000  // Nero
@@ -94,6 +105,8 @@ String newsError = "";
 bool   newsInitialized = false;
 int    newsCategoryIndex = 0;
 int    newsSourceIndex = 0;  // Default: ANSA
+int    newsScrollOffset = 0; // Indice primo articolo visibile (scroll)
+String newsOpenUrl = "";     // URL articolo toccato, servito a /news/openarticle
 
 // ===== Layout costanti fisse =====
 #define TAB_ROW1_Y      80
@@ -288,18 +301,18 @@ static int parseRssItems(const String& xml, NewsArticle* articles, int maxArticl
 void fetchNews() {
   if (WiFi.status() != WL_CONNECTED) {
     newsError = "WiFi non connesso";
-    Serial.println("[NEWS] WiFi non connesso");
+    NEWS_LOGLN("[NEWS] WiFi non connesso");
     return;
   }
 
   const char* url = getSourceCatUrl(newsSourceIndex, newsCategoryIndex);
   if (!url || strlen(url) == 0) {
     newsError = "Feed non disponibile";
-    Serial.println("[NEWS] URL feed vuoto");
+    NEWS_LOGLN("[NEWS] URL feed vuoto");
     return;
   }
 
-  Serial.printf("[NEWS] Fetch RSS: %s [%s] url=%s\n",
+  NEWS_LOG("[NEWS] Fetch RSS: %s [%s] url=%s\n",
                 newsSourceNames[newsSourceIndex],
                 getSourceCatName(newsSourceIndex, newsCategoryIndex), url);
 
@@ -314,16 +327,16 @@ void fetchNews() {
 
   if (!http.begin(client, url)) {
     newsError = "Connessione fallita";
-    Serial.println("[NEWS] http.begin() fallito");
+    NEWS_LOGLN("[NEWS] http.begin() fallito");
     return;
   }
 
   int httpCode = http.GET();
-  Serial.printf("[NEWS] HTTP code: %d\n", httpCode);
+  NEWS_LOG("[NEWS] HTTP code: %d\n", httpCode);
 
   if (httpCode != 200) {
     newsError = "HTTP " + String(httpCode);
-    Serial.printf("[NEWS] Errore HTTP: %d\n", httpCode);
+    NEWS_LOG("[NEWS] Errore HTTP: %d\n", httpCode);
     http.end();
     return;
   }
@@ -331,7 +344,7 @@ void fetchNews() {
   String payload = http.getString();
   http.end();
 
-  Serial.printf("[NEWS] RSS ricevuto: %d bytes\n", payload.length());
+  NEWS_LOG("[NEWS] RSS ricevuto: %d bytes\n", payload.length());
 
   newsArticleCount = parseRssItems(payload, newsArticles, NEWS_MAX_ARTICLES);
   newsCategory = String(getSourceCatName(newsSourceIndex, newsCategoryIndex));
@@ -345,7 +358,7 @@ void fetchNews() {
     newsError = "Nessun articolo nel feed";
   }
 
-  Serial.printf("[NEWS] %d articoli parsati da %s\n", newsArticleCount,
+  NEWS_LOG("[NEWS] %d articoli parsati da %s\n", newsArticleCount,
                 newsSourceNames[newsSourceIndex]);
 }
 
@@ -420,6 +433,9 @@ static void drawArticlesList() {
   int startY = newsGetArticlesStartY();
   int maxArticlesVisible = 4;
 
+  // Pulisci area articoli (necessario per scroll)
+  gfx->fillRect(0, startY, 480, 440 - startY, NW_BG_COLOR);
+
   if (newsArticleCount == 0) {
     gfx->setFont(u8g2_font_helvR10_tr);
     gfx->setTextColor(NW_GRAY);
@@ -436,12 +452,20 @@ static void drawArticlesList() {
     return;
   }
 
+  // Clamp scroll offset
+  if (newsScrollOffset >= newsArticleCount) newsScrollOffset = 0;
+  if (newsScrollOffset < 0) newsScrollOffset = 0;
+
   int availH = 440 - startY;
   int articleH = (availH - (maxArticlesVisible - 1) * 5) / maxArticlesVisible;
   if (articleH > 70) articleH = 70;
   int gap = 5;
 
-  for (int i = 0; i < newsArticleCount && i < maxArticlesVisible; i++) {
+  int endIndex = newsScrollOffset + maxArticlesVisible;
+  if (endIndex > newsArticleCount) endIndex = newsArticleCount;
+
+  for (int idx = newsScrollOffset; idx < endIndex; idx++) {
+    int i = idx - newsScrollOffset;  // posizione visiva 0-3
     int y = startY + i * (articleH + gap);
 
     // Sfondo articolo
@@ -450,7 +474,7 @@ static void drawArticlesList() {
     // Fonte (piccolo, azzurro)
     gfx->setFont(u8g2_font_helvR08_tr);
     gfx->setTextColor(NW_ACCENT);
-    String src = newsArticles[i].source;
+    String src = newsArticles[idx].source;
     if (src.length() > 35) src = src.substring(0, 32) + "...";
     gfx->setCursor(20, y + 14);
     gfx->print(src);
@@ -458,7 +482,7 @@ static void drawArticlesList() {
     // Titolo (bold, bianco) - max 2 righe
     gfx->setFont(u8g2_font_helvB10_tr);
     gfx->setTextColor(NW_WHITE);
-    String title = newsArticles[i].title;
+    String title = newsArticles[idx].title;
     int maxChars = 48;
     if ((int)title.length() <= maxChars) {
       gfx->setCursor(20, y + 30);
@@ -480,7 +504,7 @@ static void drawArticlesList() {
     if (articleH >= 65) {
       gfx->setFont(u8g2_font_helvR08_tr);
       gfx->setTextColor(NW_GRAY);
-      String desc = newsArticles[i].description;
+      String desc = newsArticles[idx].description;
       if (desc.length() > 0 && desc != "null") {
         if ((int)desc.length() > 60) desc = desc.substring(0, 57) + "...";
         gfx->setCursor(20, y + 60);
@@ -489,9 +513,25 @@ static void drawArticlesList() {
     }
 
     // Separatore
-    if (i < newsArticleCount - 1 && i < maxArticlesVisible - 1) {
+    if (idx < endIndex - 1) {
       gfx->drawFastHLine(30, y + articleH + 2, 420, NW_SEPARATOR);
     }
+  }
+
+  // Scrollbar sottile a destra (stile smartphone)
+  if (newsArticleCount > maxArticlesVisible) {
+    int barX = 474;
+    int barW = 3;
+    int trackH = 440 - startY - 10;
+    int thumbH = trackH * maxArticlesVisible / newsArticleCount;
+    if (thumbH < 20) thumbH = 20;
+    int maxOffset = newsArticleCount - maxArticlesVisible;
+    int thumbY = startY + 5;
+    if (maxOffset > 0) {
+      thumbY += (trackH - thumbH) * newsScrollOffset / maxOffset;
+    }
+    gfx->fillRect(barX, startY + 5, barW, trackH, NW_DARK_GRAY);
+    gfx->fillRoundRect(barX, thumbY, barW, thumbH, 1, NW_ACCENT);
   }
 }
 
@@ -508,10 +548,25 @@ static void drawNewsStatusBar() {
   gfx->setCursor(15, 465);
   gfx->print(timeStr);
 
-  // Fonte + categoria + ultimo aggiornamento a destra
-  String info = String(newsSourceFlags[newsSourceIndex]) + " " +
-                String(getSourceCatName(newsSourceIndex, newsCategoryIndex)) +
-                " | " + newsLastUpdate;
+  // Pulsante MODE >> al centro della status bar
+  gfx->setTextColor(NW_ACCENT);
+  gfx->setCursor(195, 465);
+  gfx->print("MODE >>");
+
+  // Indicatore posizione scroll (es. "3-6/12")
+  if (newsArticleCount > 4) {
+    int first = newsScrollOffset + 1;
+    int last = newsScrollOffset + 4;
+    if (last > newsArticleCount) last = newsArticleCount;
+    char pageBuf[12];
+    snprintf(pageBuf, sizeof(pageBuf), "%d-%d/%d", first, last, newsArticleCount);
+    gfx->setCursor(285, 465);
+    gfx->print(pageBuf);
+  }
+
+  // Fonte + ultimo aggiornamento a destra
+  gfx->setTextColor(NW_GRAY);
+  String info = String(newsSourceFlags[newsSourceIndex]) + " | " + newsLastUpdate;
   int infoW = info.length() * 7;
   gfx->setCursor(480 - infoW - 15, 465);
   gfx->print(info);
@@ -553,7 +608,7 @@ void initNewsStation() {
   if (newsArticleCount > 0) prevNewsFirstTitle = newsArticles[0].title;
   prevNewsMinute = currentMinute;
 
-  Serial.println("[NEWS] Display inizializzato");
+  NEWS_LOGLN("[NEWS] Display inizializzato");
 }
 
 // ===== Aggiornamento smart =====
@@ -576,6 +631,7 @@ void updateNewsStation() {
   if (newsArticleCount > 0 && newsArticles[0].title != prevNewsFirstTitle) needRedraw = true;
 
   if (needRedraw) {
+    newsScrollOffset = 0;
     newsInitialized = false;
     initNewsStation();
   }
@@ -594,10 +650,11 @@ void newsSetCategory(int index) {
   if (index < 0 || index >= maxCats) return;
   if (index == newsCategoryIndex) return;
   newsCategoryIndex = index;
+  newsScrollOffset = 0;
   newsFirstFetch = true;
   lastNewsFetch = 0;
   newsInitialized = false;
-  Serial.printf("[NEWS] Categoria: %s\n", getSourceCatName(newsSourceIndex, newsCategoryIndex));
+  NEWS_LOG("[NEWS] Categoria: %s\n", getSourceCatName(newsSourceIndex, newsCategoryIndex));
 }
 
 void newsNextCategory() {
@@ -614,13 +671,77 @@ void newsPrevCategory() {
 
 void newsNextSource() {
   newsSourceIndex = (newsSourceIndex + 1) % NEWS_NUM_SOURCES;
-  // Reset categoria se fuori range per nuova fonte
+  // Reset categoria e scroll se fuori range per nuova fonte
   int maxCats = getSourceCatCount(newsSourceIndex);
   if (newsCategoryIndex >= maxCats) newsCategoryIndex = 0;
+  newsScrollOffset = 0;
   newsFirstFetch = true;
   lastNewsFetch = 0;
   newsInitialized = false;
-  Serial.printf("[NEWS] Fonte: %s\n", newsSourceNames[newsSourceIndex]);
+  NEWS_LOG("[NEWS] Fonte: %s\n", newsSourceNames[newsSourceIndex]);
+}
+
+// ===== Scroll articoli (swipe naturale, 1 alla volta) =====
+
+void newsScrollDown() {
+  if (newsScrollOffset + 4 < newsArticleCount) {
+    newsScrollOffset++;
+    drawArticlesList();
+    drawNewsStatusBar();
+  }
+}
+
+void newsScrollUp() {
+  if (newsScrollOffset > 0) {
+    newsScrollOffset--;
+    drawArticlesList();
+    drawNewsStatusBar();
+  }
+}
+
+// ===== Tap su articolo: ritorna indice articolo toccato (-1 se nessuno) =====
+
+int newsGetTappedArticle(int tapY) {
+  int startY = newsGetArticlesStartY();
+  int maxVis = 4;
+  int availH = 440 - startY;
+  int articleH = (availH - (maxVis - 1) * 5) / maxVis;
+  if (articleH > 70) articleH = 70;
+  int gap = 5;
+
+  for (int i = 0; i < maxVis; i++) {
+    int idx = newsScrollOffset + i;
+    if (idx >= newsArticleCount) break;
+    int y = startY + i * (articleH + gap);
+    if (tapY >= y && tapY <= y + articleH) {
+      return idx;
+    }
+  }
+  return -1;
+}
+
+// ===== Apri articolo: salva URL e feedback visivo =====
+
+void newsOpenArticle(int index) {
+  if (index < 0 || index >= newsArticleCount) return;
+  if (newsArticles[index].link.length() == 0) return;
+
+  newsOpenUrl = newsArticles[index].link;
+
+  // Feedback visivo: bordo azzurro sull'articolo toccato
+  int startY = newsGetArticlesStartY();
+  int maxVis = 4;
+  int availH = 440 - startY;
+  int articleH = (availH - (maxVis - 1) * 5) / maxVis;
+  if (articleH > 70) articleH = 70;
+  int gap = 5;
+  int i = index - newsScrollOffset;
+  int y = startY + i * (articleH + gap);
+
+  gfx->drawRoundRect(10, y, 460, articleH, 6, NW_ACCENT);
+  gfx->drawRoundRect(11, y + 1, 458, articleH - 2, 5, NW_ACCENT);
+
+  NEWS_LOG("[NEWS] Articolo selezionato: %s\n", newsOpenUrl.c_str());
 }
 
 // ===== Hit-test: quale tab toccata? Ritorna -1 se nessuna =====
