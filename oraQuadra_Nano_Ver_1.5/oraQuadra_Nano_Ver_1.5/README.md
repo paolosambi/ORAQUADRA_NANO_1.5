@@ -16,7 +16,7 @@
 
 <p align="center">
   <strong>Orologio interattivo a matrice LED 16x16 (256 LED virtuali) su display LCD 480x480 pixel basato su ESP32-S3</strong><br>
-  27 modalita di visualizzazione | Touch Control | Alexa Integration | Web Server | Audio I2S | Web Radio | Radiosveglia
+  31 modalita di visualizzazione | Touch Control | Alexa Integration | Web Server | Audio I2S | Web Radio | Radiosveglia | Calendario | YouTube Stats | News RSS | LED RGB WS2812
 </p>
 
 <p align="center">
@@ -37,6 +37,10 @@
 - [Integrazione Alexa](#integrazione-alexa)
 - [Web Server](#web-server)
 - [Sistema Audio](#sistema-audio)
+- [Calendario](#calendario)
+- [LED RGB WS2812](#led-rgb-ws2812)
+- [YouTube Stats](#youtube-stats)
+- [News Feed RSS](#news-feed-rss)
 - [Installazione](#installazione)
 - [Struttura del Progetto](#struttura-del-progetto)
 - [Configurazione](#configurazione)
@@ -51,7 +55,7 @@
 | Funzionalita | Descrizione |
 |:---:|---|
 | **Display** | LCD touch 480x480 pixel a colori con matrice virtuale 16x16 LED |
-| **Modalita** | 27 effetti visuali, giochi arcade, orologi specializzati |
+| **Modalita** | 31 effetti visuali, giochi arcade, orologi specializzati |
 | **Touch** | Controllo a 4 zone interattive con debounce 300ms |
 | **Web Server** | Configurazione completa via browser (porta 8080) |
 | **Alexa** | Integrazione vocale Amazon Alexa (Espalexa) |
@@ -63,6 +67,10 @@
 | **OTA** | Aggiornamento firmware via WiFi (ArduinoOTA) |
 | **EEPROM** | Memorizzazione persistente impostazioni (1024 byte) |
 | **SD Card** | Skin personalizzate, stazioni radio, brani MP3 (FAT32) |
+| **Calendario** | Calendario con vista mensile/giornaliera, eventi locali e Google Calendar |
+| **LED RGB** | 12 LED WS2812 con colori tematici, audio reactive e override manuale |
+| **YouTube** | Statistiche canale YouTube in tempo reale (iscritti, views, video) |
+| **News RSS** | Feed notizie da ANSA, BBC, CNN con categorie e navigazione touch |
 | **mDNS** | Accessibile come `oraquadra.local` sulla rete |
 
 ---
@@ -83,6 +91,7 @@
 | LD2410 | Radar 24GHz per movimento e luminosita automatica | UART 256000 baud |
 | Magnetometro | Bussola per Weather Station | I2C |
 | ESP32-CAM Freenove | Streaming video MJPEG | WiFi |
+| LED WS2812 | Striscia 12 LED RGB indirizzabili | GPIO43 (data) |
 | SD Card | Skin personalizzate orologio analogico | SPI (FAT32) |
 
 ---
@@ -125,6 +134,10 @@ SD Card (SPI):
   MOSI            Pin 47
   CLK             Pin 48
   MISO            Pin 41
+
+LED WS2812:
+  Data            Pin 43 (GPIO43 libero - Serial usa USB-CDC)
+  Num LED         12
 
 Backlight:
   PWM Pin         Pin 38
@@ -207,6 +220,15 @@ EEPROM Size:      1024 byte
 | 25 | **WEB RADIO** | Streaming radio internet con VU meter e lista stazioni | `EFFECT_WEB_RADIO` |
 | 26 | **RADIO ALARM** | Radiosveglia con selezione stazione, snooze e programmazione giorni | `EFFECT_RADIO_ALARM` |
 
+### Calendario e Info (MODE 27-30)
+
+| # | Modalita | Descrizione | Define |
+|:---:|---|---|---|
+| 27 | **CALENDAR** | Calendario mensile/giornaliero con eventi locali e Google Calendar | `EFFECT_CALENDAR` |
+| 28 | **EMPTY** | Riservato per uso futuro | - |
+| 29 | **YOUTUBE** | Statistiche canale YouTube (iscritti, visualizzazioni, video) | `EFFECT_YOUTUBE` |
+| 30 | **NEWS** | Feed notizie RSS da ANSA, BBC, CNN con categorie navigabili | `EFFECT_NEWS` |
+
 ---
 
 ## Controllo Touch
@@ -233,7 +255,7 @@ Il display e diviso in **4 zone** con funzioni diverse:
 
 | Zona | Funzione | Comportamento |
 |---|---|---|
-| Alto-Sinistra | Cambio Modalita | Cicla tra le 24 modalita |
+| Alto-Sinistra | Cambio Modalita | Cicla tra le 31 modalita |
 | Alto-Destra | Preset Colori | Cicla tra 14 preset colore |
 | Basso-Sinistra | Selettore Colore | Tenere premuto per scorrere i colori |
 | Basso-Destra | Lampeggio "E" | Attiva/disattiva lampeggio separatore |
@@ -284,6 +306,10 @@ Accedere via browser a `http://[IP_DISPOSITIVO]:8080` oppure `http://oraquadra.l
 | `/radar` | Calibrazione LD2410 e controllo luminosita automatica |
 | `/webradio` | Gestione stazioni Web Radio con controlli di riproduzione |
 | `/radioalarm` | Programmazione radiosveglia (orario, giorni, stazione, volume) |
+| `/calendar` | Gestione eventi calendario (locali + Google Calendar) |
+| `/ledrgb` | Controllo LED RGB WS2812 (on/off, luminosita, colore, audio reactive) |
+| `/youtube` | Statistiche canale YouTube in tempo reale |
+| `/news` | Feed notizie RSS con selezione fonte e categoria |
 
 ### Servizi di Rete
 
@@ -408,6 +434,86 @@ La radiosveglia permette di programmare una sveglia che si attiva riproducendo u
 
 ---
 
+## Calendario
+
+Il calendario offre una vista mensile interattiva con supporto per eventi locali e sincronizzazione Google Calendar.
+
+### Caratteristiche Calendario
+
+| Funzionalita | Descrizione |
+|---|---|
+| **Vista Griglia** | Calendario mensile con evidenziazione giorni con eventi |
+| **Vista Giorno** | Dettaglio eventi del giorno selezionato |
+| **Eventi Locali** | Fino a 50 eventi salvati su LittleFS |
+| **Google Calendar** | Sincronizzazione automatica ogni 60 secondi |
+| **Navigazione Touch** | Cambio mese e selezione giorno tramite touch |
+| **Persistenza** | Eventi locali salvati in `/calendar_events.json` |
+
+### Configurazione Google Calendar
+
+Configurare URL e API key del Google Calendar dalla pagina `/settings` del web server.
+
+---
+
+## LED RGB WS2812
+
+Striscia di 12 LED RGB WS2812 indirizzabili singolarmente, con colori che seguono automaticamente il tema della modalita attiva.
+
+### Caratteristiche LED RGB
+
+| Funzionalita | Descrizione |
+|---|---|
+| **Colore Automatico** | Segue il tema della modalita di visualizzazione attiva |
+| **Override Manuale** | Color picker per impostare un colore fisso personalizzato |
+| **Audio Reactive** | Luminosita pulsante sincronizzata con la musica |
+| **Luminosita** | Regolabile tramite slider (0-255) |
+| **Christmas** | Effetto speciale: alternanza rosso/verde (6+6 LED) |
+| **Persistenza** | Impostazioni salvate in EEPROM (indirizzi 900-907) |
+
+---
+
+## YouTube Stats
+
+Visualizzazione in tempo reale delle statistiche di un canale YouTube tramite YouTube Data API v3.
+
+### Caratteristiche YouTube
+
+| Funzionalita | Descrizione |
+|---|---|
+| **Iscritti** | Contatore subscriber in tempo reale |
+| **Visualizzazioni** | Totale views del canale |
+| **Video** | Numero totale di video pubblicati |
+| **Aggiornamento** | Fetch automatico ogni 5 minuti |
+| **Smart Redraw** | Ridisegna solo quando i dati cambiano |
+| **Configurazione** | API key e Channel ID da pagina `/settings` |
+
+---
+
+## News Feed RSS
+
+Feed notizie in tempo reale da 3 fonti internazionali, senza necessita di API key.
+
+### Fonti e Categorie
+
+| Fonte | Paese | Categorie |
+|---|---|---|
+| **ANSA** | Italia | Generale, Cronaca, Politica, Economia, Sport, Tech, Cultura, Mondo |
+| **BBC** | UK | Top, World, Business, Tech, Sport, Arts, Science |
+| **CNN** | USA | Top, World, Business, Tech, Sport |
+
+### Caratteristiche News
+
+| Funzionalita | Descrizione |
+|---|---|
+| **RSS Nativo** | Nessuna API key richiesta, nessun limite di richieste |
+| **Aggiornamento** | Fetch automatico ogni 10 minuti |
+| **Tab Dinamici** | Layout 1 o 2 righe in base al numero di categorie |
+| **4 Articoli** | Visualizzazione di 4 card articoli per categoria |
+| **Touch** | Tap su tab per categoria, pill per ciclare fonte |
+| **Parsing** | Gestione CDATA, HTML entities, tag XML |
+
+---
+
 ## Installazione
 
 ### Metodo 1: Programmazione Web (Consigliato)
@@ -443,6 +549,8 @@ Adafruit BME280 Library       - Sensore ambientale
 MyLD2410                      - Radar LD2410
 U8g2                          - Font grafici
 ESP32-audioI2S (Audio.h)      - Streaming audio, MP3, Web Radio
+Adafruit NeoPixel             - LED WS2812 (striscia RGB)
+LittleFS (integrata)          - File system per eventi e configurazioni
 ```
 
 #### Impostazioni Board
@@ -504,6 +612,14 @@ oraQuadra_Nano_Ver_1.5/
 |-- 31_MP3_PLAYER.ino              # Lettore MP3 da SD card
 |-- 32_WEB_RADIO.ino               # Web Radio streaming con VU meter
 |-- 33_RADIO_ALARM.ino             # Radiosveglia programmabile
+|-- 35_CALENDAR.ino                # Calendario mensile/giornaliero
+|-- 36_WEBSERVER_CALENDAR.ino      # Web server calendario
+|-- 37_LED_RGB.ino                 # Controllo LED RGB WS2812
+|-- 38_WEBSERVER_LED_RGB.ino       # Web server LED RGB
+|-- 39_YOUTUBE.ino                 # Statistiche YouTube
+|-- 40_WEBSERVER_YOUTUBE.ino       # Web server YouTube
+|-- 41_NEWS.ino                    # Feed notizie RSS
+|-- 42_WEBSERVER_NEWS.ino          # Web server News
 |
 |-- bttf_types.h                   # Struct per modalita BTTF
 |-- bttf_web_html.h                # HTML pagina web BTTF
@@ -513,6 +629,9 @@ oraQuadra_Nano_Ver_1.5/
 |-- translations.h                 # Sistema traduzioni
 |-- word_mappings.h                # Mappatura LED italiano
 |-- word_mappings_en.h             # Mappatura LED inglese
+|-- calendar_web_html.h             # HTML pagina web calendario
+|-- youtube_web_html.h             # HTML pagina web YouTube
+|-- news_web_html.h                # HTML pagina web News
 |-- qrcode_wifi.h/.c               # Generazione QR code WiFi
 |-- sh_logo_480x480new_black.h     # Logo avvio (PROGMEM)
 |
@@ -559,6 +678,9 @@ Nel file principale `oraQuadra_Nano_Ver_1.5.ino`, commentare o decommentare le d
 #define EFFECT_MP3_PLAYER     // Lettore MP3/WAV da SD card
 #define EFFECT_WEB_RADIO      // Web Radio streaming con interfaccia touch
 #define EFFECT_RADIO_ALARM    // Radiosveglia con selezione stazione
+#define EFFECT_CALENDAR       // Calendario con eventi locali e Google Calendar
+#define EFFECT_YOUTUBE        // Statistiche canale YouTube
+#define EFFECT_NEWS           // Feed notizie RSS (ANSA, BBC, CNN)
 ```
 
 ### Configurazione Audio
@@ -604,12 +726,46 @@ Nel file principale `oraQuadra_Nano_Ver_1.5.ino`, commentare o decommentare le d
 | 230 | Volume annunci orari |
 | 500 | Versione layout EEPROM |
 | 570-577 | Impostazioni Radiosveglia |
+| 700-703 | Maschera modalita abilitate (enabledModesMask) |
+| 704 | Modalita Rainbow |
+| 710-775 | Colori personalizzati modalita (22 x 3 byte RGB) |
+| 780-801 | Preset personalizzati modalita (22 x 1 byte) |
+| 900-907 | Impostazioni LED RGB WS2812 (on/off, luminosita, override, RGB, marker, audio reactive) |
 
 ---
 
 ## Changelog
 
-### v1.5 (30/01/2026) - Attuale
+### v1.5.4 (14/02/2026) - Attuale
+**by Paolo Sambinello & Marco Camerani**
+- **News Feed RSS** (MODE 30): Feed notizie in tempo reale senza API key
+  - 3 fonti: ANSA (8 categorie), BBC (7 categorie), CNN (5 categorie)
+  - Layout tab dinamico (1 o 2 righe in base al numero di categorie)
+  - Navigazione touch: tap su tab per categoria, pill per ciclare fonte
+  - Parsing RSS con gestione CDATA e HTML entities
+  - Pagina web `/news` con selezione fonte e categoria
+- **YouTube Stats** (MODE 29): Statistiche canale YouTube in tempo reale
+  - YouTube Data API v3 con aggiornamento ogni 5 minuti
+  - Display: logo, nome canale, 3 card (iscritti, visualizzazioni, video)
+  - Smart redraw: ridisegna solo quando i dati cambiano
+  - API key e Channel ID configurabili da pagina `/settings`
+  - Pagina web `/youtube` con status JSON
+- **LED RGB WS2812**: Striscia LED RGB da 12 LED su GPIO43
+  - Colori automatici che seguono il tema della modalita attiva
+  - Override manuale colore tramite color picker
+  - Modalita audio reactive: luminosita LED pulsante con la musica
+  - Caso speciale MODE_CHRISTMAS: alternanza rosso/verde (6+6 LED)
+  - Pagina web `/ledrgb` con controlli completi
+  - Toggle on/off nella pagina Settings
+  - Impostazioni persistenti in EEPROM (indirizzi 900-907)
+- **Calendario** (MODE 27): Calendario interattivo con eventi
+  - Vista griglia mensile + vista dettaglio giornaliero
+  - Eventi locali salvati su LittleFS (max 50 eventi)
+  - Sincronizzazione Google Calendar (compatibile formato DD/MM e DD/MM/YYYY)
+  - Navigazione touch tra mesi e giorni
+  - Pagina web `/calendar` per gestione eventi
+
+### v1.5 (30/01/2026)
 **by Paolo Sambinello & Marco Camerani**
 - **Web Radio**: Streaming radio internet con interfaccia touch moderna
   - VU meter stereo animato (L/R)
