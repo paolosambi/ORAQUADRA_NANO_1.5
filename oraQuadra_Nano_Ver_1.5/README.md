@@ -737,7 +737,7 @@ Nel file principale `oraQuadra_Nano_Ver_1.5.ino`, commentare o decommentare le d
 ## Changelog
 
 ### v1.5.4 (14/02/2026) - Attuale
-**by Paolo Sambinello**
+**by Paolo Sambinello & Marco Camerani**
 - **News Feed RSS** (MODE 30): Feed notizie in tempo reale senza API key
   - 3 fonti: ANSA (8 categorie), BBC (7 categorie), CNN (5 categorie)
   - Layout tab dinamico (1 o 2 righe in base al numero di categorie)
