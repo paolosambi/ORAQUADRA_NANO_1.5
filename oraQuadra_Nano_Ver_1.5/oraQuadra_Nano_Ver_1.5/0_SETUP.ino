@@ -614,8 +614,11 @@ void setup_wifi() {
     EEPROM.commit();
   });
 
-  // Genera un nome per l'Access Point (AP) basato sull'indirizzo MAC dell'ESP32.
-  String apName = "OraQuadra_" + String((uint32_t)(ESP.getEfuseMac() & 0xFFFFFF), HEX);
+  // Genera suffisso device ID dagli ultimi 3 byte del MAC address
+  String deviceId = String((uint32_t)(ESP.getEfuseMac() & 0xFFFFFF), HEX);
+  extern String deviceHostname;
+  deviceHostname = "oraquadra-" + deviceId;
+  String apName = "OraQuadra_" + deviceId;
 
   // Disabilita la configurazione IP statica per forzare l'uso di DHCP.
   wifiManager.setSTAStaticIPConfig(IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0));
@@ -681,7 +684,8 @@ void setup_wifi() {
 void setup_OTA() {
   // Configura gli aggiornamenti Over-The-Air (OTA) se la connessione WiFi è attiva.
   if (WiFi.status() == WL_CONNECTED) {
-    ArduinoOTA.setHostname("ORAQUADRA"); // Imposta l'hostname per l'OTA.
+    extern String deviceHostname;
+    ArduinoOTA.setHostname(deviceHostname.c_str()); // Hostname OTA con device ID
 
     // Funzione da eseguire all'inizio dell'aggiornamento OTA.
     ArduinoOTA.onStart([]() {
@@ -731,12 +735,13 @@ void setup_alexa() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("Inizializzazione Espalexa...");
 
-    // Inizializza mDNS (necessario per Espalexa)
-    if (!MDNS.begin("oraquadra")) {
+    // Inizializza mDNS (necessario per Espalexa) con hostname univoco per device
+    extern String deviceHostname;
+    if (!MDNS.begin(deviceHostname.c_str())) {
       Serial.println("Errore inizializzazione mDNS!");
       return; // Non proseguire se mDNS fallisce
     } else {
-      Serial.println("mDNS inizializzato su oraquadra.local");
+      Serial.printf("mDNS inizializzato su %s.local\n", deviceHostname.c_str());
       // Annuncia servizio radardevice per auto-discovery dal radar server
       MDNS.addService("radardevice", "tcp", 8080);  // oraQuadraNano usa porta 8080
       MDNS.addServiceTxt("radardevice", "tcp", "name", "OraQuadraNano");
@@ -858,20 +863,36 @@ void loadSavedSettings() {
     currentPreset = 0;  // Default
   }
 
-  // Carica i valori dei colori salvati dalla EEPROM.
-  uint8_t r = EEPROM.read(EEPROM_COLOR_R_ADDR);
-  uint8_t g = EEPROM.read(EEPROM_COLOR_G_ADDR);
-  uint8_t b = EEPROM.read(EEPROM_COLOR_B_ADDR);
-  currentColor = Color(r, g, b);
-  userColor = currentColor;  // Aggiorna anche la variabile userColor.
+  // ===== CARICA COLORE PER-MODO AL BOOT =====
+  // Il sistema per-modo (EEPROM 710-775 + preset 780-801) ha priorità
+  // sul vecchio colore globale (130-132) per garantire il colore corretto al boot
+  extern uint8_t loadModePreset(uint8_t modeId);
+  extern void getColorForPreset(uint8_t preset, uint8_t modeId, uint8_t &r, uint8_t &g, uint8_t &b);
+  extern bool rainbowModeEnabled;
 
-  // Informazioni di debug (opzionale).
+  uint8_t modePreset = loadModePreset((uint8_t)currentMode);
+  if (modePreset != 255) {
+    currentPreset = modePreset;
+  }
+
+  // Gestione PRESET_RAINBOW (100): abilita rainbow mode al boot
+  if (modePreset == 100) {  // PRESET_RAINBOW
+    rainbowModeEnabled = true;
+    Serial.println("[BOOT] Rainbow mode attivato dal preset per-modo");
+  }
+
+  uint8_t r, g, b;
+  getColorForPreset(currentPreset, (uint8_t)currentMode, r, g, b);
+  currentColor = Color(r, g, b);
+  userColor = currentColor;
+
+  // Informazioni di debug
   Serial.println("Impostazioni caricate da EEPROM:");
-  Serial.print("Modalità: "); Serial.println(currentMode);
-  Serial.print("Preset: "); Serial.println(currentPreset);
-  Serial.print("Colore: R="); Serial.print(r);
-  Serial.print(" G="); Serial.print(g);
-  Serial.print(" B="); Serial.println(b);
+  Serial.printf("  Modalità: %d\n", currentMode);
+  Serial.printf("  Preset per-modo: %d\n", modePreset);
+  Serial.printf("  Preset applicato: %d\n", currentPreset);
+  Serial.printf("  Colore: R=%d G=%d B=%d\n", r, g, b);
+  Serial.printf("  Rainbow: %s\n", rainbowModeEnabled ? "ON" : "OFF");
 }
 
 

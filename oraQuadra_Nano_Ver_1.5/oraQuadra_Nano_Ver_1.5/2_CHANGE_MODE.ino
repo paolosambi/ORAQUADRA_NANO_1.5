@@ -269,6 +269,16 @@ void cleanupPreviousMode(DisplayMode previousMode) {
 
 // Funzione per forzare un aggiornamento completo del display
 void forceDisplayUpdate() {
+  // Se allarme calendario attivo, ridisegna la schermata allarme e NON il modo corrente
+  #ifdef EFFECT_CALENDAR
+  extern bool calendarAlarmActive;
+  if (calendarAlarmActive) {
+    extern void showCalendarAlarmScreen();
+    showCalendarAlarmScreen();
+    return;
+  }
+  #endif
+
   // Pulizia completa dello schermo impostando tutti i pixel a nero.
   gfx->fillScreen(BLACK);
 
@@ -733,24 +743,29 @@ void handleModeChange() {
 
   // Carica il preset e colore salvati per la nuova modalità (sincronizzato con web)
   uint8_t modePreset = loadModePreset((uint8_t)currentMode);
-  uint8_t modeR, modeG, modeB;
-  loadModeColor((uint8_t)currentMode, modeR, modeG, modeB);
 
   // Se c'è un preset salvato per questa modalità, usa quello
-  if (modePreset != 255) {  // 255 = PRESET_NONE
+  if (modePreset != 255) {
     currentPreset = modePreset;
-    // Per preset 13 (personalizzato) usa il colore salvato
-    if (modePreset == 13) {
-      currentColor = Color(modeR, modeG, modeB);
-      userColor = currentColor;
-    }
-    // Per altri preset, il colore è già definito dal preset stesso
   } else {
-    // Nessun preset salvato: usa il colore salvato per questa modalità
     currentPreset = 13;  // Personalizzato
-    currentColor = Color(modeR, modeG, modeB);
-    userColor = currentColor;
   }
+
+  // Gestione rainbow mode: attiva/disattiva in base al preset per-modo
+  extern bool rainbowModeEnabled;
+  if (modePreset == 100) {  // PRESET_RAINBOW
+    rainbowModeEnabled = true;
+    EEPROM.write(704, 1);  // EEPROM_RAINBOW_MODE_ADDR
+  } else {
+    rainbowModeEnabled = false;
+    EEPROM.write(704, 0);
+  }
+
+  // Applica il colore corretto per il preset (o colore per-modo se personalizzato)
+  uint8_t modeR, modeG, modeB;
+  getColorForPreset(currentPreset, (uint8_t)currentMode, modeR, modeG, modeB);
+  currentColor = Color(modeR, modeG, modeB);
+  userColor = currentColor;
 
   // Salva la modalità corrente e colore/preset nella EEPROM
   EEPROM.write(EEPROM_MODE_ADDR, currentMode);

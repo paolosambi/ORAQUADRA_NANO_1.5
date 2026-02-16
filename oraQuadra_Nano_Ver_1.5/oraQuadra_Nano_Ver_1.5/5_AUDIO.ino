@@ -862,6 +862,15 @@ bool playLocalMP3(const char* filename) {
   const unsigned long MAX_PLAY_TIME = 30000;
 
   // Attendi fine riproduzione (audio.loop() è chiamato da audioTask)
+  // Variabili per lampeggio LED RGB a ritmo del parlato
+  #ifdef EFFECT_LED_RGB
+  static uint8_t bootLedTarget = 0;
+  static uint8_t bootLedSmooth = 0;
+  extern Adafruit_NeoPixel ledStrip;
+  extern uint8_t ledRgbBrightness;
+  extern void getLedColorForMode(DisplayMode mode, uint8_t &r, uint8_t &g, uint8_t &b);
+  #endif
+
   while (audio.isRunning()) {
     if (millis() - playStart > MAX_PLAY_TIME) {
       Serial.println("[AUDIO] Timeout riproduzione!");
@@ -872,8 +881,49 @@ bool playLocalMP3(const char* filename) {
     // Aggiorna VU meter durante riproduzione
     if (vuMeterEnabled) updateVUMeter();
 
+    // Lampeggio LED RGB a ritmo del parlato (durante annunci)
+    #ifdef EFFECT_LED_RGB
+    if (vuMeterEnabled) {
+      // Simula livello audio con attacco/decadimento
+      if (random(100) < 35) {
+        bootLedTarget = random(25, 100);
+      }
+      if (bootLedSmooth < bootLedTarget) {
+        bootLedSmooth = min((int)bootLedSmooth + 12, (int)bootLedTarget);
+      } else {
+        bootLedSmooth = max((int)bootLedSmooth - 6, (int)bootLedTarget);
+      }
+      uint8_t level = constrain((int)bootLedSmooth + random(-5, 6), 5, 100);
+
+      // Modula brightness LED: da 20% a 100% della brightness impostata
+      uint8_t bri = ledRgbBrightness > 0 ? ledRgbBrightness : 80;
+      uint8_t minBri = bri / 5;
+      uint8_t pulseBri = minBri + (uint8_t)((uint16_t)(bri - minBri) * level / 100);
+      ledStrip.setBrightness(pulseBri);
+
+      // Colore tema per il modo corrente
+      uint8_t lr, lg, lb;
+      getLedColorForMode((DisplayMode)currentMode, lr, lg, lb);
+      uint32_t color = ledStrip.Color(lr, lg, lb);
+      for (int i = 0; i < 12; i++) {
+        ledStrip.setPixelColor(i, color);
+      }
+      ledStrip.show();
+    }
+    #endif
+
     delay(10);  // Breve pausa per non saturare CPU
   }
+
+  // Spegni LED dopo annuncio (il loop principale li gestirà)
+  #ifdef EFFECT_LED_RGB
+  if (vuMeterEnabled) {
+    bootLedSmooth = 0;
+    bootLedTarget = 0;
+    ledStrip.clear();
+    ledStrip.show();
+  }
+  #endif
 
   // Nascondi VU meter solo se NON siamo in una sequenza
   if (!inSequence && vuMeterEnabled) {

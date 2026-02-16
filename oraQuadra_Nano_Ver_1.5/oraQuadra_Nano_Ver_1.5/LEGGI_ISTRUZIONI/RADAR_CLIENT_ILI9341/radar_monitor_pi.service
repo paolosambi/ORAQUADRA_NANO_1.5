@@ -1,0 +1,12 @@
+[Unit]
+Description=Radar Monitor Controller per Raspberry Pi
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/radar_monitor_pi.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

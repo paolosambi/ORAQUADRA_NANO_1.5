@@ -313,6 +313,11 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
           <h3>News RSS</h3>
           <p>Notizie in tempo reale</p>
         </a>
+        <a href="/update" class="nav-card primary" style="--accent:#ff9500;--accent-rgb:255,149,0">
+          <span class="icon">&#128259;</span>
+          <h3>Aggiornamento OTA</h3>
+          <p>Firmware e LittleFS via Wi-Fi</p>
+        </a>
       </div>
     </div>
 

@@ -137,6 +137,7 @@ unsigned long relayStartTime = 0;
 bool relayEnabled = false;        // Disabilitato al boot
 unsigned long bootTime = 0;       // Timestamp avvio
 bool pendingRelayPulse = false;   // Attivazione rele pendente (durante boot delay)
+bool relayDeviceOn = false;       // Stato stimato TV/monitor (false=spento al boot)
 
 // ========== SENSORE MONITOR TEMT6000 (DISATTIVATO) ==========
 // #define MONITOR_SENSOR_PIN 34         // GPIO34 (ADC1) per TEMT6000 puntato al monitor
@@ -364,12 +365,13 @@ void resetDisplayAfterAlarm();
 
 // ========== GESTIONE DISPOSITIVI ESTERNI ==========
 #define MAX_CLIENTS 10
-#define CLIENT_HTTP_TIMEOUT 200       // Timeout HTTP ridotto (ms)
-#define CLIENT_CONNECT_TIMEOUT 150    // Timeout connessione ridotto (ms)
+#define CLIENT_HTTP_TIMEOUT 800       // Timeout HTTP per comandi ON/OFF (ms)
+#define CLIENT_CONNECT_TIMEOUT 500    // Timeout connessione per comandi ON/OFF (ms)
 
 struct ClientDevice {
   String ip;
   String name;
+  String mdnsHost;        // Hostname mDNS (es. "oraquadra" -> oraquadra.local) per risolvere IP dinamici
   uint16_t port;
   bool active;
   bool notifyPresence;
@@ -378,24 +380,39 @@ struct ClientDevice {
   bool currentState;      // Stato attuale (true=ON, false=OFF)
   unsigned long lastSeen;
   uint8_t failCount;      // Contatore fallimenti (per statistiche)
+  bool radarVerified;     // true = risponde a /radar/ping (servizio radar installato)
 };
 ClientDevice clients[MAX_CLIENTS];
 int clientCount = 0;
+
+// ========== CODA VERIFICA DISCOVERY ==========
+#define VERIFY_QUEUE_SIZE 32
+struct VerifyCandidate {
+  String ip;
+  uint16_t port;
+  bool pending;
+};
+VerifyCandidate verifyQueue[VERIFY_QUEUE_SIZE];
+int verifyCount = 0;
+bool verifyInProgress = false;
+unsigned long lastVerifyStep = 0;
 bool lastNotifiedPresence = false;
 int lastSentLight = -1;
 
 // ========== DISCOVERY DISPOSITIVI ==========
-#define DISCOVERY_TIMEOUT_MS 50      // Timeout per ogni IP (molto breve)
+#define DISCOVERY_TIMEOUT_MS 150     // Timeout per ogni IP+porta
 #define DISCOVERY_INTERVAL_MS 10     // Intervallo tra scansioni IP
-#define DISCOVERY_PORT 80            // Porta da scansionare
+const uint16_t DISCOVERY_PORTS[] = {80, 8080, 8081};  // Porte da scansionare
+#define DISCOVERY_PORT_COUNT 3       // Numero porte
 bool discoveryActive = false;        // Discovery in corso
-bool discoveryEnabled = false;       // Auto-discovery DISABILITATO di default
+bool discoveryEnabled = true;        // Auto-discovery ABILITATO di default
 int discoveryCurrentIP = 1;          // IP corrente nella scansione (1-254)
 int discoveryEndIP = 254;            // Ultimo IP da scansionare
 int discoveryFoundCount = 0;         // Dispositivi trovati nell'ultima scansione
+int discoveryPortIndex = 0;          // Indice porta corrente nella scansione
 unsigned long lastDiscoveryStep = 0; // Timing per step non bloccante
 unsigned long lastDiscoveryRun = 0;  // Ultima scansione completa
-#define DISCOVERY_AUTO_INTERVAL 0    // Auto-discovery disabilitato (0=off)
+#define DISCOVERY_AUTO_INTERVAL 300000 // Auto-discovery ogni 5 minuti (ms)
 
 // ========== FUNZIONI LED (DISABILITATO) ==========
 void setupLED() {
@@ -459,15 +476,12 @@ void setupRelay() {
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW);
   relayActive = false;
-  DEBUG_PRINTLN("Rele inizializzato su GPIO26");
+  relayDeviceOn = false;  // Al boot assumiamo TV spenta
+  DEBUG_PRINTLN("Rele inizializzato su GPIO26 (TV=OFF stimato)");
 }
 
+// Impulso grezzo - usa setRelayDevice() per logica smart
 bool startRelayPulse() {
-  // RELE DISABILITATO - logica non ancora funzionante
-  DEBUG_PRINTLN(">>> RELE: DISABILITATO <<<");
-  return false;
-
-  /* CODICE ORIGINALE COMMENTATO
   if (!relayEnabled) {
     DEBUG_PRINTLN(">>> RELE: Ignorato (boot in corso) <<<");
     return false;
@@ -480,7 +494,20 @@ bool startRelayPulse() {
     return true;
   }
   return false;
-  */
+}
+
+// Logica smart: invia impulso SOLO se lo stato desiderato e' diverso da quello stimato
+bool setRelayDevice(bool wantOn) {
+  if (wantOn == relayDeviceOn) {
+    DEBUG_PRINTF(">>> RELE: TV gia %s, nessun impulso <<<\n", wantOn ? "ACCESA" : "SPENTA");
+    return false;
+  }
+  bool ok = startRelayPulse();
+  if (ok) {
+    relayDeviceOn = wantOn;
+    DEBUG_PRINTF(">>> RELE: TV -> %s <<<\n", wantOn ? "ACCESA" : "SPENTA");
+  }
+  return ok;
 }
 
 void updateRelay() {
@@ -706,7 +733,7 @@ void sendGasAlarm() {
 
     HTTPClient http;
     String url = "http://" + clients[i].ip + ":" + String(clients[i].port) +
-                 "/radar/gas_alarm?gas=" + gasAlarmType + "&value=" + String(gasAlarmValue, 1);
+                 "/radar/gas_alarm?gas=" + gasAlarmType + "&name=" + getGasFullName(gasAlarmType) + "&value=" + String(gasAlarmValue, 1);
 
     DEBUG_PRINTF("ALLARME -> %s:%d ", clients[i].ip.c_str(), clients[i].port);
 
@@ -854,6 +881,7 @@ void saveSettings() {
   preferences.putInt("sensClose", radarSensClose);
   preferences.putInt("sensMid", radarSensMid);
   preferences.putInt("sensFar", radarSensFar);
+  preferences.putBool("discAuto", discoveryEnabled);
   preferences.end();
   DEBUG_PRINTLN("Impostazioni salvate");
 }
@@ -867,6 +895,7 @@ void loadSettings() {
   maxBrightness = preferences.getInt("maxBright", 255);
   tempOffset = preferences.getFloat("tempOffset", 0.0);
   humOffset = preferences.getFloat("humOffset", 0.0);
+  discoveryEnabled = preferences.getBool("discAuto", true);
   radarSensClose = preferences.getInt("sensClose", RADAR_SENS_CLOSE_DEFAULT);
   radarSensMid = preferences.getInt("sensMid", RADAR_SENS_MID_DEFAULT);
   radarSensFar = preferences.getInt("sensFar", RADAR_SENS_FAR_DEFAULT);
@@ -881,6 +910,7 @@ void saveClients() {
     String prefix = "c" + String(i);
     preferences.putString((prefix + "ip").c_str(), clients[i].ip);
     preferences.putString((prefix + "name").c_str(), clients[i].name);
+    preferences.putString((prefix + "host").c_str(), clients[i].mdnsHost);
     preferences.putUShort((prefix + "port").c_str(), clients[i].port);
     preferences.putBool((prefix + "act").c_str(), clients[i].active);
     preferences.putBool((prefix + "pres").c_str(), clients[i].notifyPresence);
@@ -898,6 +928,7 @@ void loadClients() {
     String prefix = "c" + String(i);
     clients[i].ip = preferences.getString((prefix + "ip").c_str(), "");
     clients[i].name = preferences.getString((prefix + "name").c_str(), "Device");
+    clients[i].mdnsHost = preferences.getString((prefix + "host").c_str(), "");
     clients[i].port = preferences.getUShort((prefix + "port").c_str(), 80);
     clients[i].active = preferences.getBool((prefix + "act").c_str(), true);
     clients[i].notifyPresence = preferences.getBool((prefix + "pres").c_str(), true);
@@ -909,6 +940,96 @@ void loadClients() {
   }
   preferences.end();
   DEBUG_PRINTF("Caricati %d dispositivi\n", clientCount);
+}
+
+// ========== RISOLUZIONE mDNS HOSTNAME -> IP ==========
+// Risolve l'hostname mDNS di un client per ottenere il suo IP corrente.
+// Se l'hostname e' vuoto o la risoluzione fallisce, usa l'IP salvato.
+// Se l'IP e' cambiato (DHCP), aggiorna automaticamente il record.
+String resolveClientIP(int index) {
+  if (index < 0 || index >= clientCount) return "";
+
+  // Se non ha hostname mDNS, usa IP statico salvato
+  if (clients[index].mdnsHost.length() == 0) {
+    return clients[index].ip;
+  }
+
+  // Risolvi hostname via mDNS
+  IPAddress resolved = MDNS.queryHost(clients[index].mdnsHost, 1000);  // timeout 1 sec
+
+  if (resolved == IPAddress(0, 0, 0, 0)) {
+    // Risoluzione fallita - usa IP salvato come fallback
+    DEBUG_PRINTF("mDNS: %s.local non risolto, uso IP salvato %s\n",
+                 clients[index].mdnsHost.c_str(), clients[index].ip.c_str());
+    return clients[index].ip;
+  }
+
+  String resolvedIP = resolved.toString();
+
+  // Se IP e' cambiato, aggiorna il record!
+  if (resolvedIP != clients[index].ip) {
+    DEBUG_PRINTF("mDNS: %s.local IP cambiato %s -> %s (DHCP)\n",
+                 clients[index].mdnsHost.c_str(), clients[index].ip.c_str(), resolvedIP.c_str());
+    clients[index].ip = resolvedIP;
+    clients[index].failCount = 0;  // Reset errori - nuovo IP
+    saveClients();
+  }
+
+  return resolvedIP;
+}
+
+// Risolvi tutti i client con hostname mDNS (chiamare periodicamente)
+void resolveAllClientsMdns() {
+  for (int i = 0; i < clientCount; i++) {
+    if (!clients[i].active || clients[i].mdnsHost.length() == 0) continue;
+    resolveClientIP(i);  // Aggiorna IP se cambiato
+  }
+}
+
+// Forward declaration (addClient definita piu avanti)
+int addClient(String ip, String name, uint16_t port, bool controlOnOff, String mdnsHost);
+
+// Scopri automaticamente dispositivi che annunciano il servizio _radardevice._tcp via mDNS
+int discoverMdnsDevices() {
+  DEBUG_PRINTLN("=== mDNS DISCOVERY: Cerco servizi _radardevice._tcp ===");
+
+  int found = MDNS.queryService("radardevice", "tcp");
+
+  if (found == 0) {
+    DEBUG_PRINTLN("mDNS DISCOVERY: Nessun dispositivo trovato");
+    return 0;
+  }
+
+  DEBUG_PRINTF("mDNS DISCOVERY: Trovati %d dispositivi\n", found);
+  int added = 0;
+
+  for (int i = 0; i < found; i++) {
+    String ip = MDNS.IP(i).toString();
+    String hostName = MDNS.hostname(i);
+    uint16_t port = MDNS.port(i);
+
+    // Leggi TXT records per nome e porta personalizzata
+    String deviceName = hostName;
+    for (int j = 0; j < MDNS.numTxt(i); j++) {
+      if (MDNS.txtKey(i, j) == "name") deviceName = MDNS.txt(i, j);
+      if (MDNS.txtKey(i, j) == "port") port = MDNS.txt(i, j).toInt();
+    }
+
+    // Non aggiungere se stesso
+    if (ip == WiFi.localIP().toString()) continue;
+
+    DEBUG_PRINTF("  [%d] %s (%s.local) -> %s:%d\n", i, deviceName.c_str(), hostName.c_str(), ip.c_str(), port);
+
+    // Aggiungi/aggiorna il dispositivo con hostname mDNS (mDNS = radar verificato)
+    int idx = addClient(ip, deviceName, port, true, hostName);
+    if (idx >= 0) {
+      clients[idx].radarVerified = true;
+      added++;
+    }
+  }
+
+  DEBUG_PRINTF("mDNS DISCOVERY: %d dispositivi aggiunti/aggiornati\n", added);
+  return added;
 }
 
 // ========== FUNZIONI CALIBRAZIONE TOUCH ==========
@@ -1098,21 +1219,64 @@ bool isTouchInButton(Button &btn) {
 }
 
 // ========== FUNZIONI GESTIONE DISPOSITIVI ==========
-int addClient(String ip, String name, uint16_t port, bool controlOnOff = true) {
+int addClient(String ip, String name, uint16_t port, bool controlOnOff = true, String mdnsHost = "") {
   if (clientCount >= MAX_CLIENTS) return -1;
 
+  // 1) Cerca per hostname mDNS (identificatore STABILE - non cambia con DHCP)
+  if (mdnsHost.length() > 0) {
+    for (int i = 0; i < clientCount; i++) {
+      if (clients[i].mdnsHost == mdnsHost) {
+        if (clients[i].ip != ip) {
+          DEBUG_PRINTF("mDNS MATCH: %s.local IP cambiato %s -> %s\n", mdnsHost.c_str(), clients[i].ip.c_str(), ip.c_str());
+        }
+        clients[i].ip = ip;
+        clients[i].name = name;
+        clients[i].port = port;
+        clients[i].active = true;
+        clients[i].failCount = 0;
+        clients[i].lastSeen = millis();
+        saveClients();
+        DEBUG_PRINTF("Device aggiornato (mDNS %s.local): %s (%s:%d)\n", mdnsHost.c_str(), name.c_str(), ip.c_str(), port);
+        return i;
+      }
+    }
+  }
+
+  // 2) Cerca per IP esatto (stesso device, stesso IP)
   for (int i = 0; i < clientCount; i++) {
     if (clients[i].ip == ip) {
       clients[i].name = name;
       clients[i].port = port;
+      if (mdnsHost.length() > 0) clients[i].mdnsHost = mdnsHost;  // Aggiorna hostname se fornito
       clients[i].active = true;
+      clients[i].failCount = 0;
+      clients[i].lastSeen = millis();
       saveClients();
+      DEBUG_PRINTF("Device aggiornato (stesso IP): %s (%s:%d)\n", name.c_str(), ip.c_str(), port);
       return i;
     }
   }
 
+  // 3) Cerca per nome+porta (stesso device, IP cambiato via DHCP)
+  if (name.length() > 0 && name != "Device") {
+    for (int i = 0; i < clientCount; i++) {
+      if (clients[i].name == name && clients[i].port == port) {
+        DEBUG_PRINTF("Device IP cambiato: %s %s -> %s\n", name.c_str(), clients[i].ip.c_str(), ip.c_str());
+        clients[i].ip = ip;
+        if (mdnsHost.length() > 0) clients[i].mdnsHost = mdnsHost;
+        clients[i].active = true;
+        clients[i].failCount = 0;
+        clients[i].lastSeen = millis();
+        saveClients();
+        return i;
+      }
+    }
+  }
+
+  // 4) Nuovo device - aggiungi
   clients[clientCount].ip = ip;
   clients[clientCount].name = name;
+  clients[clientCount].mdnsHost = mdnsHost;
   clients[clientCount].port = port;
   clients[clientCount].active = true;
   clients[clientCount].notifyPresence = true;
@@ -1121,9 +1285,10 @@ int addClient(String ip, String name, uint16_t port, bool controlOnOff = true) {
   clients[clientCount].currentState = false;
   clients[clientCount].lastSeen = millis();
   clients[clientCount].failCount = 0;
+  clients[clientCount].radarVerified = false;  // Verra verificato con /radar/ping
   clientCount++;
   saveClients();
-  DEBUG_PRINTF("Aggiunto device: %s (%s:%d)\n", name.c_str(), ip.c_str(), port);
+  DEBUG_PRINTF("Nuovo device: %s (%s:%d) host=%s\n", name.c_str(), ip.c_str(), port, mdnsHost.length() > 0 ? mdnsHost.c_str() : "none");
   return clientCount - 1;
 }
 
@@ -1138,6 +1303,8 @@ bool removeClient(int index) {
   return true;
 }
 
+#define CLIENT_MAX_CONSECUTIVE_FAILS 10  // Dopo 10 fallimenti consecutivi, sospendi il device
+
 void notifyClients(String event, String value) {
   if (clientCount == 0) return;
 
@@ -1146,7 +1313,22 @@ void notifyClients(String event, String value) {
     if (event == "presence" && !clients[i].notifyPresence) continue;
     if (event == "brightness" && !clients[i].notifyBrightness) continue;
 
+    // SKIP device irraggiungibili per evitare blocco (troppi fail consecutivi)
+    if (clients[i].failCount >= CLIENT_MAX_CONSECUTIVE_FAILS) {
+      // Ogni 30 tentativi riprova per vedere se è tornato online
+      static uint8_t retryCounter[MAX_CLIENTS] = {0};
+      retryCounter[i]++;
+      if (retryCounter[i] < 30) continue;  // Salta - device probabilmente offline
+      retryCounter[i] = 0;  // Reset - riprova questo giro
+      // Se ha hostname mDNS, prova a risolvere nuovo IP (forse DHCP ha cambiato)
+      if (clients[i].mdnsHost.length() > 0) {
+        resolveClientIP(i);  // Aggiorna IP se cambiato
+      }
+      DEBUG_PRINTF("RETRY -> %s:%d (era offline, riprovo)\n", clients[i].ip.c_str(), clients[i].port);
+    }
+
     HTTPClient http;
+    // Usa sempre l'IP salvato (viene aggiornato periodicamente da resolveAllClientsMdns)
     String url = "http://" + clients[i].ip + ":" + String(clients[i].port) + "/radar/" + event + "?value=" + value;
 
     DEBUG_PRINTF("NOTIFY -> %s:%d /%s=%s ", clients[i].ip.c_str(), clients[i].port, event.c_str(), value.c_str());
@@ -1156,11 +1338,13 @@ void notifyClients(String event, String value) {
     http.setConnectTimeout(300);
     int httpCode = http.GET();
 
-    if (httpCode > 0) {
+    if (httpCode >= 200 && httpCode < 400) {
       clients[i].lastSeen = millis();
+      clients[i].failCount = 0;  // Reset fail count on success
       DEBUG_PRINTF("OK(%d)\n", httpCode);
     } else {
-      DEBUG_PRINTF("FAIL(%d)\n", httpCode);
+      clients[i].failCount++;
+      DEBUG_PRINTF("FAIL(%d) [%d/%d]\n", httpCode, clients[i].failCount, CLIENT_MAX_CONSECUTIVE_FAILS);
     }
 
     http.end();
@@ -1185,13 +1369,37 @@ bool sendClientCommand(int index, bool turnOn) {
   int httpCode = http.GET();
   http.end();
 
-  if (httpCode > 0 && httpCode < 400) {
+  if (httpCode >= 200 && httpCode < 400) {
     clients[index].lastSeen = millis();
     clients[index].currentState = turnOn;
     clients[index].failCount = 0;
+    clients[index].radarVerified = true;  // Risponde a /radar/* -> verificato
     DEBUG_PRINTF("OK(%d)\n", httpCode);
     return true;
   } else {
+    // Fallito - se ha hostname mDNS, prova a risolvere nuovo IP e ritenta
+    if (clients[index].mdnsHost.length() > 0) {
+      String oldIP = clients[index].ip;
+      resolveClientIP(index);
+      if (clients[index].ip != oldIP) {
+        // IP cambiato! Riprova con il nuovo IP
+        DEBUG_PRINTF("mDNS RETRY -> %s:%d (nuovo IP da %s)\n", clients[index].ip.c_str(), clients[index].port, oldIP.c_str());
+        String url2 = "http://" + clients[index].ip + ":" + String(clients[index].port) + "/radar/" + cmd;
+        HTTPClient http2;
+        http2.begin(url2);
+        http2.setTimeout(CLIENT_HTTP_TIMEOUT);
+        http2.setConnectTimeout(CLIENT_CONNECT_TIMEOUT);
+        int httpCode2 = http2.GET();
+        http2.end();
+        if (httpCode2 >= 200 && httpCode2 < 400) {
+          clients[index].lastSeen = millis();
+          clients[index].currentState = turnOn;
+          clients[index].failCount = 0;
+          DEBUG_PRINTF("OK(%d) con nuovo IP!\n", httpCode2);
+          return true;
+        }
+      }
+    }
     DEBUG_PRINTF("FAIL(%d)\n", httpCode);
     return false;
   }
@@ -1221,6 +1429,15 @@ void sendAllCommand(bool turnOn) {
   DEBUG_PRINTLN("--- Primo tentativo ---");
   for (int i = 0; i < clientCount; i++) {
     if (!clients[i].active || !clients[i].controlOnOff) continue;
+
+    // Device noti come offline: riprova ogni 5 cicli (non ogni volta per evitare blocco)
+    if (clients[i].failCount >= CLIENT_MAX_CONSECUTIVE_FAILS) {
+      static uint8_t cmdRetry[MAX_CLIENTS] = {0};
+      cmdRetry[i]++;
+      if (cmdRetry[i] < 5) continue;  // Salta - riprova tra 5 comandi
+      cmdRetry[i] = 0;
+      DEBUG_PRINTF("RETRY CMD -> %s:%d (era offline, riprovo)\n", clients[i].ip.c_str(), clients[i].port);
+    }
 
     // Leggi radar tra un comando e l'altro per non perdere dati
     readRadarData();
@@ -1272,10 +1489,7 @@ void sendAllOff() {
 }
 
 // ========== DISCOVERY DISPOSITIVI (NON BLOCCANTE) ==========
-WiFiClient discoveryClient;
-bool discoveryConnecting = false;
-unsigned long discoveryConnectStart = 0;
-String discoveryTestIP = "";
+// Discovery usa WiFiClient locale in discoveryStep()
 
 void startDiscovery() {
   if (discoveryActive) {
@@ -1285,75 +1499,55 @@ void startDiscovery() {
 
   discoveryActive = true;
   discoveryCurrentIP = 1;
+  discoveryPortIndex = 0;
   discoveryFoundCount = 0;
-  discoveryConnecting = false;
   lastDiscoveryStep = millis();
 
   DEBUG_PRINTLN("=== AVVIO DISCOVERY DISPOSITIVI ===");
-  DEBUG_PRINTF("Scansione rete: %d.%d.%d.1 - %d.%d.%d.%d\n",
+  DEBUG_PRINTF("Scansione rete: %d.%d.%d.1 - %d.%d.%d.%d (porte: 80,8080,8081)\n",
     WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2],
     WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], discoveryEndIP);
 }
 
 void stopDiscovery() {
   discoveryActive = false;
-  discoveryConnecting = false;
-  if (discoveryClient.connected()) {
-    discoveryClient.stop();
-  }
   DEBUG_PRINTF("Discovery terminato - Trovati %d dispositivi\n", discoveryFoundCount);
   lastDiscoveryRun = millis();
 }
 
-void addDiscoveredDevice(String ip) {
-  // Aggiungi se non esiste gia
-  bool exists = false;
+void addDiscoveredDevice(String ip, uint16_t port) {
+  // Controlla se esiste gia come client
   for (int i = 0; i < clientCount; i++) {
-    if (clients[i].ip == ip) {
-      exists = true;
+    if (clients[i].ip == ip && clients[i].port == port) {
       clients[i].active = true;
       clients[i].lastSeen = millis();
-      break;
+      return;
     }
   }
 
-  if (!exists && clientCount < MAX_CLIENTS) {
-    int lastOctet = ip.substring(ip.lastIndexOf('.') + 1).toInt();
-    addClient(ip, "Device_" + String(lastOctet), DISCOVERY_PORT, true);
+  // Controlla se e' gia in coda di verifica
+  for (int i = 0; i < verifyCount; i++) {
+    if (verifyQueue[i].ip == ip && verifyQueue[i].port == port) return;
+  }
+
+  // Aggiungi alla coda di verifica (verra controllato /radar/ping nel loop)
+  if (verifyCount < VERIFY_QUEUE_SIZE) {
+    verifyQueue[verifyCount].ip = ip;
+    verifyQueue[verifyCount].port = port;
+    verifyQueue[verifyCount].pending = true;
+    verifyCount++;
     discoveryFoundCount++;
-    DEBUG_PRINTF("DISCOVERY: Aggiunto dispositivo %s\n", ip.c_str());
+    DEBUG_PRINTF("DISCOVERY: %s:%d -> coda verifica radar/ping\n", ip.c_str(), port);
   }
 }
 
-// Chiamare nel loop - NON BLOCCANTE
+// Chiamare nel loop - un tentativo di connessione per ciclo
+// Connect bloccante con timeout breve (150ms max per tentativo)
+// Per IP senza server il connect fallisce in <10ms (no blocco reale)
 void discoveryStep() {
   if (!discoveryActive || otaInProgress) return;
 
   unsigned long now = millis();
-
-  // Se stiamo aspettando una connessione
-  if (discoveryConnecting) {
-    // Controlla timeout
-    if (now - discoveryConnectStart > DISCOVERY_TIMEOUT_MS) {
-      discoveryClient.stop();
-      discoveryConnecting = false;
-      discoveryCurrentIP++;
-      return;
-    }
-
-    // Controlla se connesso
-    if (discoveryClient.connected()) {
-      // Dispositivo trovato!
-      discoveryClient.stop();
-      discoveryConnecting = false;
-      addDiscoveredDevice(discoveryTestIP);
-      discoveryCurrentIP++;
-      return;
-    }
-
-    // Ancora in attesa, esci senza bloccare
-    return;
-  }
 
   // Intervallo tra tentativi
   if (now - lastDiscoveryStep < DISCOVERY_INTERVAL_MS) return;
@@ -1370,24 +1564,92 @@ void discoveryStep() {
   }
 
   // Costruisci IP da testare
-  discoveryTestIP = String(WiFi.localIP()[0]) + "." +
-                    String(WiFi.localIP()[1]) + "." +
-                    String(WiFi.localIP()[2]) + "." +
-                    String(discoveryCurrentIP);
+  String testIP = String(WiFi.localIP()[0]) + "." +
+                  String(WiFi.localIP()[1]) + "." +
+                  String(WiFi.localIP()[2]) + "." +
+                  String(discoveryCurrentIP);
 
-  // Tenta connessione NON bloccante
-  discoveryClient.stop();
+  // Porta corrente da testare
+  uint16_t testPort = DISCOVERY_PORTS[discoveryPortIndex];
 
-  // connect() con timeout 1 = non bloccante
-  if (discoveryClient.connect(discoveryTestIP.c_str(), DISCOVERY_PORT, 1)) {
-    // Connesso subito (raro)
-    discoveryClient.stop();
-    addDiscoveredDevice(discoveryTestIP);
+  // Tenta connessione bloccante con timeout breve
+  WiFiClient testClient;
+  if (testClient.connect(testIP.c_str(), testPort, DISCOVERY_TIMEOUT_MS)) {
+    // Dispositivo trovato!
+    testClient.stop();
+    addDiscoveredDevice(testIP, testPort);
+    DEBUG_PRINTF("DISCOVERY HIT: %s:%d\n", testIP.c_str(), testPort);
+  }
+  testClient.stop();
+
+  // Prossima porta, poi prossimo IP
+  discoveryPortIndex++;
+  if (discoveryPortIndex >= DISCOVERY_PORT_COUNT) {
+    discoveryPortIndex = 0;
     discoveryCurrentIP++;
+  }
+}
+
+// ========== VERIFICA CANDIDATI DISCOVERY ==========
+// Verifica un candidato alla volta con HTTP GET /radar/ping
+void verifyStep() {
+  if (verifyCount == 0 || otaInProgress) return;
+
+  unsigned long now = millis();
+  if (now - lastVerifyStep < 500) return;  // Max 2 verifiche al secondo
+  lastVerifyStep = now;
+
+  // Trova il prossimo candidato pendente
+  int idx = -1;
+  for (int i = 0; i < verifyCount; i++) {
+    if (verifyQueue[i].pending) { idx = i; break; }
+  }
+  if (idx < 0) {
+    // Tutti verificati, svuota la coda
+    verifyCount = 0;
+    return;
+  }
+
+  String ip = verifyQueue[idx].ip;
+  uint16_t port = verifyQueue[idx].port;
+  verifyQueue[idx].pending = false;
+
+  DEBUG_PRINTF("VERIFY: Controllo %s:%d /radar/ping...\n", ip.c_str(), port);
+
+  HTTPClient http;
+  http.setTimeout(800);
+  String url = "http://" + ip + ":" + String(port) + "/radar/ping";
+  http.begin(url);
+  int httpCode = http.GET();
+  String payload = "";
+  if (httpCode == 200) {
+    payload = http.getString();
+  }
+  http.end();
+
+  bool isRadar = false;
+  String deviceName = "Device_" + ip.substring(ip.lastIndexOf('.') + 1);
+
+  if (httpCode == 200 && payload.indexOf("ok") >= 0) {
+    isRadar = true;
+    // Estrai nome dal JSON se presente (campo "host" o "name")
+    int hostIdx = payload.indexOf("\"host\":\"");
+    if (hostIdx >= 0) {
+      int start = hostIdx + 8;
+      int end = payload.indexOf("\"", start);
+      if (end > start) deviceName = payload.substring(start, end);
+    }
+    DEBUG_PRINTF("VERIFY: %s:%d -> RADAR OK (%s)\n", ip.c_str(), port, deviceName.c_str());
   } else {
-    // In attesa di connessione
-    discoveryConnecting = true;
-    discoveryConnectStart = now;
+    DEBUG_PRINTF("VERIFY: %s:%d -> NO radar (HTTP %d)\n", ip.c_str(), port, httpCode);
+  }
+
+  // Aggiungi SOLO dispositivi con radar verificato (non aggiungere router, stampanti, etc.)
+  if (isRadar && clientCount < MAX_CLIENTS) {
+    int addedIdx = addClient(ip, deviceName, port, true);
+    if (addedIdx >= 0) {
+      clients[addedIdx].radarVerified = true;
+    }
   }
 }
 
@@ -1432,8 +1694,8 @@ void updatePresence() {
       notifyClients("presence", "true");
       // INVIA COMANDO ON A TUTTI I DISPOSITIVI
       sendAllOn();
-      // IMPOSTA STATO DESIDERATO MONITOR = ACCESO
-      // (Legacy - sensore TEMT6000 disattivato, ora usa sensore gas MICS)
+      // Accendi TV/monitor via rele (solo se spenta)
+      setRelayDevice(true);
       setMonitorDesiredState(true);
       previousPresenceState = true;
     }
@@ -1452,8 +1714,8 @@ void updatePresence() {
       notifyClients("presence", "false");
       // INVIA COMANDO OFF A TUTTI I DISPOSITIVI
       sendAllOff();
-      // IMPOSTA STATO DESIDERATO MONITOR = SPENTO
-      // (Legacy - sensore TEMT6000 disattivato, ora usa sensore gas MICS)
+      // Spegni TV/monitor via rele (solo se accesa)
+      setRelayDevice(false);
       setMonitorDesiredState(false);
       previousPresenceState = false;
       presenceDetected = false;
@@ -2654,14 +2916,14 @@ void handleTouch() {
           if (manualAllOn) {
             DEBUG_PRINTLN("Pulsante ACCENDI -> ACCENDI TUTTI");
             sendAllOn();
-            startRelayPulse();
+            setRelayDevice(true);
             manualAllOn = false;  // Prossimo tocco = SPEGNI
             btnOnOff.label = "SPEGNI";
             btnOnOff.color = COLOR_RED;
           } else {
             DEBUG_PRINTLN("Pulsante SPEGNI -> SPEGNI TUTTI");
             sendAllOff();
-            startRelayPulse();
+            setRelayDevice(false);
             manualAllOn = true;  // Prossimo tocco = ACCENDI
             btnOnOff.label = "ACCENDI";
             btnOnOff.color = COLOR_GREEN;
@@ -2935,8 +3197,8 @@ void setupWebServer() {
   server.enableCORS(true);
 
   // Pagina principale con tabs completi
-  server.on("/", HTTP_GET, []() {
-    String html = R"rawliteral(
+  // NOTA: HTML in flash (PROGMEM) per evitare allocazione heap ~40KB
+  static const char pageHTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
@@ -3101,15 +3363,34 @@ void setupWebServer() {
       <h2>Discovery</h2>
       <div class="row"><label>Stato</label><span id="discStatus">--</span></div>
       <div class="row"><label>Progresso</label><span id="discProgress">--</span></div>
-      <button class="success" onclick="startDiscovery()">Scan</button>
+      <button class="success" onclick="startDiscovery()">Scan IP</button>
+      <button class="success" onclick="mdnsDiscover()" style="background:#4CAF50">mDNS</button>
       <button class="danger" onclick="stopDiscovery()">Stop</button>
       <button onclick="toggleDiscovery()">Auto:<span id="discAuto">--</span></button>
+    </div>
+    <div class="card" style="border-left:3px solid #4CAF50">
+      <h2>Auto-Install Radar</h2>
+      <div style="display:flex;gap:4px;margin:6px 0">
+        <button class="success" onclick="runAutoInstall()" style="flex:1;font-size:1.1em;padding:10px">AUTO INSTALLA TUTTI</button>
+      </div>
+      <div id="installStatus" style="display:none;background:#111;padding:8px;border-radius:4px;margin:6px 0;font-size:0.85em"></div>
+      <details style="margin-top:8px">
+        <summary style="color:#aaa;font-size:0.8em;cursor:pointer">Metodo manuale (curl)</summary>
+        <div style="margin-top:4px">
+          <div style="background:#111;padding:8px;border-radius:4px;font-family:monospace;font-size:0.8em;word-break:break-all;border:1px solid #333" onclick="copyInstall()">curl http://<span id="myIP">...</span>/api/install-script | sudo bash</div>
+          <div style="display:flex;gap:4px;margin-top:4px">
+            <button onclick="copyInstall()" style="flex:1">Copia Comando</button>
+            <button onclick="window.open('/api/install-script')" style="flex:1">Vedi Script</button>
+          </div>
+        </div>
+      </details>
     </div>
     <div class="card">
       <h2>Aggiungi</h2>
       <div class="row"><label>IP</label><input type="text" id="newIp" placeholder="192.168.1.x"></div>
       <div class="row"><label>Porta</label><input type="number" id="newPort" value="80"></div>
       <div class="row"><label>Nome</label><input type="text" id="newName" placeholder="Nome"></div>
+      <div class="row"><label>mDNS host</label><input type="text" id="newHost" placeholder="hostname (senza .local)"></div>
       <button onclick="addDevice()">Aggiungi</button>
       <button onclick="testNotify()">Test</button>
     </div>
@@ -3270,18 +3551,46 @@ function loadDevices(){
     let h='';
     if(d.count==0)h='<p>Nessun dispositivo registrato</p>';
     else d.devices.forEach(c=>{
-      h+='<div class="client" style="margin:8px 0;padding:8px;background:#222;border-radius:6px">';
-      h+='<div style="margin-bottom:6px"><b>'+c.name+'</b> - '+c.ip+':'+c.port+'</div>';
-      h+='<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">';
-      h+='<button class="'+(c.controlOnOff?'toggle-on':'toggle-off')+'" onclick="toggleOnOff('+c.index+','+!c.controlOnOff+')">';
-      h+='CTRL: '+(c.controlOnOff?'ON':'OFF')+'</button>';
-      h+='<button class="success" onclick="sendCmd('+c.index+',\'on\')">ACCENDI</button>';
-      h+='<button class="danger" onclick="sendCmd('+c.index+',\'off\')">SPEGNI</button>';
-      h+='<button onclick="removeDevice('+c.index+')">X</button>';
-      h+='</div></div>';
+      let offline=c.failCount>=10;
+      let noRadar=!c.radarVerified;
+      let bg=noRadar?'#332200':(offline?'#411':'#222');
+      let border=noRadar?'#f80':(offline?'#f44':'#0f8');
+      h+='<div style="margin:8px 0;padding:8px;background:'+bg+';border-radius:6px;border-left:3px solid '+border+'">';
+      h+='<div style="margin-bottom:6px"><b>'+c.name+'</b> - '+c.ip+':'+c.port;
+      if(c.mdnsHost)h+=' <span style="color:#4CAF50;font-size:0.8em">('+c.mdnsHost+'.local)</span>';
+      if(noRadar)h+=' <span style="color:#f80">[NO RADAR]</span>';
+      else if(offline)h+=' <span class="r">[OFFLINE x'+c.failCount+']</span>';
+      else if(c.failCount>0)h+=' <span class="y">[fail:'+c.failCount+']</span>';
+      else h+=' <span class="g">[OK]</span>';
+      h+='</div>';
+      if(noRadar){
+        h+='<div style="background:#111;padding:6px;border-radius:4px;margin:4px 0;font-size:0.75em">';
+        h+='<div style="color:#f80;margin-bottom:4px">Radar non installato. Esegui sul device:</div>';
+        h+='<code style="color:#0f0;word-break:break-all">curl http://'+location.hostname+'/api/install-script | sudo bash</code>';
+        h+='</div>';
+        h+='<div style="display:flex;gap:4px;flex-wrap:wrap">';
+        h+='<button style="background:#f80;color:#000" onclick="copyInstall()">Copia Install</button>';
+        h+='<button onclick="verifyDevice('+c.index+')">Verifica</button>';
+        h+='<button onclick="removeDevice('+c.index+')">X</button>';
+        h+='</div>';
+      } else {
+        h+='<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">';
+        h+='<button class="'+(c.controlOnOff?'toggle-on':'toggle-off')+'" onclick="toggleOnOff('+c.index+','+!c.controlOnOff+')">';
+        h+='CTRL: '+(c.controlOnOff?'ON':'OFF')+'</button>';
+        h+='<button class="success" onclick="sendCmd('+c.index+',\'on\')">ACCENDI</button>';
+        h+='<button class="danger" onclick="sendCmd('+c.index+',\'off\')">SPEGNI</button>';
+        if(offline)h+='<button style="background:#fa0;color:#000" onclick="resetDevice('+c.index+')">RESET</button>';
+        h+='<button onclick="removeDevice('+c.index+')">X</button>';
+        h+='</div>';
+      }
+      h+='</div>';
     });
     document.getElementById('deviceList').innerHTML=h;
   });
+}
+
+function resetDevice(idx){
+  api('/api/devices/reset?index='+idx).then(d=>loadDevices());
 }
 
 function toggleOnOff(idx,val){
@@ -3308,6 +3617,13 @@ function toggleDiscovery(){
   api('/api/discovery/toggle').then(d=>{loadDiscoveryStatus();});
 }
 
+function mdnsDiscover(){
+  api('/api/devices/mdns-discover').then(d=>{
+    alert('mDNS: trovati '+d.found+' dispositivi (totale: '+d.total+')');
+    loadDevices();
+  });
+}
+
 function sendCmd(idx,cmd){
   api('/api/devices/command?index='+idx+'&cmd='+cmd).then(d=>{
     console.log('Comando '+cmd+' a device '+idx+': '+d.status);
@@ -3318,10 +3634,14 @@ function addDevice(){
   let ip=document.getElementById('newIp').value;
   let name=document.getElementById('newName').value||'Device';
   let port=document.getElementById('newPort').value||80;
+  let host=document.getElementById('newHost').value||'';
   if(!ip)return alert('Inserisci IP');
-  api('/api/devices/add?ip='+ip+'&name='+encodeURIComponent(name)+'&port='+port).then(d=>{
+  let url='/api/devices/add?ip='+ip+'&name='+encodeURIComponent(name)+'&port='+port;
+  if(host)url+='&host='+encodeURIComponent(host);
+  api(url).then(d=>{
     document.getElementById('newIp').value='';
     document.getElementById('newName').value='';
+    document.getElementById('newHost').value='';
     loadDevices();
   });
 }
@@ -3395,18 +3715,78 @@ function saveWifiConfig(){
   }).catch(e=>{showMsg('msgWifi','err','Errore: '+e)});
 }
 
+function copyInstall(){
+  let cmd='curl http://'+location.hostname+'/api/install-script | sudo bash';
+  navigator.clipboard.writeText(cmd).then(()=>alert('Comando copiato!')).catch(()=>{
+    prompt('Copia il comando:',cmd);
+  });
+}
+function verifyDevice(idx){
+  api('/api/devices/verify?index='+idx).then(d=>{
+    if(d.radarVerified)alert(d.name+' - Radar OK!');
+    else alert(d.name+' - Radar non trovato. Installa il servizio.');
+    loadDevices();
+  });
+}
+function runAutoInstall(){
+  let st=document.getElementById('installStatus');
+  st.style.display='block';
+  // Conta device senza radar
+  api('/api/devices').then(d=>{
+    let noRadar=d.devices.filter(c=>!c.radarVerified);
+    if(noRadar.length==0){
+      st.innerHTML='<span class="g">Tutti i device hanno gia il radar!</span>';
+      return;
+    }
+    st.innerHTML='<span style="color:#f80">'+noRadar.length+' device senza radar trovati.</span><br>'+
+      '<div style="margin:8px 0;padding:8px;background:#000;border-radius:4px;font-family:monospace;font-size:0.85em">'+
+      '<div style="color:#aaa;margin-bottom:4px">Esegui dal PC (nella cartella del progetto):</div>'+
+      '<div style="color:#0f0">python auto_install_radar.py</div>'+
+      '<div style="color:#aaa;margin-top:6px">Oppure modalita watch (controlla ogni 60s):</div>'+
+      '<div style="color:#0f0">python auto_install_radar.py --watch</div>'+
+      '</div>'+
+      '<div style="display:flex;gap:4px;margin-top:4px">'+
+      '<button class="success" onclick="copyAutoCmd()">Copia Comando</button>'+
+      '<button onclick="installAllVerify()">Verifica Tutti</button>'+
+      '</div>';
+  });
+}
+function copyAutoCmd(){
+  let cmd='python auto_install_radar.py';
+  navigator.clipboard.writeText(cmd).then(()=>alert('Copiato!')).catch(()=>prompt('Copia:',cmd));
+}
+function installAllVerify(){
+  let st=document.getElementById('installStatus');
+  st.innerHTML='<span class="y">Verifico tutti i device...</span>';
+  api('/api/devices').then(d=>{
+    let promises=d.devices.filter(c=>!c.radarVerified).map(c=>
+      api('/api/devices/verify?index='+c.index)
+    );
+    Promise.all(promises).then(results=>{
+      let ok=results.filter(r=>r.radarVerified).length;
+      let fail=results.length-ok;
+      st.innerHTML='<span class="g">Verificati: '+ok+' OK</span>'+
+        (fail>0?' <span class="r">'+fail+' senza radar</span>':'');
+      loadDevices();
+    });
+  });
+}
+
 loadEditableFields();
 loadTouchStatus();
 loadDiscoveryStatus();
 loadWifiConfig();
 updateStatus();
+document.getElementById('myIP').textContent=location.hostname;
 setInterval(updateStatus,3000);
 setInterval(loadDiscoveryStatus,2000);
 </script>
 </body>
 </html>
 )rawliteral";
-    server.send(200, "text/html", html);
+
+  server.on("/", HTTP_GET, []() {
+    server.send_P(200, "text/html", pageHTML);
   });
 
   // API Status JSON completo
@@ -3439,6 +3819,7 @@ setInterval(loadDiscoveryStatus,2000);
     json += "\"autoBrightness\":" + String(autoBrightnessEnabled ? "true" : "false") + ",";
     json += "\"radarInitialized\":" + String(radarInitialized ? "true" : "false") + ",";
     json += "\"relayEnabled\":" + String(relayEnabled ? "true" : "false") + ",";
+    json += "\"relayDeviceOn\":" + String(relayDeviceOn ? "true" : "false") + ",";
     json += "\"previousPresenceState\":" + String(previousPresenceState ? "true" : "false") + ",";
     json += "\"lastPresenceTime\":" + String(lastPresenceTime) + ",";
     json += "\"timeSincePresence\":" + String(millis() - lastPresenceTime) + ",";
@@ -3553,8 +3934,7 @@ setInterval(loadDiscoveryStatus,2000);
   });
 
   // Pagina OTA Web Update
-  server.on("/update", HTTP_GET, []() {
-    String html = R"rawliteral(
+  static const char otaHTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
@@ -3584,7 +3964,9 @@ setInterval(loadDiscoveryStatus,2000);
 </body>
 </html>
 )rawliteral";
-    server.send(200, "text/html", html);
+
+  server.on("/update", HTTP_GET, []() {
+    server.send_P(200, "text/html", otaHTML);
   });
 
   // Gestione upload OTA
@@ -3603,7 +3985,8 @@ setInterval(loadDiscoveryStatus,2000);
     []() {
       HTTPUpload& upload = server.upload();
       if (upload.status == UPLOAD_FILE_START) {
-        DEBUG_PRINTF("Update: %s\n", upload.filename.c_str());
+        otaInProgress = true;  // Blocca discovery/verify durante web upload
+        DEBUG_PRINTF("Web Update: %s\n", upload.filename.c_str());
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
           Update.printError(Serial);
         }
@@ -3630,6 +4013,7 @@ setInterval(loadDiscoveryStatus,2000);
       json += "{\"index\":" + String(i);
       json += ",\"ip\":\"" + clients[i].ip + "\"";
       json += ",\"name\":\"" + clients[i].name + "\"";
+      json += ",\"mdnsHost\":\"" + clients[i].mdnsHost + "\"";
       json += ",\"port\":" + String(clients[i].port);
       json += ",\"active\":" + String(clients[i].active ? "true" : "false");
       json += ",\"notifyPresence\":" + String(clients[i].notifyPresence ? "true" : "false");
@@ -3638,6 +4022,7 @@ setInterval(loadDiscoveryStatus,2000);
       json += ",\"currentState\":" + String(clients[i].currentState ? "true" : "false");
       json += ",\"lastSeen\":" + String(clients[i].lastSeen);
       json += ",\"failCount\":" + String(clients[i].failCount);
+      json += ",\"radarVerified\":" + String(clients[i].radarVerified ? "true" : "false");
       json += "}";
     }
     json += "]}";
@@ -3647,6 +4032,7 @@ setInterval(loadDiscoveryStatus,2000);
   server.on("/api/devices/add", HTTP_GET, []() {
     String ip = server.arg("ip");
     String name = server.arg("name");
+    String host = server.arg("host");  // hostname mDNS (es. "oraquadra")
     int port = server.arg("port").toInt();
     if (port == 0) port = 80;
 
@@ -3655,9 +4041,12 @@ setInterval(loadDiscoveryStatus,2000);
       return;
     }
 
-    int idx = addClient(ip, name.length() > 0 ? name : "Device", port);
+    int idx = addClient(ip, name.length() > 0 ? name : "Device", port, true, host);
     if (idx >= 0) {
-      server.send(200, "application/json", "{\"status\":\"ok\",\"index\":" + String(idx) + "}");
+      String json = "{\"status\":\"ok\",\"index\":" + String(idx);
+      if (host.length() > 0) json += ",\"mdnsHost\":\"" + host + "\"";
+      json += "}";
+      server.send(200, "application/json", json);
     } else {
       server.send(400, "application/json", "{\"error\":\"Limite dispositivi raggiunto\"}");
     }
@@ -3706,6 +4095,42 @@ setInterval(loadDiscoveryStatus,2000);
     server.send(200, "application/json", "{\"status\":\"ok\",\"index\":" + String(idx) + "}");
   });
 
+  // Verifica manuale /radar/ping su un dispositivo
+  server.on("/api/devices/verify", HTTP_GET, []() {
+    int idx = server.arg("index").toInt();
+    if (idx < 0 || idx >= clientCount) {
+      server.send(400, "application/json", "{\"error\":\"Indice non valido\"}");
+      return;
+    }
+    HTTPClient http;
+    http.setTimeout(1000);
+    String url = "http://" + clients[idx].ip + ":" + String(clients[idx].port) + "/radar/ping";
+    http.begin(url);
+    int httpCode = http.GET();
+    String payload = "";
+    if (httpCode == 200) payload = http.getString();
+    http.end();
+
+    bool verified = (httpCode == 200 && payload.indexOf("ok") >= 0);
+    clients[idx].radarVerified = verified;
+    if (verified) {
+      clients[idx].controlOnOff = true;
+      clients[idx].failCount = 0;
+      // Estrai nome se presente
+      int hostIdx = payload.indexOf("\"host\":\"");
+      if (hostIdx >= 0) {
+        int start = hostIdx + 8;
+        int end = payload.indexOf("\"", start);
+        if (end > start) clients[idx].name = payload.substring(start, end);
+      }
+      saveClients();
+    }
+    String json = "{\"status\":\"ok\",\"index\":" + String(idx);
+    json += ",\"radarVerified\":" + String(verified ? "true" : "false");
+    json += ",\"name\":\"" + clients[idx].name + "\"}";
+    server.send(200, "application/json", json);
+  });
+
   // Reset contatore fallimenti di tutti i dispositivi
   server.on("/api/devices/resetAll", HTTP_GET, []() {
     int resetCount = 0;
@@ -3717,6 +4142,44 @@ setInterval(loadDiscoveryStatus,2000);
     }
     DEBUG_PRINTF("Reset fallimenti per %d dispositivi\n", resetCount);
     server.send(200, "application/json", "{\"status\":\"ok\",\"resetCount\":" + String(resetCount) + "}");
+  });
+
+  // Purge automatico: rimuovi device irraggiungibili (lastSeen==0 o failCount alto)
+  server.on("/api/devices/purge", HTTP_GET, []() {
+    int removed = 0;
+    // Rimuovi dal fondo per non spostare gli indici
+    for (int i = clientCount - 1; i >= 0; i--) {
+      if (clients[i].failCount >= CLIENT_MAX_CONSECUTIVE_FAILS && clients[i].lastSeen == 0) {
+        DEBUG_PRINTF("PURGE: Rimosso %s (%s:%d) - mai contattato, %d fail\n",
+                     clients[i].name.c_str(), clients[i].ip.c_str(), clients[i].port, clients[i].failCount);
+        removeClient(i);
+        removed++;
+      }
+    }
+    String json = "{\"status\":\"ok\",\"removed\":" + String(removed) + ",\"remaining\":" + String(clientCount) + "}";
+    server.send(200, "application/json", json);
+  });
+
+  // mDNS discovery - trova dispositivi _radardevice._tcp sulla rete
+  server.on("/api/devices/mdns-discover", HTTP_GET, []() {
+    int found = discoverMdnsDevices();
+    String json = "{\"status\":\"ok\",\"found\":" + String(found) + ",\"total\":" + String(clientCount) + "}";
+    server.send(200, "application/json", json);
+  });
+
+  // mDNS resolve - aggiorna IP di tutti i client con hostname mDNS
+  server.on("/api/devices/mdns-resolve", HTTP_GET, []() {
+    resolveAllClientsMdns();
+    String json = "{\"status\":\"ok\",\"devices\":[";
+    bool first = true;
+    for (int i = 0; i < clientCount; i++) {
+      if (clients[i].mdnsHost.length() == 0) continue;
+      if (!first) json += ",";
+      json += "{\"name\":\"" + clients[i].name + "\",\"host\":\"" + clients[i].mdnsHost + "\",\"ip\":\"" + clients[i].ip + "\"}";
+      first = false;
+    }
+    json += "]}";
+    server.send(200, "application/json", json);
   });
 
   // ========== API DISCOVERY ==========
@@ -3745,7 +4208,246 @@ setInterval(loadDiscoveryStatus,2000);
 
   server.on("/api/discovery/toggle", HTTP_GET, []() {
     discoveryEnabled = !discoveryEnabled;
+    saveSettings();
     server.send(200, "application/json", "{\"enabled\":" + String(discoveryEnabled ? "true" : "false") + "}");
+  });
+
+  // ========== API INSTALL SCRIPT ==========
+
+  // Script auto-installazione radar per dispositivi Linux (Raspberry Pi, etc.)
+  static const char installScript[] PROGMEM = R"INST(#!/bin/bash
+# ============================================
+# RADAR SERVICE - AUTO INSTALLER
+# Esegui su un Raspberry Pi o Linux:
+#   curl http://RADAR_IP/api/install-script | sudo bash
+# ============================================
+set -e
+RADAR_PORT=${RADAR_PORT:-8081}
+USER=$(logname 2>/dev/null || echo "pi")
+HOME_DIR=$(eval echo ~$USER)
+INSTALL_DIR="/opt/radar-service"
+
+echo ""
+echo "====================================="
+echo " RADAR SERVICE - AUTO INSTALLER"
+echo "====================================="
+echo " Porta:  $RADAR_PORT"
+echo " Utente: $USER"
+echo " Dir:    $INSTALL_DIR"
+echo "====================================="
+echo ""
+
+# Controlla se radar endpoint gia esiste (verifica contenuto risposta, non solo connessione)
+PING_RESPONSE=$(curl -s --connect-timeout 2 http://127.0.0.1:$RADAR_PORT/radar/ping 2>/dev/null)
+if echo "$PING_RESPONSE" | grep -q '"ok"'; then
+  echo "[OK] Radar service gia attivo su porta $RADAR_PORT"
+  echo "[INFO] Verifico solo avahi..."
+else
+  echo "[1/4] Creo directory..."
+  mkdir -p "$INSTALL_DIR"
+
+  echo "[2/4] Installo radar_service.py..."
+  cat > "$INSTALL_DIR/radar_service.py" << 'PYEOF'
+#!/usr/bin/env python3
+"""Radar presence service - auto-installed by RADAR_CLIENT
+Endpoints:
+  /radar/on              - Accende display
+  /radar/off             - Spegne display
+  /radar/ping            - Health check
+  /radar/presence?value= - Presenza (true=accendi, false=spegni)
+  /radar/brightness?value= - Luminosita ambientale (0-4095)
+  /radar/temperature?value= - Temperatura (C)
+  /radar/humidity?value=    - Umidita (%)
+  /radar/status          - Stato completo JSON
+"""
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
+import subprocess, json, os, socket, time
+
+PORT = int(os.environ.get('RADAR_PORT', '8081'))
+DISPLAY = os.environ.get('DISPLAY', ':0')
+XAUTH = os.environ.get('XAUTHORITY', os.path.expanduser('~/.Xauthority'))
+HOST = socket.gethostname()
+
+# Stato corrente
+state = {
+    'display': True,
+    'presence': False,
+    'brightness': 0,
+    'temperature': 0.0,
+    'humidity': 0.0,
+    'last_update': 0,
+}
+
+def x_env():
+    return {**os.environ, 'DISPLAY': DISPLAY, 'XAUTHORITY': XAUTH}
+
+def display_on():
+    try:
+        subprocess.run(['xrandr', '--output', 'HDMI-1', '--auto'], env=x_env(), timeout=5)
+        state['display'] = True
+        return True
+    except Exception as e:
+        print(f"Display ON error: {e}")
+        return False
+
+def display_off():
+    try:
+        subprocess.run(['xrandr', '--output', 'HDMI-1', '--off'], env=x_env(), timeout=5)
+        state['display'] = False
+        return True
+    except Exception as e:
+        print(f"Display OFF error: {e}")
+        return False
+
+def set_brightness(val):
+    """Regola luminosita display (0-100). Prova backlight sysfs, poi xrandr."""
+    try:
+        pct = max(10, min(100, int(val * 100 / 4095))) if val > 0 else 10
+        bl = '/sys/class/backlight'
+        if os.path.isdir(bl):
+            devs = os.listdir(bl)
+            if devs:
+                mx = int(open(f'{bl}/{devs[0]}/max_brightness').read().strip())
+                bv = max(1, int(mx * pct / 100))
+                open(f'{bl}/{devs[0]}/brightness', 'w').write(str(bv))
+                return True
+        # Fallback: xrandr brightness (0.1-1.0)
+        xb = max(0.1, pct / 100.0)
+        subprocess.run(['xrandr', '--output', 'HDMI-1', '--brightness', f'{xb:.2f}'],
+                       env=x_env(), timeout=5)
+        return True
+    except Exception as e:
+        print(f"Brightness error: {e}")
+        return False
+
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        u = urlparse(self.path)
+        p = u.path
+        q = parse_qs(u.query)
+        v = q.get('value', [''])[0]
+
+        if p == '/radar/on':
+            ok = display_on()
+            self.j(200, {'status': 'on' if ok else 'error'})
+        elif p == '/radar/off':
+            ok = display_off()
+            self.j(200, {'status': 'off' if ok else 'error'})
+        elif p == '/radar/ping':
+            self.j(200, {'status':'ok','type':'radar-service','host':HOST,
+                         'temperature':state['temperature'],'humidity':state['humidity']})
+        elif p == '/radar/presence':
+            if v.lower() == 'true':
+                state['presence'] = True
+                display_on()
+            elif v.lower() == 'false':
+                state['presence'] = False
+                display_off()
+            state['last_update'] = time.time()
+            self.j(200, {'status':'ok','presence':state['presence']})
+        elif p == '/radar/brightness':
+            try:
+                bv = int(float(v))
+                state['brightness'] = bv
+                set_brightness(bv)
+                state['last_update'] = time.time()
+                self.j(200, {'status':'ok','brightness':bv})
+            except:
+                self.j(400, {'error':'valore non valido'})
+        elif p == '/radar/temperature':
+            try:
+                state['temperature'] = round(float(v), 1)
+                state['last_update'] = time.time()
+                self.j(200, {'status':'ok','temperature':state['temperature']})
+            except:
+                self.j(400, {'error':'valore non valido'})
+        elif p == '/radar/humidity':
+            try:
+                state['humidity'] = round(float(v), 1)
+                state['last_update'] = time.time()
+                self.j(200, {'status':'ok','humidity':state['humidity']})
+            except:
+                self.j(400, {'error':'valore non valido'})
+        elif p == '/radar/status':
+            self.j(200, {**state, 'host': HOST, 'uptime': time.time()})
+        else:
+            self.j(404, {'error': 'not found'})
+
+    def j(self, code, data):
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
+
+    def log_message(self, fmt, *a): pass
+
+if __name__ == '__main__':
+    print(f'Radar service [{HOST}] porta {PORT}')
+    print(f'Endpoints: /radar/on|off|ping|presence|brightness|temperature|humidity|status')
+    HTTPServer(('', PORT), H).serve_forever()
+PYEOF
+  chmod +x "$INSTALL_DIR/radar_service.py"
+
+  echo "[3/4] Creo systemd service..."
+  cat > /etc/systemd/system/radar-service.service << SVCEOF
+[Unit]
+Description=Radar Presence Service
+After=network.target
+
+[Service]
+Type=simple
+User=$USER
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=$HOME_DIR/.Xauthority
+Environment=RADAR_PORT=$RADAR_PORT
+WorkingDirectory=$INSTALL_DIR
+ExecStart=/usr/bin/python3 $INSTALL_DIR/radar_service.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+  systemctl daemon-reload
+  systemctl enable radar-service
+  systemctl restart radar-service
+  echo "[OK] Servizio radar avviato"
+fi
+
+echo "[4/4] Configuro mDNS (avahi)..."
+mkdir -p /etc/avahi/services
+HNAME=$(hostname)
+cat > /etc/avahi/services/radardevice.service << AVEOF
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name>$HNAME Radar Service</name>
+  <service>
+    <type>_radardevice._tcp</type>
+    <port>$RADAR_PORT</port>
+    <txt-record>name=$HNAME</txt-record>
+  </service>
+</service-group>
+AVEOF
+systemctl restart avahi-daemon 2>/dev/null || true
+
+sleep 2
+echo ""
+echo "====================================="
+echo " INSTALLAZIONE COMPLETATA!"
+echo "====================================="
+echo " Verifica: curl http://localhost:$RADAR_PORT/radar/ping"
+curl -s http://127.0.0.1:$RADAR_PORT/radar/ping 2>/dev/null && echo ""
+echo " mDNS: $HNAME.local:$RADAR_PORT"
+echo " Il dispositivo verra rilevato automaticamente."
+echo "====================================="
+)INST";
+
+  server.on("/api/install-script", HTTP_GET, []() {
+    server.send_P(200, "text/x-shellscript", installScript);
   });
 
   // ========== API COMANDI ON/OFF ==========
@@ -3995,7 +4697,7 @@ setInterval(loadDiscoveryStatus,2000);
     // NON imposta manualPresenceOverride - il radar continua a funzionare
     notifyClients("presence", "false");
     sendAllOff();  // Spegni tutti i dispositivi LAN
-    startRelayPulse();  // Attiva impulso rele
+    setRelayDevice(false);  // Spegni TV (solo se accesa)
     needsFullRedraw = true;
     server.send(200, "application/json", "{\"status\":\"ok\",\"action\":\"test_off\"}");
   });
@@ -4004,7 +4706,7 @@ setInterval(loadDiscoveryStatus,2000);
     // NON imposta manualPresenceOverride - il radar continua a funzionare
     notifyClients("presence", "true");
     sendAllOn();  // Accendi tutti i dispositivi LAN
-    startRelayPulse();  // Attiva impulso rele
+    setRelayDevice(true);  // Accendi TV (solo se spenta)
     needsFullRedraw = true;
     server.send(200, "application/json", "{\"status\":\"ok\",\"action\":\"test_on\"}");
   });
@@ -4237,14 +4939,13 @@ setInterval(loadDiscoveryStatus,2000);
     server.send(200, "application/json", json);
   });
 
-  // Forza sincronizzazione immediata
+  // Forza sincronizzazione immediata - toggle manuale TV
   server.on("/api/monitor/sync", HTTP_GET, []() {
-    if (monitorDetectedOn != monitorStateDesired) {
-      startRelayPulse();
-      server.send(200, "application/json", "{\"action\":\"relay_pulse\",\"reason\":\"force_sync\"}");
-    } else {
-      server.send(200, "application/json", "{\"action\":\"none\",\"reason\":\"already_in_sync\"}");
-    }
+    // Toggle forzato: inverte lo stato stimato della TV
+    relayDeviceOn = !relayDeviceOn;
+    startRelayPulse();
+    server.send(200, "application/json",
+      "{\"action\":\"relay_pulse\",\"relayDeviceOn\":" + String(relayDeviceOn ? "true" : "false") + "}");
   });
 
   server.begin();
@@ -4412,6 +5113,11 @@ void setupWiFi() {
 
     if (MDNS.begin(hostname)) {
       DEBUG_PRINTF("mDNS: http://%s.local\n", hostname);
+    }
+
+    // Discovery automatica al boot (partira dopo 5 sec nel loop, senza bloccare)
+    if (discoveryEnabled) {
+      lastDiscoveryRun = millis() - DISCOVERY_AUTO_INTERVAL + 5000; // Forza prima discovery dopo 5 sec
     }
 
     wifiConfigMode = false;
@@ -4776,12 +5482,29 @@ void loop() {
 
   // Discovery dispositivi (non bloccante)
   discoveryStep();
+  verifyStep();  // Verifica candidati con /radar/ping
 
-  // Auto-discovery periodico
+  // Auto-discovery periodico: IP scan ogni 5 minuti (non bloccante)
   if (discoveryEnabled && DISCOVERY_AUTO_INTERVAL > 0 && !discoveryActive) {
     if (now - lastDiscoveryRun > DISCOVERY_AUTO_INTERVAL) {
-      startDiscovery();
+      startDiscovery();  // IP scan su porte 80, 8080, 8081 (non bloccante)
     }
+  }
+
+  // mDNS discovery periodica: ogni 30 minuti (bloccante ~1-2 sec, quindi meno frequente)
+  static unsigned long lastMdnsDiscovery = 0;
+  if (discoveryEnabled && !discoveryActive) {
+    if (lastMdnsDiscovery == 0 || (now - lastMdnsDiscovery > 1800000)) {  // 30 min
+      discoverMdnsDevices();
+      lastMdnsDiscovery = now;
+    }
+  }
+
+  // Risoluzione periodica mDNS - aggiorna IP dei client ogni 2 minuti
+  static unsigned long lastMdnsResolve = 0;
+  if (now - lastMdnsResolve > 120000) {  // Ogni 2 minuti
+    resolveAllClientsMdns();
+    lastMdnsResolve = now;
   }
 
   // Aggiorna display
@@ -4815,6 +5538,19 @@ void loop() {
       lastSentHum = bmeHumidity;
     }
     lastClientNotify = now;
+  }
+
+  // Auto-pulizia device morti ogni 5 minuti
+  static unsigned long lastPurgeCheck = 0;
+  if (now - lastPurgeCheck > 300000) {  // 5 minuti
+    lastPurgeCheck = now;
+    for (int i = clientCount - 1; i >= 0; i--) {
+      if (clients[i].failCount >= CLIENT_MAX_CONSECUTIVE_FAILS && clients[i].lastSeen == 0) {
+        DEBUG_PRINTF("[PURGE] Rimosso %s (%s:%d) - irraggiungibile\n",
+                     clients[i].name.c_str(), clients[i].ip.c_str(), clients[i].port);
+        removeClient(i);
+      }
+    }
   }
 
   // Sincronizzazione completa ogni 60 secondi (ridotta per non bloccare)

@@ -977,13 +977,16 @@ void updateCalendarAlarmSound() {
     return;
   }
 
-  // Beep ogni CAL_ALARM_BEEP_INTERVAL
+  // Beep + ridisegno completo ogni CAL_ALARM_BEEP_INTERVAL
   if (currentTime - calendarAlarmLastBeep >= CAL_ALARM_BEEP_INTERVAL) {
     playLocalMP3("beep.mp3");
     calendarAlarmLastBeep = currentTime;
 
-    // Lampeggio barra superiore
+    // Ridisegna TUTTA la schermata allarme ad ogni beep
+    // Protezione: se qualcosa sovrascrive lo schermo, i pulsanti vengono ripristinati
     calendarAlarmFlashState = !calendarAlarmFlashState;
+
+    // Barra superiore con lampeggio
     gfx->fillRect(0, 0, 480, 80, calendarAlarmFlashState ? BLACK : RED);
     if (!calendarAlarmFlashState) {
       gfx->setFont(u8g2_font_helvB18_tr);
@@ -992,6 +995,48 @@ void updateCalendarAlarmSound() {
       gfx->setCursor(100, 52);
       gfx->print("APPUNTAMENTO!");
     }
+
+    // Area centrale: sfondo nero + titolo + orario
+    gfx->fillRect(0, 80, 480, 290, BLACK);
+
+    gfx->setFont(u8g2_font_helvB18_tr);
+    gfx->setTextColor(CAL_ACCENT);
+    String displayTitle = calendarAlarmTitle;
+    if (displayTitle.length() > 25) displayTitle = displayTitle.substring(0, 24) + "..";
+    int titleLen = displayTitle.length();
+    int titleX = (480 - titleLen * 12) / 2;
+    if (titleX < 10) titleX = 10;
+    gfx->setCursor(titleX, 220);
+    gfx->print(displayTitle);
+
+    gfx->setFont(u8g2_font_helvB14_tr);
+    gfx->setTextColor(WHITE);
+    String timeStr = calendarAlarmTime;
+    if (calendarAlarmEnd.length() > 0) timeStr += " - " + calendarAlarmEnd;
+    int timeLen = timeStr.length();
+    int timeX = (480 - timeLen * 10) / 2;
+    if (timeX < 10) timeX = 10;
+    gfx->setCursor(timeX, 280);
+    gfx->print(timeStr);
+
+    // Pulsanti STOP e POSTICIPA (sempre visibili)
+    gfx->fillRect(0, 370, 480, 110, BLACK);  // Pulisci area pulsanti
+    gfx->fillRoundRect(20, 370, 210, 80, 12, 0x07E0);
+    gfx->setFont(u8g2_font_helvB18_tr);
+    gfx->setTextColor(BLACK);
+    gfx->setCursor(80, 420);
+    gfx->print("STOP");
+
+    gfx->fillRoundRect(250, 370, 210, 80, 12, 0xFD20);
+    gfx->setTextColor(BLACK);
+    char snzLabel[20];
+    sprintf(snzLabel, "+%d min", calAlarmSnoozeMinutes);
+    gfx->setFont(u8g2_font_helvB14_tr);
+    gfx->setCursor(310, 408);
+    gfx->print(snzLabel);
+    gfx->setFont(u8g2_font_helvB10_tr);
+    gfx->setCursor(305, 440);
+    gfx->print("POSTICIPA");
   }
 }
 

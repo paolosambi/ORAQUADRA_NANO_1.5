@@ -126,6 +126,7 @@
 #include <JPEGDEC.h>             // Libreria per decodificare immagini JPEG.
 #include <ESPAsyncWebServer.h>   // Libreria per web server asincrono ad alte prestazioni.
 #include <AsyncTCP.h>            // Libreria per comunicazioni TCP asincrone (richiesta da ESPAsyncWebServer).
+#include <Update.h>              // Libreria per aggiornamento OTA firmware e LittleFS via web
 #ifdef EFFECT_LED_RGB
 #include <Adafruit_NeoPixel.h>   // Libreria per LED RGB WS2812
 #endif
@@ -761,6 +762,9 @@ extern const char* newsSourceNames[];
 extern const char* newsSourceFlags[];
 #endif
 
+// Funzioni definite in 43_WEBSERVER_OTA.ino (OTA Update via browser)
+void setup_ota_webserver(AsyncWebServer* server);
+
 // Funzioni definite in 8_CLOCK.ino (EFFECT_CLOCK)
 #ifdef EFFECT_CLOCK
 void updateClockMode();
@@ -987,7 +991,7 @@ struct SetupOptions {
 struct SetupButton {
   int x;           // Coordinata X dell'angolo superiore sinistro del pulsante.
   int y;           // Coordinata Y dell'angolo superiore sinistro del pulsante.
-  int width;       // Larghezza del pulsante in pixel.
+  int width;       // Larghezza del pulsante in pixel.b
   int height;      // Altezza del pulsante in pixel.
   const char* label; // Puntatore a una stringa costante (etichetta) visualizzata sul pulsante.
   uint16_t color;    // Colore di sfondo del pulsante (in formato colore del display, es. RGB565).
@@ -1089,6 +1093,7 @@ static uint8_t lastMinuteChecked = 255; // Variabile statica per tenere traccia 
 
 // VARIABILI GLOBALI PER GESTIONE LETTERA E
 uint8_t word_E_state = 0;           // Variabile globale di tipo uint8_t per memorizzare lo stato di visibilità della lettera "E" (0=disabilitata, 1=abilitata, 2=lampeggiante).
+String deviceHostname = "oraquadra"; // Hostname mDNS con suffisso device ID (impostato in setup_wifi)
 DisplayMode currentMode = MODE_FAST; // Variabile globale di tipo `DisplayMode` per memorizzare la modalità di visualizzazione corrente, inizializzata a `MODE_FAST`.
 DisplayMode userMode = MODE_FAST;    // Variabile globale di tipo `DisplayMode` per memorizzare la modalità di visualizzazione preferita dall'utente, inizializzata a `MODE_FAST`.
 static DisplayMode prevMode = MODE_FAST;  // Variabile statica di tipo `DisplayMode` per memorizzare la modalità di visualizzazione precedente, inizializzata a `MODE_FAST`.
@@ -1974,6 +1979,7 @@ void setup_radar_webserver(AsyncWebServer* server);
 void initRadarServerConnection();
 void updateRadarServer();
 void updateGasAlarmBeep();  // Gestione beep allarme gas
+void showGasAlarmScreen();  // Mostra schermata allarme gas
 bool useRemoteRadar();
 // Variabili esterne dal modulo radar remoto (15_WEBSERVER_RADAR.ino)
 extern bool radarServerEnabled;
@@ -1981,6 +1987,8 @@ extern bool radarRemotePresence;
 extern uint8_t radarRemoteBrightness;
 extern bool radarServerConnected;
 extern bool gasAlarmActive;  // Allarme gas attivo
+extern volatile bool gasAlarmNeedsDraw;   // Flag: disegnare schermata allarme dal loop
+extern volatile bool gasAlarmNeedsRedraw; // Flag: ridisegnare orologio dopo fine allarme
 
 // ================== INDICATORE ALLARME GLOBALE ==================
 /**
@@ -2261,6 +2269,9 @@ Serial.println("LittleFS inizializzato correttamente.");
     setup_news_webserver(clockWebServer);
     Serial.println("[WEBSERVER] News Feed disponibile su /news");
     #endif
+
+    // OTA Update via browser (sempre disponibile, non dipende da #define)
+    setup_ota_webserver(clockWebServer);
 
     clockWebServer->begin();
     Serial.println("[WEBSERVER] Server configurazione avviato su porta 8080");
@@ -2763,6 +2774,15 @@ void loop() {
     espalexa.loop(); // Gestisce le comunicazioni con Alexa.
     updateRadarServer(); // Gestisce riconnessione radar server remoto
     updateGasAlarmBeep(); // Gestisce beep allarme gas (se attivo)
+    // Gestione display allarme gas dal loop principale (safe per SPI)
+    if (gasAlarmNeedsDraw) {
+      gasAlarmNeedsDraw = false;
+      showGasAlarmScreen();
+    }
+    if (gasAlarmNeedsRedraw) {
+      gasAlarmNeedsRedraw = false;
+      forceDisplayUpdate();
+    }
 
     // Controllo trigger radiosveglia
     #ifdef EFFECT_RADIO_ALARM
@@ -2813,7 +2833,11 @@ void loop() {
 
   // ========== CAMBIO MODALITA' RANDOM AUTOMATICO ==========
   // Se abilitato, cambia la modalità display ogni X minuti (scegliendo tra le modalità abilitate)
-  if (randomModeEnabled && !setupPageActive && !capodannoActive) {
+  if (randomModeEnabled && !setupPageActive && !capodannoActive
+  #ifdef EFFECT_CALENDAR
+      && !calendarAlarmActive
+  #endif
+  ) {
     uint32_t randomIntervalMs = (uint32_t)randomModeInterval * 60000UL;  // Converti minuti in millisecondi
     if (currentMillis - lastRandomModeChange >= randomIntervalMs) {
       lastRandomModeChange = currentMillis;
@@ -3124,14 +3148,14 @@ if (currentIsNight != lastWasNightTime) {
       lastSyncTime = String(buf);
       mergeLocalAndGoogleEvents();
       lastCheck = millis();
-      if (currentMode == MODE_CALENDAR) {
+      if (currentMode == MODE_CALENDAR && !calendarAlarmActive) {
         drawCalendarEvents();
       }
       Serial.println("[CALENDAR] Sync forzata completata.");
     }
 
     // Fetch Google: in calendario ogni 2 min, in background ogni 5 min (per allarmi)
-    if (currentMode == MODE_CALENDAR) {
+    if (currentMode == MODE_CALENDAR && !calendarAlarmActive) {
       if (millis() - lastCheck > 120000 || lastCheck == 0) {
         fetchGoogleCalendarData();
         lastCheck = millis();
@@ -3139,7 +3163,7 @@ if (currentIsNight != lastWasNightTime) {
         drawCalendarEvents();
         Serial.println("[CALENDAR] Dati aggiornati e visualizzati in diretta.");
       }
-    } else {
+    } else if (currentMode != MODE_CALENDAR) {
       // Sync in background ogni 5 minuti per tenere aggiornati gli allarmi
       if (millis() - lastCheck > 300000 || lastCheck == 0) {
         Serial.println("[CALENDAR] Sync background per allarmi...");

@@ -35,6 +35,8 @@ String gasAlarmName = "";                  // Nome gas (MONOSSIDO, METANO, etc.)
 float gasAlarmValue = 0.0;                 // Valore PPM
 unsigned long lastGasBeep = 0;             // Timestamp ultimo beep
 #define GAS_BEEP_INTERVAL 1500             // Intervallo tra beep (1.5 sec)
+volatile bool gasAlarmNeedsDraw = false;    // Flag: disegnare schermata allarme dal loop
+volatile bool gasAlarmNeedsRedraw = false;  // Flag: ridisegnare orologio dopo fine allarme
 
 // ================== FUNZIONI EEPROM RADAR SERVER ==================
 
@@ -125,6 +127,8 @@ bool registerOnRadarServer() {
   url += "?ip=" + WiFi.localIP().toString();
   url += "&port=8080";  // oraQuadraNano usa porta 8080
   url += "&name=oraQuadraNano";
+  extern String deviceHostname;
+  url += "&host=" + deviceHostname;  // hostname mDNS con device ID per risolvere IP anche se cambia (DHCP)
 
   Serial.printf("[RADAR REMOTE] Registrazione su %s...\n", url.c_str());
 
@@ -156,7 +160,19 @@ bool registerOnRadarServer() {
     radarServerConnected = true;
     lastRadarRemoteUpdate = millis();
 
-    // Estrai ambientLight (luminosita)
+    // IMPORTANTE: Leggere PRIMA la presenza, POI la luminosità
+    // per evitare race condition (brightness applicata con presenza stale)
+
+    // Estrai presence (PRIMA!)
+    int presIdx = response.indexOf("\"presence\":");
+    if (presIdx > 0) {
+      int presValStart = presIdx + 11;
+      String presVal = response.substring(presValStart, presValStart + 6);
+      radarRemotePresence = (presVal.indexOf("true") >= 0);
+      Serial.printf("[RADAR REMOTE] Presenza: %s\n", radarRemotePresence ? "SI" : "NO");
+    }
+
+    // Estrai ambientLight (luminosita) - DOPO la presenza
     int briIdx = response.indexOf("\"ambientLight\":");
     if (briIdx > 0) {
       int briStart = briIdx + 15;
@@ -165,23 +181,18 @@ bool registerOnRadarServer() {
         String briStr = response.substring(briStart, briEnd);
         int briVal = briStr.toInt();
         radarRemoteBrightness = constrain(briVal, 0, 255);
-        Serial.printf("[RADAR REMOTE] Luminosita iniziale: %d\n", radarRemoteBrightness);
+        Serial.printf("[RADAR REMOTE] Luminosita: %d\n", radarRemoteBrightness);
 
         if (radarBrightnessControl && radarRemotePresence) {
           uint8_t mappedBrightness = map(radarRemoteBrightness, 0, 255, radarBrightnessMin, radarBrightnessMax);
           ledcWrite(PWM_CHANNEL, mappedBrightness);
           lastAppliedBrightness = mappedBrightness;
+        } else if (!radarRemotePresence) {
+          // Nessuna presenza - forza display spento
+          ledcWrite(PWM_CHANNEL, 0);
+          lastAppliedBrightness = 0;
         }
       }
-    }
-
-    // Estrai presence
-    int presIdx = response.indexOf("\"presence\":");
-    if (presIdx > 0) {
-      int presValStart = presIdx + 11;
-      String presVal = response.substring(presValStart, presValStart + 6);
-      radarRemotePresence = (presVal.indexOf("true") >= 0);
-      Serial.printf("[RADAR REMOTE] Presenza iniziale: %s\n", radarRemotePresence ? "SI" : "NO");
     }
 
     // Estrai temperatura
@@ -227,6 +238,7 @@ bool checkRadarServerConnection() {
   http.begin(url);
   http.setTimeout(2000);
   int httpCode = http.GET();
+  http.end();  // IMPORTANTE: chiudere PRIMA del return per evitare memory leak
 
   if (httpCode == 200) {
     radarServerConnected = true;
@@ -235,7 +247,6 @@ bool checkRadarServerConnection() {
     radarServerConnected = false;
     return false;
   }
-  http.end();
 }
 
 // ================== GESTIONE FALLBACK RADAR LOCALE ==================
@@ -590,21 +601,16 @@ void handleRadarGasAlarm(AsyncWebServerRequest *request) {
     gasAlarmValue = request->getParam("value")->value().toFloat();
   }
 
-  // Attiva allarme
+  // Attiva allarme (solo flag - il display viene aggiornato dal loop principale)
   gasAlarmActive = true;
+  gasAlarmNeedsDraw = true;  // Il loop principale disegnera la schermata
   lastGasBeep = 0;  // Forza beep immediato
 
   Serial.printf("[GAS ALARM] >>> ALLARME RICEVUTO: %s (%s) = %.1f PPM <<<\n",
                 gasAlarmName.c_str(), gasAlarmCode.c_str(), gasAlarmValue);
 
-  // Mostra schermata allarme
-  showGasAlarmScreen();
-
-  // Beep immediato
-  #ifdef AUDIO
-  extern bool playLocalMP3(const char* filename);
-  playLocalMP3("beep.mp3");
-  #endif
+  // NON chiamare showGasAlarmScreen() qui! AsyncWebServer gira in un task separato
+  // e le operazioni SPI sul display causano crash. Il loop principale gestira il draw.
 
   request->send(200, "application/json", "{\"status\":\"ok\",\"alarm\":\"active\"}");
 }
@@ -618,9 +624,9 @@ void handleRadarGasAlarmEnd(AsyncWebServerRequest *request) {
     gasAlarmName = "";
     gasAlarmValue = 0;
 
-    // Forza ridisegno orologio
-    extern void forceDisplayUpdate();
-    forceDisplayUpdate();
+    // NON chiamare forceDisplayUpdate() qui! Gira in task async.
+    // Setta flag per il loop principale
+    gasAlarmNeedsRedraw = true;
   }
 
   request->send(200, "application/json", "{\"status\":\"ok\",\"alarm\":\"cleared\"}");
@@ -635,6 +641,42 @@ void handleRadarGasAlarmStatus(AsyncWebServerRequest *request) {
   json += "\"value\":" + String(gasAlarmValue, 1);
   json += "}";
   request->send(200, "application/json", json);
+}
+
+// ================== HANDLER ON/OFF (chiamati da sendAllOn/sendAllOff del radar server) ==================
+
+// GET /radar/off - Comando spegnimento display dal radar server
+void handleRadarOff(AsyncWebServerRequest *request) {
+  radarRemotePresence = false;
+  radarServerConnected = true;
+  lastRadarRemoteUpdate = millis();
+
+  // Spegni display
+  ledcWrite(PWM_CHANNEL, 0);
+  lastAppliedBrightness = 0;
+
+  Serial.println("[RADAR REMOTE] CMD OFF ricevuto - Display OFF");
+  request->send(200, "application/json", "{\"status\":\"ok\",\"display\":\"off\"}");
+}
+
+// GET /radar/on - Comando accensione display dal radar server
+void handleRadarOn(AsyncWebServerRequest *request) {
+  radarRemotePresence = true;
+  radarServerConnected = true;
+  lastRadarRemoteUpdate = millis();
+
+  // Riaccendi display
+  uint8_t wakeupBrightness;
+  if (radarBrightnessControl) {
+    wakeupBrightness = map(radarRemoteBrightness, 0, 255, radarBrightnessMin, radarBrightnessMax);
+  } else {
+    wakeupBrightness = checkIsNightTime(currentHour, currentMinute) ? brightnessNight : brightnessDay;
+  }
+  ledcWrite(PWM_CHANNEL, wakeupBrightness);
+  lastAppliedBrightness = wakeupBrightness;
+
+  Serial.printf("[RADAR REMOTE] CMD ON ricevuto - Display ON lum:%d\n", wakeupBrightness);
+  request->send(200, "application/json", "{\"status\":\"ok\",\"display\":\"on\"}");
 }
 
 // ================== SETUP WEBSERVER RADAR ==================
@@ -654,6 +696,8 @@ void setup_radar_webserver(AsyncWebServer* server) {
   server->on("/radar/humidity", HTTP_GET, handleRadarHumidity);
   server->on("/radar/test", HTTP_GET, handleRadarTest);
   server->on("/radar/status", HTTP_GET, handleRadarStatus);
+  server->on("/radar/on", HTTP_GET, handleRadarOn);     // Comando ON dal radar server
+  server->on("/radar/off", HTTP_GET, handleRadarOff);    // Comando OFF dal radar server
   server->on("/api/status", HTTP_GET, handleApiStatus);  // Per discovery
 
   // Endpoint allarme gas
@@ -666,6 +710,8 @@ void setup_radar_webserver(AsyncWebServer* server) {
   Serial.println("[RADAR REMOTE]   GET /radar/brightness?value=XXX");
   Serial.println("[RADAR REMOTE]   GET /radar/temperature?value=XX.X");
   Serial.println("[RADAR REMOTE]   GET /radar/humidity?value=XX.X");
+  Serial.println("[RADAR REMOTE]   GET /radar/on  (comando ON dal server)");
+  Serial.println("[RADAR REMOTE]   GET /radar/off (comando OFF dal server)");
   Serial.println("[RADAR REMOTE]   GET /radar/test");
   Serial.println("[RADAR REMOTE]   GET /radar/status");
   Serial.println("[RADAR REMOTE]   GET /radar/config");

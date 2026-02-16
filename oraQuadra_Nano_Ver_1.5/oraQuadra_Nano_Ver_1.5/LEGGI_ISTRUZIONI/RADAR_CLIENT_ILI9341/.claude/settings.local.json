@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ping:*)",
+      "Bash(curl:*)",
+      "Bash(scp:*)",
+      "Bash(pip show:*)",
+      "Bash(python deploy_to_pi.py:*)",
+      "Bash(python:*)",
+      "Bash(arduino-cli version:*)",
+      "Bash(arduino-cli board list:*)",
+      "Bash(arduino-cli core list:*)",
+      "Bash(arduino-cli board listall:*)",
+      "Bash(arduino-cli compile:*)",
+      "Bash(arduino-cli upload:*)",
+      "Bash(where:*)",
+      "Bash(netsh advfirewall firewall show rule:*)",
+      "Bash(netsh advfirewall firewall add rule:*)",
+      "Bash(while ! curl -s --connect-timeout 2 http://192.168.1.99/api/status)",
+      "Bash(do sleep 2)",
+      "Bash(done)",
+      "Bash(arduino-cli board details:*)",
+      "Bash(__NEW_LINE_dbd20c7fe8abf20e__ echo \"\")",
+      "Bash(python3:*)"
+    ]
+  }
+}

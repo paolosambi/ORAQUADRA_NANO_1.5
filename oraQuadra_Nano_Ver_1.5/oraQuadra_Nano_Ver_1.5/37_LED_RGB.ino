@@ -6,6 +6,10 @@
 #ifdef EFFECT_LED_RGB
 
 #include <Adafruit_NeoPixel.h>
+#include "driver/uart.h"
+#include "driver/gpio.h"
+#include "esp_rom_gpio.h"
+#include "soc/gpio_sig_map.h"
 
 // ===== Configurazione hardware =====
 #define WS2812_PIN        43  // GPIO43 - su ESP32-S3 Serial usa USB-CDC, non UART0, quindi GPIO43 e' libero
@@ -83,6 +87,18 @@ void saveLedRgbSettings() {
 
 // ===== Setup LED RGB =====
 void setup_led_rgb() {
+  // === GPIO43 è UART0 TX (IOMUX) su ESP32-S3 ===
+  // Con USB CDC Off, Serial usa UART0 su GPIO43.
+  // Disconnettiamo SOLO il segnale TX dal pin (NON il driver UART0,
+  // altrimenti Serial.print() crasherebbe).
+  // Il driver UART0 continua a funzionare: il TX FIFO drena normalmente
+  // anche senza pin connesso, quindi Serial.print() non si blocca.
+  // L'output seriale testuale va perso ma l'ESP32 resta stabile.
+
+  // Reset IOMUX + GPIO matrix: libera GPIO43 dalla funzione UART0 TX
+  gpio_reset_pin((gpio_num_t)WS2812_PIN);
+  esp_rom_gpio_connect_out_signal(WS2812_PIN, SIG_GPIO_OUT_IDX, false, false);
+
   ledStrip.begin();
   ledStrip.clear();
   ledStrip.show();
@@ -96,34 +112,9 @@ void setup_led_rgb() {
                   ledRgbOverrideR, ledRgbOverrideG, ledRgbOverrideB);
   }
 
-  // Accendi LED al boot coerentemente con il modo display attivo
-  if (ledRgbEnabled) {
-    uint8_t r, g, b;
-    if (ledRgbOverride) {
-      r = ledRgbOverrideR;
-      g = ledRgbOverrideG;
-      b = ledRgbOverrideB;
-    } else {
-      getLedColorForMode((DisplayMode)currentMode, r, g, b);
-    }
-#ifdef EFFECT_CHRISTMAS
-    if ((DisplayMode)currentMode == MODE_CHRISTMAS && !ledRgbOverride) {
-      uint32_t red   = ledStrip.Color(255, 0, 0);
-      uint32_t green = ledStrip.Color(0, 255, 0);
-      for (int i = 0; i < WS2812_NUM_LEDS; i++) {
-        ledStrip.setPixelColor(i, (i % 2 == 0) ? red : green);
-      }
-    } else
-#endif
-    {
-      uint32_t color = ledStrip.Color(r, g, b);
-      for (int i = 0; i < WS2812_NUM_LEDS; i++) {
-        ledStrip.setPixelColor(i, color);
-      }
-    }
-    ledStrip.show();
-    Serial.printf("[LED RGB] Boot: accesi con colore R=%d G=%d B=%d per mode=%d\n", r, g, b, currentMode);
-  }
+  // LED spenti al boot - verranno accesi dal loop con updateLedRgb()
+  // dopo che il display è pronto e il colore tema è corretto
+  Serial.println("[LED RGB] Boot: LED spenti, accensione gestita dal loop");
 }
 
 // ===== Colore per modalità =====

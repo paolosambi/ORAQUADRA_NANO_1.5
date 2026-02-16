@@ -319,6 +319,29 @@ void resetModePreset(uint8_t modeId) {
   saveModePreset(modeId, PRESET_NONE);
 }
 
+// Restituisce il colore associato a un preset predefinito (0-12)
+// Per preset 13 (personalizzato) o sconosciuto, carica il colore per-modo da EEPROM
+void getColorForPreset(uint8_t preset, uint8_t modeId, uint8_t &r, uint8_t &g, uint8_t &b) {
+  switch (preset) {
+    case 0:  r=255; g=255; b=255; break;  // Random → bianco al boot
+    case 1:  r=0;   g=255; b=255; break;  // Acqua
+    case 2:  r=255; g=0;   b=255; break;  // Viola
+    case 3:  r=255; g=165; b=0;   break;  // Arancione
+    case 4:  r=255; g=0;   b=0;   break;  // Rosso
+    case 5:  r=0;   g=255; b=0;   break;  // Verde
+    case 6:  r=0;   g=0;   b=255; break;  // Blu
+    case 7:  r=255; g=255; b=0;   break;  // Giallo
+    case 8:  r=0;   g=255; b=255; break;  // Ciano
+    case 9:  r=0;   g=255; b=0;   break;  // Verde Classico
+    case 10: r=255; g=255; b=255; break;  // Bianco
+    case 11: r=255; g=255; b=0;   break;  // Giallo Snake
+    case 12: r=0;   g=150; b=255; break;  // Azzurro Acqua
+    default: // Preset 13 (personalizzato) o non salvato: usa colore per-modo
+      loadModeColor(modeId, r, g, b);
+      break;
+  }
+}
+
 // ================== VARIABILI PER IMPOSTAZIONI METEO (modificabili da web) ==================
 // Salvate su LittleFS nel file /apikeys.txt
 // NOTA: Open-Meteo non richiede API key, serve solo il nome della città
@@ -1208,23 +1231,28 @@ void handleSettingsSave(AsyncWebServerRequest *request) {
 
       // Carica il preset e colore salvati per la nuova modalità (sincronizzato con touch)
       uint8_t modePreset = loadModePreset(val);
-      uint8_t modeR, modeG, modeB;
-      loadModeColor(val, modeR, modeG, modeB);
 
       // Se c'è un preset salvato per questa modalità, usa quello
-      if (modePreset != 255) {  // 255 = PRESET_NONE
+      if (modePreset != 255) {
         currentPreset = modePreset;
-        // Per preset 13 (personalizzato) usa il colore salvato
-        if (modePreset == 13) {
-          currentColor = Color(modeR, modeG, modeB);
-          userColor = currentColor;
-        }
       } else {
-        // Nessun preset salvato: usa il colore salvato per questa modalità
         currentPreset = 13;  // Personalizzato
-        currentColor = Color(modeR, modeG, modeB);
-        userColor = currentColor;
       }
+
+      // Gestione rainbow mode: attiva/disattiva in base al preset per-modo
+      if (modePreset == PRESET_RAINBOW) {
+        rainbowModeEnabled = true;
+        EEPROM.write(EEPROM_RAINBOW_MODE_ADDR, 1);
+      } else {
+        rainbowModeEnabled = false;
+        EEPROM.write(EEPROM_RAINBOW_MODE_ADDR, 0);
+      }
+
+      // Applica il colore corretto per il preset (o colore per-modo se personalizzato)
+      uint8_t modeR, modeG, modeB;
+      getColorForPreset(currentPreset, val, modeR, modeG, modeB);
+      currentColor = Color(modeR, modeG, modeB);
+      userColor = currentColor;
 
       // Aggiorna EEPROM con preset e colore caricati
       EEPROM.write(EEPROM_PRESET_ADDR, currentPreset);
@@ -1791,14 +1819,17 @@ void setup_settings_webserver(AsyncWebServer* server) {
   initLanguage();
   #endif
 
-  // Carica colore specifico per la modalità corrente
-  uint8_t modeR, modeG, modeB;
-  loadModeColor((uint8_t)currentMode, modeR, modeG, modeB);
-  userColor.r = modeR;
-  userColor.g = modeG;
-  userColor.b = modeB;
-  currentColor = userColor;
-  Serial.printf("[SETTINGS WEB] Colore mode %d caricato: R%d G%d B%d\n", (int)currentMode, modeR, modeG, modeB);
+  // Carica colore specifico per la modalità corrente (rispettando il preset)
+  // Il colore è già stato caricato correttamente da loadSavedSettings() al boot
+  // Qui sincronizziamo solo rainbowModeEnabled con il preset per-modo
+  uint8_t modePreset = loadModePreset((uint8_t)currentMode);
+  if (modePreset == PRESET_RAINBOW) {
+    rainbowModeEnabled = true;
+  }
+  Serial.printf("[SETTINGS WEB] Mode %d: preset=%d, rainbow=%s, color=R%d G%d B%d\n",
+                (int)currentMode, modePreset,
+                rainbowModeEnabled ? "ON" : "OFF",
+                currentColor.r, currentColor.g, currentColor.b);
 
   // Endpoint specifici prima di quello generico
   server->on("/settings/status", HTTP_GET, handleSettingsStatus);
