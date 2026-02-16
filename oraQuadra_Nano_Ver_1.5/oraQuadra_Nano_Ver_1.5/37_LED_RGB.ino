@@ -182,9 +182,52 @@ void getLedColorForMode(DisplayMode mode, uint8_t &r, uint8_t &g, uint8_t &b) {
 #endif
 
 #ifdef EFFECT_WEATHER_STATION
-    case MODE_WEATHER_STATION:
-      r = 100; g = 180; b = 255;
+    case MODE_WEATHER_STATION: {
+      // Colore dinamico basato sulle condizioni meteo attuali
+      // Palette colori da MeteoVision con distinzione giorno/notte
+      extern int weatherCode;
+      extern bool weatherDataValid;
+      extern String weatherIcon;
+      if (weatherDataValid && weatherCode > 0) {
+        bool isNight = weatherIcon.endsWith("n");
+        if (weatherCode >= 200 && weatherCode <= 299) {
+          // Temporale → viola
+          r = 197; g = 0; b = 255;
+        } else if (weatherCode >= 300 && weatherCode <= 399) {
+          // Pioggerella → blu
+          r = 0; g = 0; b = 255;
+        } else if (weatherCode >= 500 && weatherCode <= 599) {
+          // Pioggia → ciano
+          r = 0; g = 180; b = 255;
+        } else if (weatherCode >= 600 && weatherCode <= 699) {
+          // Neve → ciano
+          r = 0; g = 180; b = 255;
+        } else if (weatherCode >= 700 && weatherCode <= 799) {
+          // Nebbia / foschia → blu
+          r = 0; g = 0; b = 255;
+        } else if (weatherCode == 800) {
+          // Cielo sereno
+          if (isNight) {
+            r = 128; g = 128; b = 128;  // Notte → grigio luna
+          } else {
+            r = 255; g = 227; b = 0;    // Giorno → giallo sole
+          }
+        } else if (weatherCode >= 801 && weatherCode <= 804) {
+          // Nuvoloso
+          if (isNight) {
+            r = 128; g = 128; b = 128;  // Notte → grigio luna
+          } else {
+            r = 255; g = 227; b = 0;    // Giorno → giallo sole
+          }
+        } else {
+          r = 100; g = 180; b = 255;
+        }
+      } else {
+        // Dati meteo non disponibili → azzurro meteo default
+        r = 100; g = 180; b = 255;
+      }
       break;
+    }
 #endif
 
 #ifdef EFFECT_CLOCK

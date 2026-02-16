@@ -2667,61 +2667,55 @@ extern float radarRemoteTemperature;
 extern float radarRemoteHumidity;
 
 void readBME280Temperature() {
-  // PRIORITÀ 1: BME280 interno
+  // PRIORITÀ 1: Radar remoto (sorgente centralizzata, uguale per tutti i device)
+  if (radarServerConnected && radarRemoteTemperature > -40.0 && radarRemoteTemperature < 85.0) {
+    // Dati dal radar: NON applicare offset locale (sono già calibrati alla sorgente)
+    temperatureIndoor = radarRemoteTemperature;
+    humidityIndoor = radarRemoteHumidity;
+
+    // Limita umidità tra 0% e 100%
+    if (humidityIndoor < 0.0) humidityIndoor = 0.0;
+    if (humidityIndoor > 100.0) humidityIndoor = 100.0;
+
+    // Pressione dal BME280 locale se disponibile (non sovrascrive temp/hum)
+    if (bme280Available) {
+      float p = bme.readPressure() / 100.0F;
+      if (p >= 300.0 && p <= 1100.0) pressureIndoor = p;
+      else pressureIndoor = 0.0;
+    } else {
+      pressureIndoor = 0.0;
+    }
+
+    indoorSensorSource = 2;  // Fonte: Radar remoto
+    return;
+  }
+
+  // PRIORITÀ 2: Fallback al BME280 locale (se radar non disponibile)
   if (bme280Available) {
-    // Leggi valori grezzi dal sensore
     float rawTemp = bme.readTemperature();
     float rawHum = bme.readHumidity();
-    pressureIndoor = bme.readPressure() / 100.0F;  // Converte Pa in hPa
+    pressureIndoor = bme.readPressure() / 100.0F;
 
-    // Validazione: temperature ragionevoli tra -40°C e +85°C
+    // Validazione
     if (rawTemp < -40.0 || rawTemp > 85.0) {
       Serial.println("⚠ Temperatura BME280 fuori range, marcata come N.D.");
-      bme280Available = false;  // Disabilita se fuori range
-      // Prova fallback al radar
+      bme280Available = false;
     } else if (rawHum < 0.0 || rawHum > 100.0) {
-      // Validazione: umidità tra 0% e 100%
       Serial.println("⚠ Umidità BME280 fuori range, marcata come N.D.");
-      bme280Available = false;  // Disabilita se fuori range
-      // Prova fallback al radar
+      bme280Available = false;
     } else if (pressureIndoor < 300.0 || pressureIndoor > 1100.0) {
-      // Validazione: pressione ragionevole tra 300 e 1100 hPa
       Serial.println("⚠ Pressione BME280 fuori range, marcata come N.D.");
-      bme280Available = false;  // Disabilita se fuori range
-      // Prova fallback al radar
+      bme280Available = false;
     } else {
-      // Dati BME280 validi - applica offset di calibrazione
       temperatureIndoor = rawTemp + bme280TempOffset;
       humidityIndoor = rawHum + bme280HumOffset;
 
-      // Limita umidità tra 0% e 100% dopo offset
       if (humidityIndoor < 0.0) humidityIndoor = 0.0;
       if (humidityIndoor > 100.0) humidityIndoor = 100.0;
 
       indoorSensorSource = 1;  // Fonte: BME280 interno
       return;
     }
-  }
-
-  // PRIORITÀ 2: Fallback al radar remoto (se BME280 non disponibile)
-  if (radarServerConnected && radarRemoteTemperature > -40.0 && radarRemoteTemperature < 85.0) {
-    // Usa dati dal radar remoto
-    float rawTemp = radarRemoteTemperature;
-    float rawHum = radarRemoteHumidity;
-
-    // Applica offset di calibrazione anche ai dati del radar
-    temperatureIndoor = rawTemp + bme280TempOffset;
-    humidityIndoor = rawHum + bme280HumOffset;
-
-    // Limita umidità tra 0% e 100% dopo offset
-    if (humidityIndoor < 0.0) humidityIndoor = 0.0;
-    if (humidityIndoor > 100.0) humidityIndoor = 100.0;
-
-    // Pressione non disponibile dal radar
-    pressureIndoor = 0.0;
-
-    indoorSensorSource = 2;  // Fonte: Radar remoto
-    return;
   }
 
   // Nessuna fonte disponibile

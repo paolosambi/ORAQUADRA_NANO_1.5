@@ -126,8 +126,8 @@ bool registerOnRadarServer() {
   String url = "http://" + radarServerIPString() + "/api/devices/add";
   url += "?ip=" + WiFi.localIP().toString();
   url += "&port=8080";  // oraQuadraNano usa porta 8080
-  url += "&name=oraQuadraNano";
   extern String deviceHostname;
+  url += "&name=" + deviceHostname;  // Nome univoco per device (es. "oraquadra-abc123")
   url += "&host=" + deviceHostname;  // hostname mDNS con device ID per risolvere IP anche se cambia (DHCP)
 
   Serial.printf("[RADAR REMOTE] Registrazione su %s...\n", url.c_str());

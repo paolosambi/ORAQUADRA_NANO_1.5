@@ -1258,9 +1258,15 @@ int addClient(String ip, String name, uint16_t port, bool controlOnOff = true, S
   }
 
   // 3) Cerca per nome+porta (stesso device, IP cambiato via DHCP)
+  // NOTA: se entrambi hanno hostname mDNS diversi, sono device DISTINTI!
   if (name.length() > 0 && name != "Device") {
     for (int i = 0; i < clientCount; i++) {
       if (clients[i].name == name && clients[i].port == port) {
+        // Se entrambi hanno mDNS hostname e sono diversi, sono device diversi - non fondere!
+        if (mdnsHost.length() > 0 && clients[i].mdnsHost.length() > 0 && clients[i].mdnsHost != mdnsHost) {
+          DEBUG_PRINTF("Stesso nome+porta ma mDNS diverso: %s vs %s - device distinti\n", clients[i].mdnsHost.c_str(), mdnsHost.c_str());
+          continue;  // Salta, cerca altri o aggiungi come nuovo
+        }
         DEBUG_PRINTF("Device IP cambiato: %s %s -> %s\n", name.c_str(), clients[i].ip.c_str(), ip.c_str());
         clients[i].ip = ip;
         if (mdnsHost.length() > 0) clients[i].mdnsHost = mdnsHost;
