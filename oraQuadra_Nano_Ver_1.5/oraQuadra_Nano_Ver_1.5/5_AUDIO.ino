@@ -37,7 +37,7 @@ uint16_t getVUBarColor(int barIndex, int totalBars) {
 // Disegna il VU meter
 void drawVUMeter(uint8_t level) {
   #ifdef AUDIO
-  extern Arduino_RGB_Display *gfx;
+  extern Arduino_GFX *gfx;
   if (!gfx) return;
 
   int startX = VU_CENTER_X - VU_WIDTH / 2;
@@ -97,7 +97,7 @@ void forceClockRedraw() {
   #endif
 
   // Puliamo l'area del VU meter
-  extern Arduino_RGB_Display *gfx;
+  extern Arduino_GFX *gfx;
   if (gfx) {
     int startX = VU_CENTER_X - VU_WIDTH / 2;
     int startY = VU_CENTER_Y - VU_HEIGHT / 2;
@@ -709,15 +709,15 @@ bool announceBootLocal() {
   Serial.println("\n=== ANNUNCIO BOOT LOCALE ===");
 
   // Prima disegna lo sfondo dell'orologio così l'utente lo vede durante l'annuncio
-  extern Arduino_RGB_Display *gfx;
+  extern Arduino_GFX *gfx;
   if (gfx) {
     gfx->fillScreen(0x0000);  // Sfondo nero
     // Disegna un messaggio di benvenuto al centro
     gfx->setTextColor(0xFFFF);  // Bianco
     gfx->setTextSize(2);
-    gfx->setCursor(140, 200);
-    gfx->print("OraQuadra");
-    gfx->setCursor(160, 240);
+    gfx->setCursor(110, 200);
+    gfx->print("OraQuadraNano");
+    gfx->setCursor(200, 140);
     gfx->setTextSize(1);
     gfx->print("Avvio in corso...");
     Serial.println("[BOOT] Schermata di benvenuto visualizzata");

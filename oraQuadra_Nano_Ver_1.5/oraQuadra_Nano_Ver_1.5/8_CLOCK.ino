@@ -615,7 +615,7 @@ void updateClockMode() {
     clockTargetGfx = nullptr;
 
     // FASE 7: Trasferisci TUTTO al display in un colpo solo (zero flickering)
-    gfx->draw16bitRGBBitmap(0, 0, clockSkinFrameBuffer, 480, 480);
+    gfx->draw16bitRGBBitmap((gfx->width()-480)/2, (gfx->height()-480)/2, clockSkinFrameBuffer, 480, 480);
 
     // Aggiorna variabili
     lastClockHour = currentHour;
@@ -787,7 +787,7 @@ void drawClockFace() {
       Serial.printf("Skin '%s' caricata in PSRAM!\n", skin.name);
 
       // Copia il buffer sul display per la prima visualizzazione
-      gfx->draw16bitRGBBitmap(0, 0, clockFaceBuffer, 480, 480);
+      gfx->draw16bitRGBBitmap((gfx->width()-480)/2, (gfx->height()-480)/2, clockFaceBuffer, 480, 480);
     } else {
       // Fallback: JPEG non trovato
       Serial.printf("JPEG '%s' non trovato, uso quadrante tradizionale\n", skin.filename);
@@ -800,7 +800,7 @@ void drawClockFace() {
     }
   } else {
     // Buffer già caricato, copialo velocemente sul display (molto più veloce di ricaricare JPEG!)
-    gfx->draw16bitRGBBitmap(0, 0, clockFaceBuffer, 480, 480);
+    gfx->draw16bitRGBBitmap((gfx->width()-480)/2, (gfx->height()-480)/2, clockFaceBuffer, 480, 480);
   }
 
 #elif defined(USE_CUSTOM_CLOCK_IMAGE)

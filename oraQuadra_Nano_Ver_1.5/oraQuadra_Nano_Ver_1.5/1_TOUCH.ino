@@ -493,6 +493,36 @@ void checkButtons() {
   }
   #endif
 
+  // ====================== GESTIONE TOUCH PONG ======================
+  #ifdef EFFECT_PONG
+  if (currentMode == MODE_PONG && touchDetected && !waitingForRelease) {
+    int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+    int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+
+    #ifdef EFFECT_DUAL_DISPLAY
+    if (isDualSlave()) {
+      // Slave: inoltra touch al master per racchetta destra
+      forwardTouchToMaster(x, y, 0);
+      waitingForRelease = true;
+      return;
+    }
+    #endif
+
+    // Master o standalone: angolo alto-sinistra = cambio modo
+    if (x < 80 && y < 80) {
+      playTouchSound();
+      handleModeChange();
+      waitingForRelease = true;
+      return;
+    }
+
+    // Master: controlla racchetta sinistra
+    handlePongTouch(x, y);
+    waitingForRelease = true;
+    return;
+  }
+  #endif
+
   // ====================== GESTIONE TOUCH NEWS FEED ======================
   // Tocco su tab specifica = seleziona quella categoria
   // Pulsante MODE >> in basso centro per cambio modalita'

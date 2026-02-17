@@ -177,6 +177,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     .nav-card.flux{--accent:#ffeb3b;--accent-rgb:255,235,59}
     .nav-card.video{--accent:#9c27b0;--accent-rgb:156,39,176}
     .nav-card.audio{--accent:#2196F3;--accent-rgb:33,150,243}
+    .nav-card.dual{--accent:#ff6b35;--accent-rgb:255,107,53}
 
     .footer{text-align:center;padding:25px;color:#475569;font-size:0.8rem;margin-top:30px;border-top:1px solid rgba(255,255,255,0.05)}
     .footer a{color:#00d9ff;text-decoration:none}
@@ -313,6 +314,16 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
           <h3>News RSS</h3>
           <p>Notizie in tempo reale</p>
         </a>
+        <a href="/dualdisplay" class="nav-card dual" id="card-dualdisplay" style="display:none">
+          <span class="icon">&#128442;</span>
+          <h3>Multi-Display</h3>
+          <p>Configura display multipli 2x2</p>
+        </a>
+        <a href="/pong" class="nav-card primary" id="card-pong" style="display:none;--accent:#00cc00;--accent-rgb:0,204,0">
+          <span class="icon">&#127955;</span>
+          <h3>PONG</h3>
+          <p>Gioco Pong Dual Display</p>
+        </a>
         <a href="/update" class="nav-card primary" style="--accent:#ff9500;--accent-rgb:255,149,0">
           <span class="icon">&#128259;</span>
           <h3>Aggiornamento OTA</h3>
@@ -395,7 +406,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     const MODES = ['Fade','Slow','Fast','Matrix','Matrix2','Snake','Water','Mario',
                    'Tron','Galaga','Flux','FlipClock','BTTF','LED Ring','Weather','Radar',
                    'Gemini','Galaga2','MJPEG','ESP32CAM','FluxCap','Christmas','Fire','FireText',
-                   'MP3 Player','Web Radio','Radio Alarm','Web TV','Calendario','YouTube','News'];
+                   'MP3 Player','Web Radio','Radio Alarm','Web TV','Calendario','YouTube','News','Pong'];
 
     let currentMode = 0;
     let currentColor = '#00ff00';
@@ -642,6 +653,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
       else if(currentMode === 28) showSpecial('📅', 'Calendario', 'Google Agenda');
       else if(currentMode === 29) showSpecial('▶️', 'YouTube Stats', 'Channel Statistics');
       else if(currentMode === 30) showSpecial('📰', 'News', 'ANSA / BBC / Repubblica');
+      else if(currentMode === 31) showSpecial('🏓', 'Pong', 'Dual Display Arcade Game');
       else showSpecial('⏰', MODES[currentMode]||'Mode '+currentMode, '');
     }
 
@@ -657,7 +669,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     }
 
     async function checkPages(){
-      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player','webradio','radioalarm','webtv','cal','ledrgb','youtube','news'];
+      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player','webradio','radioalarm','webtv','cal','ledrgb','youtube','news','pong','dualdisplay'];
       for(const p of pages){
         try{
           const r = await fetch('/'+p,{method:'HEAD'});

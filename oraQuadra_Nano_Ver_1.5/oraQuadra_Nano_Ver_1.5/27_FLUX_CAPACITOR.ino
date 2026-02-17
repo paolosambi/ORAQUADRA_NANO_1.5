@@ -523,7 +523,7 @@ void updateFluxCapacitor() {
     }
 
     // ===== TRASFERISCI AL DISPLAY =====
-    gfx->draw16bitRGBBitmap(0, 0, frameBuffer, FLUX_SCREEN_WIDTH, FLUX_SCREEN_HEIGHT);
+    gfx->draw16bitRGBBitmap((gfx->width()-FLUX_SCREEN_WIDTH)/2, (gfx->height()-FLUX_SCREEN_HEIGHT)/2, frameBuffer, FLUX_SCREEN_WIDTH, FLUX_SCREEN_HEIGHT);
   }
 }
 

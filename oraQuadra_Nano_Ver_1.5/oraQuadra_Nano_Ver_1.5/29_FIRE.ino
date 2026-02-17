@@ -234,7 +234,7 @@ void updateFire() {
 
   // === COPIA BUFFER SU SCHERMO (se double buffering attivo) ===
   if (fireFrameBuffer != nullptr) {
-    gfx->draw16bitRGBBitmap(0, 0, fireFrameBuffer, 480, 480);
+    gfx->draw16bitRGBBitmap((gfx->width()-480)/2, (gfx->height()-480)/2, fireFrameBuffer, 480, 480);
   }
 }
 

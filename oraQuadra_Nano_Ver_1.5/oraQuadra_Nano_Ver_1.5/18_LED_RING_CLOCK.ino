@@ -277,7 +277,7 @@ void updateLedRingClock() {
       ledRingLastMinute = 0;
 
       // Trasferisci al display
-      gfx->draw16bitRGBBitmap(0, 0, ledRingFrameBuffer, LED_RING_SCREEN_WIDTH, LED_RING_SCREEN_HEIGHT);
+      gfx->draw16bitRGBBitmap((gfx->width()-LED_RING_SCREEN_WIDTH)/2, (gfx->height()-LED_RING_SCREEN_HEIGHT)/2, ledRingFrameBuffer, LED_RING_SCREEN_WIDTH, LED_RING_SCREEN_HEIGHT);
       return;  // Esci, già gestito
     }
 
@@ -360,7 +360,7 @@ void updateLedRingClock() {
       lastSecond = 0;
 
       // Trasferisci al display
-      gfx->draw16bitRGBBitmap(0, 0, ledRingFrameBuffer, LED_RING_SCREEN_WIDTH, LED_RING_SCREEN_HEIGHT);
+      gfx->draw16bitRGBBitmap((gfx->width()-LED_RING_SCREEN_WIDTH)/2, (gfx->height()-LED_RING_SCREEN_HEIGHT)/2, ledRingFrameBuffer, LED_RING_SCREEN_WIDTH, LED_RING_SCREEN_HEIGHT);
       return;  // Esci, già gestito
     }
 
@@ -487,7 +487,7 @@ void updateLedRingClock() {
   ledRingLastSecond = currentSecond;
 
   // ===== FASE 2: TRASFERISCI TUTTO AL DISPLAY IN UN COLPO SOLO =====
-  gfx->draw16bitRGBBitmap(0, 0, ledRingFrameBuffer, LED_RING_SCREEN_WIDTH, LED_RING_SCREEN_HEIGHT);
+  gfx->draw16bitRGBBitmap((gfx->width()-LED_RING_SCREEN_WIDTH)/2, (gfx->height()-LED_RING_SCREEN_HEIGHT)/2, ledRingFrameBuffer, LED_RING_SCREEN_WIDTH, LED_RING_SCREEN_HEIGHT);
 }
 
 #endif // EFFECT_LED_RING

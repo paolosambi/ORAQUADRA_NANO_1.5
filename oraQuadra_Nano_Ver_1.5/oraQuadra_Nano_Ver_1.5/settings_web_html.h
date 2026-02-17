@@ -451,6 +451,7 @@ input[type="number"] {
     <a href="/ledrgb" class="nav-link" id="ledrgbConfigLink" style="display:none;">💡 LED RGB</a>
     <a href="/youtube" class="nav-link" id="youtubeConfigLink" style="display:none;">▶️ YouTube Stats</a>
     <a href="/news" class="nav-link" id="newsConfigLink" style="display:none;">📰 News</a>
+    <a href="/dualdisplay" class="nav-link" id="dualConfigLink" style="display:none;">🖥 Multi-Display</a>
     <!-- WebTV disabilitato - troppo lag per ESP32 -->
   </div>
 
@@ -1390,6 +1391,7 @@ const MODES = [
   { id: 28, name: 'CALENDAR', icon: '📅', desc: 'Google Agenda' }, // AGGIUNTO ID 28
   { id: 29, name: 'YOUTUBE', icon: '▶️', desc: 'YouTube Stats' },
   { id: 30, name: 'NEWS', icon: '📰', desc: 'News RSS' },
+  { id: 31, name: 'PONG', icon: '🏓', desc: 'Pong Dual Display' },
 ];
 
 let currentMode = 2;
@@ -1449,6 +1451,7 @@ function toggleMode(modeId, enabled) {
   updateLedRgbLink();
   updateYoutubeLink();
   updateNewsLink();
+  updateDualLink();
   // updateWebTVLink();  // WebTV disabilitato
 }
 
@@ -1533,6 +1536,13 @@ function updateNewsLink() {
   } else {
     link.style.display = 'none';
   }
+}
+
+// Aggiorna visibilità link Multi-Display
+function updateDualLink() {
+  var link = document.getElementById('dualConfigLink');
+  if (!link) return;
+  fetch('/dualdisplay/status').then(r => r.ok ? link.style.display = 'inline-block' : null).catch(() => {});
 }
 
 // WebTV disabilitato - funzione commentata
@@ -3221,6 +3231,7 @@ function loadSettings() {
       updateLedRgbLink();
       updateYoutubeLink();
       updateNewsLink();
+      updateDualLink();
       // updateWebTVLink();  // WebTV disabilitato
 
       // Lingua

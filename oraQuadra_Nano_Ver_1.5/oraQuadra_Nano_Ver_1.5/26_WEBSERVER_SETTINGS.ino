@@ -1268,6 +1268,16 @@ void handleSettingsSave(AsyncWebServerRequest *request) {
       gfx->fillScreen(BLACK);
       lastHour = 255;
       lastMinute = 255;
+
+      // Dual display: sync immediato al cambio modo via web
+#ifdef EFFECT_DUAL_DISPLAY
+      extern bool dualDisplayEnabled, dualDisplayInitialized;
+      extern uint8_t panelRole;
+      if (dualDisplayEnabled && dualDisplayInitialized && panelRole == 1) {
+        extern void sendSyncPacket();
+        sendSyncPacket();
+      }
+#endif
     }
   }
 
@@ -1570,6 +1580,16 @@ void handleSettingsSetMode(AsyncWebServerRequest *request) {
       bttfInitialized = false;
       ledRingInitialized = false;
       weatherStationInitialized = false;
+
+      // Dual display: sync immediato al cambio modo via web
+#ifdef EFFECT_DUAL_DISPLAY
+      extern bool dualDisplayEnabled, dualDisplayInitialized;
+      extern uint8_t panelRole;
+      if (dualDisplayEnabled && dualDisplayInitialized && panelRole == 1) {
+        extern void sendSyncPacket();
+        sendSyncPacket();
+      }
+#endif
 
       Serial.printf("[SETTINGS] Modalità impostata: %d (flags reset)\n", mode);
       request->send(200, "text/plain", "OK");

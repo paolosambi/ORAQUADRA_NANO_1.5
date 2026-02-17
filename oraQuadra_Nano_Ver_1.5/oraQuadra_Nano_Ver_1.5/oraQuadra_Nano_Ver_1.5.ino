@@ -104,6 +104,8 @@
 #define EFFECT_LED_RGB        // LED RGB WS2812 (12 LED) su GPIO43 - colori per tema
 #define EFFECT_YOUTUBE        // Statistiche canale YouTube via API v3
 #define EFFECT_NEWS           // News Feed da newsapi.org per categorie
+#define EFFECT_DUAL_DISPLAY   // Multi-Display ESP-NOW (fino a 4 pannelli 2x2)
+#define EFFECT_PONG           // Gioco PONG per Dual Display (2 pannelli 2x1)
 
 // ================== INCLUSIONE LIBRERIE ==================
 #include <Arduino.h>             // Libreria base per la programmazione di schede Arduino (ESP32).
@@ -481,7 +483,10 @@ enum DisplayMode {
 #ifdef EFFECT_NEWS
   MODE_NEWS = 30,           // News Feed Italia da newsapi.org
 #endif
-  NUM_MODES = 31    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
+#ifdef EFFECT_PONG
+  MODE_PONG = 31,           // Gioco PONG Dual Display
+#endif
+  NUM_MODES = 32    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
 };
 
 // ================== STRUTTURE DATI ==================
@@ -762,6 +767,75 @@ extern const char* newsSourceNames[];
 extern const char* newsSourceFlags[];
 #endif
 
+// Funzioni definite in 43_PONG.ino
+#ifdef EFFECT_PONG
+void initPong();
+void updatePong();
+void handlePongTouch(int x, int y);
+void handlePongRemoteTouch(int vy);
+extern bool pongInitialized;
+extern int16_t pongBallX, pongBallY, pongBallVX, pongBallVY;
+extern int16_t pongPaddleLeftY, pongPaddleRightY;
+extern uint8_t pongScoreLeft, pongScoreRight;
+extern bool pongGameOver;
+extern int16_t pongRemotePaddleY;
+void setup_pong_webserver(AsyncWebServer* server);
+#endif
+
+// Funzioni definite in 44_DUAL_DISPLAY.ino e 45_WEBSERVER_DUAL_DISPLAY.ino
+#ifdef EFFECT_DUAL_DISPLAY
+void initDualDisplay();
+void updateDualDisplay();
+void loadDualDisplaySettings();
+bool saveDualDisplaySettings();
+void reinitDualDisplayEspNow();
+void addPeerPanel(const uint8_t* mac);
+void removePeerPanel(int index);
+void scanForPanels();
+void resetDualDisplay();
+void forwardTouchToMaster(int touchX, int touchY, uint8_t touchType);
+int  virtualWidth();
+int  virtualHeight();
+int  localX(int vx);
+int  localY(int vy);
+bool isVisibleOnPanel(int vx, int vy, int w, int h);
+void vFillRect(int vx, int vy, int w, int h, uint16_t color);
+void vFillScreen(uint16_t color);
+void vDrawRect(int vx, int vy, int w, int h, uint16_t color);
+void vDrawLine(int vx1, int vy1, int vx2, int vy2, uint16_t color);
+void vFillCircle(int vcx, int vcy, int r, uint16_t color);
+void vDrawCircle(int vcx, int vcy, int r, uint16_t color);
+void vSetCursor(int vx, int vy);
+void vDrawPixel(int vx, int vy, uint16_t color);
+void vDrawRoundRect(int vx, int vy, int w, int h, int r, uint16_t color);
+void vDrawTriangle(int vx0, int vy0, int vx1, int vy1, int vx2, int vy2, uint16_t color);
+void vFillRoundRect(int vx, int vy, int w, int h, int r, uint16_t color);
+void vFillTriangle(int vx0, int vy0, int vx1, int vy1, int vx2, int vy2, uint16_t color);
+void vDrawHLine(int vx, int vy, int w, uint16_t color);
+void vDrawVLine(int vx, int vy, int h, uint16_t color);
+void vDrawText(int vx, int vy, const char* text, uint16_t color);
+void vPrint(const char* text);
+bool isDualDisplayActive();
+bool isDualMaster();
+bool isDualSlave();
+void initDualGfxProxy();
+void sendConfigPushToAllPeers();
+void setup_dualdisplay_webserver(AsyncWebServer* server);
+extern bool    dualDisplayEnabled;
+extern uint8_t panelX;
+extern uint8_t panelY;
+extern uint8_t gridW;
+extern uint8_t gridH;
+extern uint8_t panelRole;
+extern uint8_t peerMACs[3][6];
+extern uint8_t peerCount;
+extern uint16_t dualFrameCounter;
+extern bool    dualDisplayInitialized;
+extern bool    discoveryInProgress;
+extern volatile bool dualFlashRequested;
+extern volatile bool dualTestSyncRequested;
+#endif
+
 // Funzioni definite in 43_WEBSERVER_OTA.ino (OTA Update via browser)
 void setup_ota_webserver(AsyncWebServer* server);
 
@@ -1025,9 +1099,10 @@ Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel( // Creazione di un 
     0 /* pclk_active_neg */, 12000000 /* prefer_speed */, false /* useBigEndian */, // Configurazione del clock dei pixel, velocità preferita, ordine dei byte
     0 /* de_idle_high */, 0 /* pclk_idle_high */, 0 /* bounce_buffer_size_px */); // Stato idle dei segnali DE e PCLK, dimensione del buffer per l'anti-rimbalzo (non usato qui).
 
-Arduino_RGB_Display *gfx = new Arduino_RGB_Display( // Creazione di un oggetto puntatore alla classe `Arduino_RGB_Display`, che fornisce le funzioni di disegno sul display.
-    480 /* width */, 480 /* height */, rgbpanel, 0 /* rotation */, true /* auto_flush */, // Dimensioni del display, oggetto del pannello, rotazione, auto-flush
-    bus, GFX_NOT_DEFINED /* RST */, st7701_type9_init_operations, sizeof(st7701_type9_init_operations)); // Bus di comunicazione, pin di reset (non usato), sequenza di inizializzazione specifica per il controller del display ST7701.
+Arduino_RGB_Display *realGfx = new Arduino_RGB_Display( // Display fisico reale (480x480)
+    480 /* width */, 480 /* height */, rgbpanel, 0 /* rotation */, true /* auto_flush */,
+    bus, GFX_NOT_DEFINED /* RST */, st7701_type9_init_operations, sizeof(st7701_type9_init_operations));
+Arduino_GFX *gfx = realGfx; // Puntatore attivo: punta a realGfx (standalone) o a DualGFX (multi-pannello)
 
 // Touch
 TAMC_GT911 ts = TAMC_GT911(I2C_SDA_PIN, I2C_SCL_PIN, TOUCH_INT, TOUCH_RST, max(TOUCH_MAP_X1, TOUCH_MAP_X2), max(TOUCH_MAP_Y1, TOUCH_MAP_Y2)); // Creazione di un oggetto della classe `TAMC_GT911` per interagire con il touch screen tramite I2C. I valori `max` sono usati per assicurare che l'intervallo di mappatura sia corretto.
@@ -2270,6 +2345,17 @@ Serial.println("LittleFS inizializzato correttamente.");
     Serial.println("[WEBSERVER] News Feed disponibile su /news");
     #endif
 
+    #ifdef EFFECT_PONG
+    setup_pong_webserver(clockWebServer);
+    Serial.println("[WEBSERVER] PONG disponibile su /pong");
+    #endif
+
+    // Dual Display multi-pannello ESP-NOW
+    #ifdef EFFECT_DUAL_DISPLAY
+    setup_dualdisplay_webserver(clockWebServer);
+    Serial.println("[WEBSERVER] Multi-Display disponibile su /dualdisplay");
+    #endif
+
     // OTA Update via browser (sempre disponibile, non dipende da #define)
     setup_ota_webserver(clockWebServer);
 
@@ -2279,6 +2365,11 @@ Serial.println("LittleFS inizializzato correttamente.");
 
     // Tenta connessione al radar server remoto (dopo setup webserver)
     initRadarServerConnection();
+
+    // Inizializza Dual Display ESP-NOW (dopo WiFi e webserver)
+    #ifdef EFFECT_DUAL_DISPLAY
+    initDualDisplay();
+    #endif
 
     setup_NTP();   // Inizializza la sincronizzazione dell'ora tramite NTP.
     // Inizializza i flag dell'annuncio orario con l'ora attuale al boot
@@ -3497,6 +3588,12 @@ if (currentIsNight != lastWasNightTime) {
           break;
 #endif
 
+#ifdef EFFECT_PONG
+        case MODE_PONG:
+          updatePong();  // Gioco PONG Dual Display
+          break;
+#endif
+
         case MODE_FADE:
           if (currentMillis - lastEffectUpdate > 20) {
             updateFadeMode();     // Aggiorna l'animazione di dissolvenza.
@@ -3535,6 +3632,11 @@ if (currentIsNight != lastWasNightTime) {
   // Aggiorna colore anello LED in base al tema/modalità corrente
   #ifdef EFFECT_LED_RGB
   updateLedRgb();
+  #endif
+
+  // ========== AGGIORNAMENTO DUAL DISPLAY ESP-NOW ==========
+  #ifdef EFFECT_DUAL_DISPLAY
+  updateDualDisplay();
   #endif
 
   // Permette al watchdog timer dell'ESP32 di non resettare il dispositivo

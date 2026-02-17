@@ -205,6 +205,13 @@ void cleanupPreviousMode(DisplayMode previousMode) {
   }
 #endif
 
+#ifdef EFFECT_PONG
+  if (previousMode == MODE_PONG) {
+    pongInitialized = false;
+    Serial.println("[CLEANUP] Pong: reset");
+  }
+#endif
+
 #ifdef EFFECT_GEMINI_AI
   if (previousMode == MODE_GEMINI_AI) {
     geminiInitialized = false;
@@ -456,6 +463,12 @@ void forceDisplayUpdate() {
     case MODE_FAST:
       updateFastMode();          // Chiama la funzione per aggiornare la modalità veloce.
       break;
+#ifdef EFFECT_PONG
+    case MODE_PONG:
+      pongInitialized = false;
+      initPong();
+      break;
+#endif
   }
 }
 
@@ -571,14 +584,14 @@ void applyPreset(uint8_t preset) {
 
   // Calcola la larghezza approssimativa del testo per centrarlo
   textWidth = strlen(title) * 18;
-  xPos = (480 - textWidth) / 2;
+  xPos = (gfx->width() - textWidth) / 2;
   if (xPos < 0) xPos = 0;
   gfx->setCursor(xPos, 210);
   gfx->println(title);
 
   // Calcola la larghezza approssimativa del testo per centrarlo
   textWidth = strlen(presetName) * 18;
-  xPos = (480 - textWidth) / 2;
+  xPos = (gfx->width() - textWidth) / 2;
   if (xPos < 0) xPos = 0;
   gfx->setCursor(xPos, 240);
   gfx->println(presetName);
@@ -693,6 +706,9 @@ bool isValidMode(DisplayMode mode) {
 #endif
 #ifdef EFFECT_RADIO_ALARM
     case MODE_RADIO_ALARM:
+#endif
+#ifdef EFFECT_PONG
+    case MODE_PONG:
 #endif
       return true;
     default:
@@ -959,6 +975,12 @@ void handleModeChange() {
       modeColor = CYAN;  // Ciano per la radiosveglia
       break;
 #endif
+#ifdef EFFECT_PONG
+    case MODE_PONG:
+      modeName = "PONG";
+      modeColor = WHITE;
+      break;
+#endif
     default:
       modeName = "MODO SCONOSCIUTO";
       modeColor = WHITE;
@@ -975,7 +997,7 @@ void handleModeChange() {
 
   // Calcola la larghezza approssimativa del testo del titolo per centrarlo.
   textWidth = strlen(title) * 18;  // Stima 18 pixel per carattere.
-  xPos = (480 - textWidth) / 2;
+  xPos = (gfx->width() - textWidth) / 2;
   if (xPos < 0) xPos = 0;  // Evita posizioni negative.
   // Mostra il titolo.
   gfx->setCursor(xPos, 210);
@@ -983,7 +1005,7 @@ void handleModeChange() {
 
   // Calcola la larghezza approssimativa del testo del nome della modalità per centrarlo.
   textWidth = strlen(modeName) * 18;  // Stima 18 pixel per carattere.
-  xPos = (480 - textWidth) / 2;
+  xPos = (gfx->width() - textWidth) / 2;
   if (xPos < 0) xPos = 0;  // Evita posizioni negative.
   // Mostra il nome della modalità.
   gfx->setCursor(xPos, 240);
@@ -999,6 +1021,17 @@ void handleModeChange() {
 
   // Forza un aggiornamento immediato del display per avviare la nuova modalità.
   forceDisplayUpdate();
+
+  // Dual display: invia sync immediato al cambio modo (non aspettare il prossimo ciclo 33ms)
+#ifdef EFFECT_DUAL_DISPLAY
+  extern bool dualDisplayEnabled;
+  extern bool dualDisplayInitialized;
+  extern uint8_t panelRole;
+  if (dualDisplayEnabled && dualDisplayInitialized && panelRole == 1) {
+    extern void sendSyncPacket();
+    sendSyncPacket();
+  }
+#endif
 
   // Notifica ESP32C3 se entrati/usciti da MODE_GEMINI_AI (già chiamato in forceDisplayUpdate)
   // Nota: forceDisplayUpdate() chiama già notifyGeminiModeChange(), non serve duplicare

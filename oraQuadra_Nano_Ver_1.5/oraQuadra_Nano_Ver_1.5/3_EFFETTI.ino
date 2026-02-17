@@ -4720,7 +4720,7 @@ void updateAnalogClock() {
 
     // Mostra l'immagine iniziale
     if (analogClockFrameBuffer != nullptr) {
-      gfx->draw16bitRGBBitmap(0, 0, analogClockFrameBuffer, 480, 480);
+      gfx->draw16bitRGBBitmap((gfx->width()-480)/2, (gfx->height()-480)/2, analogClockFrameBuffer, 480, 480);
     } else {
       gfx->fillScreen(BLACK);
     }
@@ -4879,7 +4879,7 @@ void updateAnalogClock() {
     }
 
     // ===== FASE 3: TRASFERISCI TUTTO AL DISPLAY IN UN COLPO SOLO =====
-    gfx->draw16bitRGBBitmap(0, 0, analogClockFrameBuffer, 480, 480);
+    gfx->draw16bitRGBBitmap((gfx->width()-480)/2, (gfx->height()-480)/2, analogClockFrameBuffer, 480, 480);
 
     // Salva gli angoli correnti per il prossimo aggiornamento
     lastHourAngle = hourAngle;

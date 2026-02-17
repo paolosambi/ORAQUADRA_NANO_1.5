@@ -361,7 +361,7 @@ void updateBTTF() {
     // ===== FASE 2: TRASFERISCI TUTTO AL DISPLAY IN UN COLPO SOLO =====
     Serial.println("[BTTF] Trasferimento al display...");
     
-    gfx->draw16bitRGBBitmap(0, 0, frameBuffer, BTTF_SCREEN_WIDTH, BTTF_SCREEN_HEIGHT);
+    gfx->draw16bitRGBBitmap((gfx->width()-BTTF_SCREEN_WIDTH)/2, (gfx->height()-BTTF_SCREEN_HEIGHT)/2, frameBuffer, BTTF_SCREEN_WIDTH, BTTF_SCREEN_HEIGHT);
     
     Serial.println("[BTTF] *** ZERO FLICKERING - FATTO! ***");
 

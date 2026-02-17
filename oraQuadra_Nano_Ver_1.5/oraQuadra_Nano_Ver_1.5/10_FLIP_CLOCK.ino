@@ -443,7 +443,7 @@ void updateFlipClock() {
 
   // ===== TRASFERIMENTO BUFFER AL DISPLAY =====
   if (flipClockFrameBuffer != nullptr && flipClockOffscreenGfx != nullptr) {
-    gfx->draw16bitRGBBitmap(0, 0, flipClockFrameBuffer, 480, 480);
+    gfx->draw16bitRGBBitmap((gfx->width()-480)/2, (gfx->height()-480)/2, flipClockFrameBuffer, 480, 480);
   }
 }
 
@@ -459,7 +459,7 @@ void drawFlipClock() {
 
   // Trasferisce il buffer al display (solo se disponibile)
   if (flipClockFrameBuffer != nullptr && flipClockOffscreenGfx != nullptr) {
-    gfx->draw16bitRGBBitmap(0, 0, flipClockFrameBuffer, 480, 480);
+    gfx->draw16bitRGBBitmap((gfx->width()-480)/2, (gfx->height()-480)/2, flipClockFrameBuffer, 480, 480);
   }
 }
 

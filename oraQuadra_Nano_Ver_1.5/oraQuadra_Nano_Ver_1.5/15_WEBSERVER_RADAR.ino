@@ -534,7 +534,7 @@ void updateRadarServer() {
 
 // Mostra schermata allarme gas (display rosso con nome gas)
 void showGasAlarmScreen() {
-  extern Arduino_RGB_Display *gfx;
+  extern Arduino_GFX *gfx;
   if (!gfx) return;
 
   // Sfondo rosso

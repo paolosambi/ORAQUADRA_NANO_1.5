@@ -243,7 +243,7 @@ void updateFireText() {
 
   // === COPIA BUFFER SU SCHERMO ===
   if (ftextFrameBuffer != nullptr) {
-    gfx->draw16bitRGBBitmap(0, 0, ftextFrameBuffer, 480, 480);
+    gfx->draw16bitRGBBitmap((gfx->width()-480)/2, (gfx->height()-480)/2, ftextFrameBuffer, 480, 480);
   }
 }
 

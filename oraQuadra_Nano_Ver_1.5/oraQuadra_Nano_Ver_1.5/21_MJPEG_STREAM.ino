@@ -355,7 +355,7 @@ bool decodeAndDisplayMjpegFrame(uint8_t* jpegData, int jpegSize) {
 
     // Trasferisci l'intero frame buffer al display in un'unica operazione
     // Questo elimina il flickering perché il display viene aggiornato tutto insieme
-    gfx->draw16bitRGBBitmap(0, 0, mjpegFrameBuffer, MJPEG_DISPLAY_SIZE, MJPEG_DISPLAY_SIZE);
+    gfx->draw16bitRGBBitmap((gfx->width()-MJPEG_DISPLAY_SIZE)/2, (gfx->height()-MJPEG_DISPLAY_SIZE)/2, mjpegFrameBuffer, MJPEG_DISPLAY_SIZE, MJPEG_DISPLAY_SIZE);
 
     return true;
   }

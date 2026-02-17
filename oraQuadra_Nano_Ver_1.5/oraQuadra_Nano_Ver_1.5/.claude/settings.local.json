@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(arduino-cli compile:*)",
+      "Bash(curl:*)",
+      "Bash(ping:*)",
+      "Bash(for i in 1 2 3 4 5 6)",
+      "Bash(do sleep 5)",
+      "Bash(echo:*)",
+      "Bash(done)",
+      "Bash(for ip in 75 76 77 78 79 80 50 51 52 53 54 55 56)",
+      "Bash(do curl -s -o /dev/null -w \"192.168.1.$ip: %{http_code}\\\\n\" \"http://192.168.1.$ip:8080/\" --connect-timeout 2)",
+      "Bash(\"C:\\\\Users\\\\Paolo\\\\AppData\\\\Local\\\\Arduino15\\\\packages\\\\esp32\\\\tools\\\\esp-x32\\\\2302\\\\bin\\\\arduino-cli.exe\" compile --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,FlashMode=qio .)",
+      "Bash(where:*)",
+      "Bash(\"/c/Program Files/Arduino CLI/arduino-cli\" compile --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,FlashMode=qio .)",
+      "Bash(BIN=\"/c/Users/Paolo/AppData/Local/arduino/sketches/909FD633DCB77BE4C976E16C7FCAD895/oraQuadra_Nano_Ver_1.5.ino.bin\")",
+      "Bash(\"/c/Program Files/Arduino CLI/arduino-cli\" upload -p COM10 --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,FlashMode=qio --input-file \"$BIN\")",
+      "Bash(\"/c/Program Files/Arduino CLI/arduino-cli\" board list)",
+      "Bash(\"/c/Program Files/Arduino CLI/arduino-cli\" upload -p COM5 --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,FlashMode=qio --input-file \"$BIN\")",
+      "Bash(grep:*)",
+      "Bash(xargs basename:*)"
+    ]
+  }
+}

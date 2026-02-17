@@ -304,6 +304,12 @@ void getLedColorForMode(DisplayMode mode, uint8_t &r, uint8_t &g, uint8_t &b) {
       break;
 #endif
 
+#ifdef EFFECT_PONG
+    case MODE_PONG:
+      r = 255; g = 255; b = 255;  // Bianco classico Pong
+      break;
+#endif
+
     default:
       // Fallback: bianco caldo
       r = 255; g = 200; b = 100;
