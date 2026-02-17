@@ -1,0 +1,125 @@
+const MY_SECRET_KEY = "LA TUA PASSWORD COMPLESSA";
+
+// ============================================================================
+// doGet() - Gestisce LETTURA, CREAZIONE e CANCELLAZIONE
+// Usiamo GET perché l'ESP32 è molto più stabile rispetto al POST con Google
+// ============================================================================
+function doGet(e) {
+  // 1. Controllo di Sicurezza
+  var clientKey = e.parameter.key;
+  if (clientKey !== MY_SECRET_KEY) {
+    return ContentService.createTextOutput(JSON.stringify({"error": "Access Denied"}))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var calendar = CalendarApp.getDefaultCalendar();
+
+  // --- AZIONE: DELETE (via GET) ---
+  if (e.parameter.action === "delete") {
+    try {
+      var event = calendar.getEventById(e.parameter.googleId);
+      if (event) {
+        event.deleteEvent();
+        return ContentService.createTextOutput(JSON.stringify({"success": true}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+      return ContentService.createTextOutput(JSON.stringify({"error": "Not found"}))
+                           .setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      return ContentService.createTextOutput(JSON.stringify({"error": err.message}))
+                           .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  // --- AZIONE: CREATE (via GET) ---
+  if (e.parameter.action === "create") {
+    try {
+      var cleanDate = e.parameter.date.replace(/-/g, "/");
+      var dateParts = cleanDate.split("/");
+      var startParts = e.parameter.start.split(":");
+      
+      var day = parseInt(dateParts[0]);
+      var month = parseInt(dateParts[1]) - 1;
+      var year = parseInt(dateParts[2]);
+      var hour = parseInt(startParts[0]);
+      var min = parseInt(startParts[1]);
+
+      var startDate = new Date(year, month, day, hour, min, 0);
+      var endDate = new Date(startDate.getTime() + (60 * 60 * 1000)); // Default +1 ora
+
+      // Se viene passato il parametro end
+      if (e.parameter.end) {
+        var endParts = e.parameter.end.replace(/-/g, ":").split(":");
+        endDate = new Date(year, month, day, parseInt(endParts[0]), parseInt(endParts[1]), 0);
+      }
+
+      var event = calendar.createEvent(e.parameter.title, startDate, endDate);
+      return ContentService.createTextOutput(JSON.stringify({"success": true, "googleId": event.getId()}))
+                           .setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      return ContentService.createTextOutput(JSON.stringify({"error": err.message}))
+                           .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  // --- AZIONE: UPDATE (via GET) ---
+  if (e.parameter.action === "update") {
+    try {
+      var event = calendar.getEventById(e.parameter.googleId);
+      if (event) {
+        // Aggiorna il titolo
+        if (e.parameter.title) event.setTitle(e.parameter.title);
+        
+        // Aggiorna date e orari se forniti
+        if (e.parameter.date && e.parameter.start) {
+          var cleanDate = e.parameter.date.replace(/-/g, "/");
+          var dateParts = cleanDate.split("/");
+          var startParts = e.parameter.start.split(":");
+          
+          var startDate = new Date(dateParts[2], dateParts[1]-1, dateParts[0], startParts[0], startParts[1]);
+          var endDate = new Date(startDate.getTime() + (60 * 60 * 1000)); // Default +1h
+
+          if (e.parameter.end) {
+            var endParts = e.parameter.end.replace(/-/g, ":").split(":");
+            endDate = new Date(dateParts[2], dateParts[1]-1, dateParts[0], endParts[0], endParts[1]);
+          }
+          event.setTime(startDate, endDate);
+        }
+        
+        return ContentService.createTextOutput(JSON.stringify({"success": true}))
+                             .setMimeType(ContentService.MimeType.JSON);
+      }
+      return ContentService.createTextOutput(JSON.stringify({"error": "Event not found"}))
+                           .setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      return ContentService.createTextOutput(JSON.stringify({"error": err.message}))
+                           .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  // --- AZIONE DEFAULT: LISTA EVENTI (doGet originale) ---
+  const now = new Date();
+  const sixtyDaysFromNow = new Date(now.getTime() + (60 * 24 * 60 * 60 * 1000));
+  const events = calendar.getEvents(now, sixtyDaysFromNow);
+  var result = [];
+
+  events.forEach(function(ev) {
+    var start = ev.getStartTime();
+    var end = ev.getEndTime();
+    result.push({
+      title: ev.getTitle(),
+      date: Utilities.formatDate(start, Session.getScriptTimeZone(), "dd/MM/yyyy"),
+      start: Utilities.formatDate(start, Session.getScriptTimeZone(), "HH:mm"),
+      end: Utilities.formatDate(end, Session.getScriptTimeZone(), "HH:mm"),
+      id: ev.getId()
+    });
+  });
+
+  return ContentService.createTextOutput(JSON.stringify(result))
+                       .setMimeType(ContentService.MimeType.JSON);
+}
+
+// Lascia il doPost così com'è o svuotalo, non lo useremo più per l'ESP32
+function doPost(e) {
+  return doGet(e);
+}

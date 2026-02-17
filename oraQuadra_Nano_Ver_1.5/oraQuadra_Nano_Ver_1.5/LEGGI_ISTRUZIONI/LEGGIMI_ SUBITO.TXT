@@ -1,0 +1,518 @@
+============================================================================
+ RADAR CLIENT - ESP32 con Display ILI9341 320x240 + Touch Screen
+ Client AUTONOMO con sensore LD2410 locale + OTA Updates
+ Versione 3.2 - WiFiManager + QR Code (ESP-IDF) + IP Statico/DHCP
+============================================================================
+ Autore: Sambinello Paolo
+============================================================================
+
+
+============================================================================
+ COLLEGAMENTO DISPOSITIVI I2C - DUE METODI DISPONIBILI
+============================================================================
+
+FOTO DI RIFERIMENTO:
+- IMAGE 2025-11-21 152251.jpg (vista piastra con modulo I2C e pin SCL)
+- IMAGE 2025-11-21 152259.jpg (vista modulo ESP32 sulla piastra)
+
+Esistono DUE STRADE per collegare i dispositivi I2C a OraQuadraNano:
+
+METODO 1 - COLLEGAMENTO DIRETTO (piu semplice e veloce)
+---------------------------------------------------------
+Collega i dispositivi I2C direttamente sulla piastra, utilizzando le uscite
+dei piedini visibili nelle foto (SDA, SCL, VCC, GND).
+
+IMPORTANTE: Con questo metodo puoi collegare SOLO:
+- Dispositivi con interfaccia I2C
+- Dispositivi gia previsti e programmati nello sketch
+  (leggi la documentazione fino in fondo per l'elenco completo)
+
+Questo e il metodo piu rapido per avere temperatura, umidita e altri dati
+direttamente sul display senza modifiche al codice.
+
+"SI RACCOMANDA LA MASSIMA ATTENZIONE CON IL SALDATORE 
+IN QUANTO I PIEDINI DEL DEVICE SONO MOLTO RAVVICINATI
+E UN CORTO CIRCUITO POTREBBE ROVINARE IL DEVICE. 
+E NON SURRISCALDATE TROPPO LE PISTE CON LA PUNTA DEL SALDATORE.
+PER QUELLI DEL MESTIERE "CHE VE LO DICO A FARE!"
+
+
+METODO 2 - DISPOSITIVO AGGIUNTIVO (piu flessibile)
+---------------------------------------------------------
+Richiede un dispositivo aggiuntivo (ESP32 RACCOMANDATO) ma offre maggiore
+flessibilita nel tipo di periferiche collegabili:
+- Dispositivi I2C (TEMPERATURA, UMIDITA ECC. ECC.)
+- Dispositivi seriali (UART PER RADAR PRESENZA)
+- Qualsiasi altro tipo di interfaccia desideriate collegare
+
+Questo metodo e leggermente piu complesso da realizzare (non esiste schema ma lo scketch contiene istruzioni per collegamenti) 
+ma permette di espandere il sistema con qualsiasi sensore o modulo vi venga in mente.
+Tutti i device elencati sotto sono gia attivi e funzionanti sia per un metodo che per altro.
+Se non vengono rilevati all'avvio si autoescludono e lo scketch continua a funzionare normalmente.
+Se volete collegare dispositivi al di fuori della lista occorre modificare sia questo codice che lo sketch di OraQuadraNano 1.5 (auguri!)
+
+============================================================================
+
+DESCRIZIONE
+-----------
+Client autonomo con sensore radar LD2410 integrato, display ILI9341 320x240
+con touch screen XPT2046, sensori ambientali BME280 e MICS (gas).
+NON richiede un server esterno - funziona in modo completamente indipendente.
+
+Funzionalita principali:
+- Rilevamento presenza con sensore radar LD2410 locale
+- Distanza in tempo reale (movimento e stazionario)
+- Sensore BME280: temperatura, umidita, pressione atmosferica
+- Sensore gas MICS: CO, CH4, C2H5OH, H2, NH3, NO2 con allarmi
+- LED WS2812 RGB per indicazione stato sistema
+- Controllo rele con impulso temporizzato (2 secondi)
+- Vista radar grafica con target animato
+- Controlli touch screen intuitivi
+- Interfaccia web completa per monitoraggio e configurazione
+- API REST per integrazione con altri sistemi
+- Aggiornamenti OTA (Over-The-Air) via browser
+- Sincronizzazione orario NTP automatica
+- WiFiManager con QR Code per configurazione WiFi senza codice
+- Configurazione IP statico tramite captive portal
+- Sensibilita radar configurabile da web
+- Controllo luminosita display automatico (PWM)
+
+
+HARDWARE RICHIESTO
+------------------
+- ESP32 (qualsiasi variante: DevKit, WROOM, ecc.)
+- Display TFT ILI9341 2.4" 320x240 con touch XPT2046
+- Sensore radar LD2410 (24GHz mmWave)
+- Sensore BME280 (temperatura/umidita/pressione) - I2C
+- Sensore gas DFRobot MICS (opzionale)
+- LED WS2812 RGB (1 LED per stato)
+- Modulo rele 5V (opzionale)
+- Cavi di collegamento
+
+
+LIBRERIE ARDUINO RICHIESTE
+--------------------------
+Installa tramite Library Manager di Arduino IDE:
+
+  TFT_eSPI by Bodmer         (display + touch XPT2046 integrato)
+  MyLD2410                   (sensore radar LD2410)
+  Adafruit BME280            (sensore ambientale)
+  Adafruit Unified Sensor    (dipendenza BME280)
+  Adafruit NeoPixel          (LED WS2812)
+  WiFiManager by tzapu       (captive portal configurazione WiFi)
+
+NOTA: Il QR Code usa la libreria ESP-IDF nativa (gia inclusa in ESP32).
+Non serve installare librerie esterne per il QR code.
+
+
+CONFIGURAZIONE TFT_eSPI
+-----------------------
+IMPORTANTE: Dopo aver installato la libreria TFT_eSPI, devi configurarla:
+
+1. Trova la cartella della libreria:
+   Windows: C:\Users\[TuoNome]\Documents\Arduino\libraries\TFT_eSPI\
+   Mac/Linux: ~/Arduino/libraries/TFT_eSPI/
+
+2. Copia il file "User_Setup.h" dalla cartella di questo progetto
+   nella cartella TFT_eSPI, sovrascrivendo quello esistente.
+
+   OPPURE
+
+   Modifica User_Setup_Select.h e commenta tutti gli #include
+   tranne quello del tuo setup personalizzato.
+
+
+SCHEMA COLLEGAMENTI
+-------------------
+
+Display ILI9341    ->   ESP32          Colore cavo (tipico)
+--------------------------------------------------------
+  VCC              ->   3.3V           Rosso
+  GND              ->   GND            Nero
+  CS               ->   GPIO 15        Arancione
+  RESET            ->   GPIO 4         Giallo
+  DC (RS)          ->   GPIO 2         Verde
+  SDI (MOSI)       ->   GPIO 23        Blu
+  SCK              ->   GPIO 18        Viola
+  LED              ->   GPIO 5         (PWM luminosita)
+  SDO (MISO)       ->   GPIO 19        Grigio
+
+Touch XPT2046      ->   ESP32  (condivide bus SPI)
+--------------------------------------------------------
+  T_CLK            ->   GPIO 18        (condiviso con SCK)
+  T_CS             ->   GPIO 21        Marrone
+  T_DIN            ->   GPIO 23        (condiviso con MOSI)
+  T_DO             ->   GPIO 19        (condiviso con MISO)
+  T_IRQ            ->   Non collegato  (opzionale)
+
+Sensore Radar LD2410  ->  ESP32
+--------------------------------------------------------
+  VCC              ->   5V             Rosso
+  GND              ->   GND            Nero
+  TX               ->   GPIO 16 (RX2)  Verde
+  RX               ->   GPIO 17 (TX2)  Giallo
+
+Sensore BME280 (I2C)  ->  ESP32
+--------------------------------------------------------
+  VCC              ->   3.3V           Rosso
+  GND              ->   GND            Nero
+  SDA              ->   GPIO 21        Blu
+  SCL              ->   GPIO 22        Giallo
+
+Sensore Gas MICS (opzionale)  ->  ESP32
+--------------------------------------------------------
+  VCC              ->   5V             Rosso
+  GND              ->   GND            Nero
+  AOUT             ->   GPIO 34        Giallo (ADC)
+
+LED WS2812 RGB     ->   ESP32
+--------------------------------------------------------
+  VCC              ->   5V             Rosso
+  GND              ->   GND            Nero
+  DIN              ->   GPIO 27        Verde
+
+Modulo Rele (opzionale)  ->  ESP32
+--------------------------------------------------------
+  VCC              ->   5V             Rosso
+  GND              ->   GND            Nero
+  IN               ->   GPIO 26        Giallo
+
+
+CALIBRAZIONE TOUCH
+------------------
+Se il touch non risponde correttamente:
+
+1. Carica l'esempio di calibrazione:
+   File > Examples > TFT_eSPI > Generic > Touch_calibrate
+
+2. Tocca i 4 angoli come indicato sul display
+
+3. Copia i valori calData mostrati sul Serial Monitor
+
+4. Aggiungi nel setup() del tuo sketch:
+   uint16_t calData[5] = {xxx, xxx, xxx, xxx, x};
+   tft.setTouch(calData);
+
+
+CONFIGURAZIONE WIFI (WiFiManager + QR Code)
+-------------------------------------------
+NON serve piu modificare lo sketch! La configurazione WiFi avviene
+tramite captive portal con QR code sul display.
+
+Prima accensione (o dopo reset WiFi):
+1. Il dispositivo crea un Access Point: "RadarDisplay-Setup"
+2. Il display mostra un QR code per connettersi all'AP
+3. Scansiona il QR code con il telefono (o connettiti manualmente)
+4. Si apre automaticamente la pagina di configurazione (192.168.4.1)
+5. Seleziona la tua rete WiFi e inserisci la password
+6. Configura indirizzo IP:
+
+   PER IP STATICO (consigliato):
+   - Compila tutti i campi: IP, Gateway, Subnet, DNS
+   - Esempio: 192.168.1.99 / 192.168.1.1 / 255.255.255.0 / 192.168.1.1
+
+   PER DHCP (automatico):
+   - Lascia tutti i campi IP vuoti
+   - Il router assegnera un IP automaticamente
+
+7. Clicca "Save" - il dispositivo si riavvia e si connette
+
+Credenziali Access Point configurazione:
+  SSID: RadarDisplay-Setup
+  Password: radar12345
+
+Reset configurazione WiFi:
+- Da browser: http://[IP]/api/wifi/reset
+- Il dispositivo cancella le credenziali e riavvia in config mode
+
+Modifica IP senza reset (da browser):
+- http://[IP]/api/wifi/setip?ip=192.168.1.99&gateway=192.168.1.1&subnet=255.255.255.0&dns=192.168.1.1
+- Dopo la modifica, riavviare con: http://[IP]/api/restart
+
+Visualizza configurazione attuale:
+- http://[IP]/api/wifi/config (risposta JSON)
+
+Timeout portale: 180 secondi (poi riavvia)
+
+
+FUNZIONAMENTO
+-------------
+1. All'avvio mostra splash screen con LED viola
+2. Tentativo connessione WiFi:
+   - Se credenziali salvate: connessione automatica
+   - Se prima accensione o reset: mostra QR code config
+3. Se in config mode:
+   - Display mostra QR code per connettersi all'AP
+   - Attende configurazione via captive portal (max 180 sec)
+4. Una volta connesso al WiFi:
+   - Inizializza sensori (radar LD2410, BME280, MICS)
+   - Sincronizza orario NTP
+   - Avvia server web e mDNS (http://radar-display.local)
+5. Mostra schermata principale (LED verde = pronto)
+
+Schermate Touch:
+- MAIN: Dati presenza, distanza, temperatura, umidita, pressione
+- RADAR: Vista radar circolare con target animato
+- GAS: Monitoraggio concentrazioni gas in tempo reale
+- ALLARME: Avviso allarme gas con conferma touch
+
+Pulsanti touch:
+- RADAR: Mostra vista radar circolare
+- GAS: Mostra monitoraggio gas
+- INDIETRO: Torna alla schermata principale
+
+LED di stato WS2812:
+- Viola: Avvio sistema
+- Blu: Connessione WiFi in corso
+- Verde: Sistema pronto/idle
+- Giallo: Presenza rilevata
+- Ciano: Lettura radar attiva
+- Magenta: Aggiornamento OTA in corso
+- Arancione: Rele attivo
+- Bianco: Richiesta web in elaborazione
+- Rosso: Errore
+
+
+INTERFACCIA WEB
+---------------
+Accedi da browser: http://radar-display.local (o IP statico)
+
+Dashboard principale con 6 tab:
+
+TAB STATO:
+- Dati radar (presenza, distanza, movimento)
+- Dati ambiente (temperatura, umidita, pressione)
+- Info sistema (IP, uptime, memoria)
+
+TAB IMPOSTAZIONI:
+- Controlli automatici (presenza, luminosita)
+- Timeout e soglie luminosita
+- Sensibilita radar per zona (vicino/medio/lontano)
+- Test dispositivi (accendi/spegni tutti)
+
+TAB CALIBRAZIONE:
+- Offset temperatura e umidita BME280
+- Calibrazione touch screen
+
+TAB DISPOSITIVI:
+- Discovery automatico dispositivi in rete
+- Aggiunta manuale dispositivi
+- Lista dispositivi registrati
+
+TAB WIFI (NUOVO):
+- Connessione attuale (SSID, IP, RSSI, modo)
+- Configurazione IP statico/DHCP
+- Campi: IP, Gateway, Subnet, DNS
+- Reset WiFi (riavvia in modalita configurazione)
+
+TAB OTA:
+- Upload firmware .bin
+- Riavvio sistema
+
+
+API REST DISPONIBILI
+--------------------
+Endpoint principali:
+
+  /api/status              - Stato completo sistema (JSON)
+  /api/settings            - Modifica impostazioni (POST)
+  /radar/presence          - Stato presenza (0/1)
+  /radar/brightness        - Livello luminosita
+  /radar/temperature       - Temperatura BME280
+  /radar/humidity          - Umidita BME280
+  /sensorData              - Tutti i dati sensori (JSON)
+  /api/radar/sensitivity   - Configura sensibilita radar
+  /api/calibration         - Calibrazione temperatura/umidita
+  /api/touch/calibrate     - Avvia calibrazione touch
+  /api/gas/alarm           - Stato allarme gas
+  /api/restart             - Riavvia dispositivo
+  /update                  - Pagina aggiornamento OTA
+
+Endpoint WiFi:
+  /api/wifi/config         - Configurazione WiFi attuale (JSON)
+  /api/wifi/reset          - Reset credenziali, riavvia in config mode
+  /api/wifi/setip          - Modifica configurazione IP
+                             Parametri: ip, gateway, subnet, dns
+                             Esempio: ?ip=192.168.1.99&gateway=192.168.1.1
+                             Richiede riavvio per applicare
+
+
+AGGIORNAMENTO OTA
+-----------------
+1. Accedi a http://radar-display.local/update
+2. Seleziona il file .bin compilato
+3. Clicca "Update"
+4. Attendi il completamento (LED magenta)
+5. Il dispositivo si riavvia automaticamente
+
+
+SENSIBILITA RADAR
+-----------------
+La sensibilita del radar LD2410 e' configurabile per 3 zone:
+
+- Vicino (0-225cm): Gate 0-2, default soglia 40
+- Medio (225-450cm): Gate 3-5, default soglia 60
+- Lontano (450-675cm): Gate 6-8, default soglia 80
+
+VALORI PIU ALTI = RADAR PIU SENSIBILE
+(la soglia e' l'energia minima per rilevare presenza)
+
+Configura da: /api/radar/sensitivity?close=XX&mid=YY&far=ZZ
+
+
+ALLARMI GAS
+-----------
+Soglie di allarme predefinite (PPM):
+
+- CO (Monossido carbonio): > 50 PPM
+- CH4 (Metano): > 1000 PPM
+- C2H5OH (Etanolo): > 500 PPM
+- H2 (Idrogeno): > 500 PPM
+- NH3 (Ammoniaca): > 25 PPM
+- NO2 (Biossido azoto): > 5 PPM
+
+Quando scatta un allarme:
+1. Display mostra schermata allarme rossa
+2. LED diventa rosso lampeggiante
+3. Richiede conferma touch per silenziare
+
+
+RISOLUZIONE PROBLEMI
+--------------------
+1. Display bianco/nero:
+   - Verifica collegamenti SPI
+   - Controlla che User_Setup.h sia configurato
+   - Verifica GPIO 5 per retroilluminazione PWM
+
+2. Touch non funziona:
+   - Verifica GPIO 21 (T_CS)
+   - Esegui calibrazione: /api/touch/calibrate
+   - Controlla valori in Serial Monitor
+
+3. Non si connette al WiFi:
+   - Verifica SSID e password nel captive portal
+   - ESP32 supporta solo WiFi 2.4GHz (non 5GHz!)
+   - Controlla IP statico se configurato
+   - Reset WiFi: /api/wifi/reset per riconfigurare
+
+3b. QR Code non viene visualizzato:
+   - Verifica che USE_QRCODE sia definito nello sketch
+   - Il QR code usa libreria ESP-IDF nativa (gia inclusa)
+   - In alternativa, connettiti manualmente:
+     SSID: RadarDisplay-Setup
+     Password: radar12345
+     Browser: 192.168.4.1
+
+3c. Captive portal non si apre:
+   - Disabilita dati mobili sul telefono
+   - Apri manualmente 192.168.4.1 nel browser
+   - Prova con altro dispositivo
+
+4. Radar LD2410 non risponde:
+   - Verifica collegamenti TX/RX (incrociati!)
+   - Baud rate deve essere 256000
+   - Controlla alimentazione 5V
+
+5. BME280 non rilevato:
+   - Verifica collegamenti I2C (SDA=21, SCL=22)
+   - Prova indirizzo alternativo 0x77
+   - Controlla alimentazione 3.3V
+
+6. Sensore gas non funziona:
+   - Richiede warmup di 2-3 minuti
+   - Verifica GPIO 34 (ADC)
+   - Controlla alimentazione 5V
+
+7. LED WS2812 non si accende:
+   - Verifica GPIO 27
+   - Controlla alimentazione 5V
+   - Verifica direzione DIN (freccia sul LED)
+
+8. Rele non si attiva:
+   - Attesa 5 secondi dopo boot (protezione)
+   - Verifica GPIO 26
+   - Controlla alimentazione modulo
+
+9. OTA fallisce:
+   - File .bin troppo grande (max ~1.5MB)
+   - Connessione WiFi instabile
+   - Riprova dopo riavvio
+
+
+PIN ALTERNATIVI
+---------------
+Se hai conflitti con altri componenti, puoi usare pin diversi.
+Modifica sia User_Setup.h che lo sketch principale.
+
+Pin SPI alternativi ESP32:
+- HSPI: MOSI=13, MISO=12, CLK=14, CS=15
+- VSPI: MOSI=23, MISO=19, CLK=18, CS=5
+
+Pin I2C alternativi (per BME280):
+- Qualsiasi GPIO (configurare Wire.begin(SDA, SCL))
+
+Pin UART alternativi (per LD2410):
+- Serial1: RX=9, TX=10 (non consigliato su DevKit)
+- Serial2: RX=16, TX=17 (default, consigliato)
+
+Pin ADC disponibili (per sensore gas):
+- ADC1: GPIO 32, 33, 34, 35, 36, 39 (consigliati)
+- ADC2: Non usare se WiFi attivo!
+
+
+NOTE TECNICHE
+-------------
+- Baud rate LD2410: 256000
+- Indirizzo I2C BME280: 0x76 (o 0x77)
+- Frequenza PWM display: 5000Hz, 8bit
+- Timeout presenza: 10 secondi
+- Intervallo lettura radar: 50ms
+- Intervallo lettura BME280: 2 secondi
+- Intervallo lettura gas: 1 secondo
+- Warmup sensore gas: 2 minuti
+- Ritardo attivazione rele post-boot: 5 secondi
+- Durata impulso rele: 2 secondi
+
+
+HOSTNAME E MDNS
+---------------
+Il dispositivo e' raggiungibile tramite mDNS:
+  http://radar-display.local
+
+Per cambiare hostname, modifica nello sketch:
+  const char* hostname = "radar-display";
+
+
+CRONOLOGIA VERSIONI
+-------------------
+v3.2 (2026)
+  - QR Code usa libreria ESP-IDF nativa (nessuna dipendenza esterna)
+  - Configurazione IP semplificata: campi compilati=statico, vuoti=DHCP
+  - Rimossa checkbox "Usa IP Statico" (logica automatica)
+  - Migliorata gestione salvataggio parametri WiFiManager
+  - Aggiunta API /api/wifi/setip per modifica IP da remoto
+  - NUOVO TAB WIFI nella pagina web:
+    - Visualizza connessione attuale (SSID, IP, RSSI)
+    - Modifica configurazione IP da browser
+    - Reset WiFi con un click
+
+v3.1 (2026)
+  - Aggiunto WiFiManager per configurazione WiFi senza codice
+  - QR Code sul display per connessione rapida all'AP
+  - Configurazione IP statico tramite captive portal
+  - Nuove API: /api/wifi/config, /api/wifi/reset
+  - Credenziali WiFi salvate in memoria NVS (persistenti)
+
+v3.0 (2026)
+  - Client autonomo con sensore LD2410 locale
+  - Sensore BME280 (temperatura, umidita, pressione)
+  - Sensore gas MICS con allarmi
+  - LED WS2812 RGB di stato
+  - Controllo rele
+  - Aggiornamenti OTA
+  - Interfaccia web completa
+  - API REST
+
+
+============================================================================
+Grazie, Paolo Sambinello
