@@ -954,6 +954,20 @@ String resolveClientIP(int index) {
     return clients[index].ip;
   }
 
+  // Skip mDNS se lo stesso hostname e' condiviso da piu' client attivi:
+  // mDNS.queryHost() restituirebbe lo stesso IP per tutti, sovrascrivendo quelli corretti
+  int sameHostCount = 0;
+  for (int i = 0; i < clientCount; i++) {
+    if (clients[i].active && clients[i].mdnsHost == clients[index].mdnsHost) {
+      sameHostCount++;
+      if (sameHostCount > 1) {
+        DEBUG_PRINTF("mDNS: skip risoluzione %s.local - hostname condiviso da %d+ client\n",
+                     clients[index].mdnsHost.c_str(), sameHostCount);
+        return clients[index].ip;  // Usa IP salvato
+      }
+    }
+  }
+
   // Risolvi hostname via mDNS
   IPAddress resolved = MDNS.queryHost(clients[index].mdnsHost, 1000);  // timeout 1 sec
 
@@ -986,6 +1000,8 @@ void resolveAllClientsMdns() {
   }
 }
 
+#define CLIENT_MAX_CONSECUTIVE_FAILS 10  // Dopo 10 fallimenti consecutivi, sospendi il device
+
 // Forward declaration (addClient definita piu avanti)
 int addClient(String ip, String name, uint16_t port, bool controlOnOff, String mdnsHost);
 
@@ -1008,17 +1024,31 @@ int discoverMdnsDevices() {
     String hostName = MDNS.hostname(i);
     uint16_t port = MDNS.port(i);
 
-    // Leggi TXT records per nome e porta personalizzata
+    // Leggi TXT records per nome, porta personalizzata e MAC address
     String deviceName = hostName;
+    String macAddr = "";
     for (int j = 0; j < MDNS.numTxt(i); j++) {
       if (MDNS.txtKey(i, j) == "name") deviceName = MDNS.txt(i, j);
       if (MDNS.txtKey(i, j) == "port") port = MDNS.txt(i, j).toInt();
+      if (MDNS.txtKey(i, j) == "mac") macAddr = MDNS.txt(i, j);
+    }
+
+    // Se MAC disponibile, aggiungi suffisso univoco all'hostname per distinguere
+    // device con stesso nome mDNS (es. "oraquadra" + MAC "AA:BB:CC:DD:EE:FF" -> "oraquadra-EEFF")
+    if (macAddr.length() >= 5) {
+      String suffix = macAddr.substring(macAddr.length() - 5);  // "EE:FF"
+      suffix.replace(":", "");  // "EEFF"
+      suffix.toUpperCase();
+      // Aggiungi suffisso solo se hostname non lo contiene gia
+      if (hostName.indexOf(suffix) < 0) {
+        hostName = hostName + "-" + suffix;
+      }
     }
 
     // Non aggiungere se stesso
     if (ip == WiFi.localIP().toString()) continue;
 
-    DEBUG_PRINTF("  [%d] %s (%s.local) -> %s:%d\n", i, deviceName.c_str(), hostName.c_str(), ip.c_str(), port);
+    DEBUG_PRINTF("  [%d] %s (%s.local) -> %s:%d mac=%s\n", i, deviceName.c_str(), hostName.c_str(), ip.c_str(), port, macAddr.length() > 0 ? macAddr.c_str() : "n/a");
 
     // Aggiungi/aggiorna il dispositivo con hostname mDNS (mDNS = radar verificato)
     int idx = addClient(ip, deviceName, port, true, hostName);
@@ -1226,6 +1256,13 @@ int addClient(String ip, String name, uint16_t port, bool controlOnOff = true, S
   if (mdnsHost.length() > 0) {
     for (int i = 0; i < clientCount; i++) {
       if (clients[i].mdnsHost == mdnsHost) {
+        // Se il device esistente e' attivo con IP diverso, potrebbe essere un device DISTINTO
+        // con stesso hostname (senza suffisso MAC). Non fondere - lascia proseguire.
+        if (clients[i].active && clients[i].ip != ip && clients[i].failCount < CLIENT_MAX_CONSECUTIVE_FAILS) {
+          DEBUG_PRINTF("mDNS MATCH ma device attivo con IP diverso: %s.local (%s vs %s) - non fondo\n",
+                       mdnsHost.c_str(), clients[i].ip.c_str(), ip.c_str());
+          continue;  // Cerca altri match o aggiungi come nuovo
+        }
         if (clients[i].ip != ip) {
           DEBUG_PRINTF("mDNS MATCH: %s.local IP cambiato %s -> %s\n", mdnsHost.c_str(), clients[i].ip.c_str(), ip.c_str());
         }
@@ -1308,8 +1345,6 @@ bool removeClient(int index) {
   saveClients();
   return true;
 }
-
-#define CLIENT_MAX_CONSECUTIVE_FAILS 10  // Dopo 10 fallimenti consecutivi, sospendi il device
 
 void notifyClients(String event, String value) {
   if (clientCount == 0) return;
@@ -1636,23 +1671,44 @@ void verifyStep() {
   bool isRadar = false;
   String deviceName = "Device_" + ip.substring(ip.lastIndexOf('.') + 1);
 
+  String mdnsHostForAdd = "";
   if (httpCode == 200 && payload.indexOf("ok") >= 0) {
     isRadar = true;
-    // Estrai nome dal JSON se presente (campo "host" o "name")
+    // Estrai nome dal JSON se presente (campo "host")
     int hostIdx = payload.indexOf("\"host\":\"");
     if (hostIdx >= 0) {
       int start = hostIdx + 8;
       int end = payload.indexOf("\"", start);
-      if (end > start) deviceName = payload.substring(start, end);
+      if (end > start) {
+        deviceName = payload.substring(start, end);
+        mdnsHostForAdd = deviceName;  // Usa host come mdnsHost base
+      }
     }
-    DEBUG_PRINTF("VERIFY: %s:%d -> RADAR OK (%s)\n", ip.c_str(), port, deviceName.c_str());
+    // Estrai MAC dal JSON e aggiungi suffisso univoco all'hostname
+    int macIdx = payload.indexOf("\"mac\":\"");
+    if (macIdx >= 0) {
+      int start = macIdx + 7;
+      int end = payload.indexOf("\"", start);
+      if (end > start) {
+        String macAddr = payload.substring(start, end);
+        if (macAddr.length() >= 5 && mdnsHostForAdd.length() > 0) {
+          String suffix = macAddr.substring(macAddr.length() - 5);  // "EE:FF"
+          suffix.replace(":", "");  // "EEFF"
+          suffix.toUpperCase();
+          if (mdnsHostForAdd.indexOf(suffix) < 0) {
+            mdnsHostForAdd = mdnsHostForAdd + "-" + suffix;
+          }
+        }
+      }
+    }
+    DEBUG_PRINTF("VERIFY: %s:%d -> RADAR OK (%s host=%s)\n", ip.c_str(), port, deviceName.c_str(), mdnsHostForAdd.length() > 0 ? mdnsHostForAdd.c_str() : "n/a");
   } else {
     DEBUG_PRINTF("VERIFY: %s:%d -> NO radar (HTTP %d)\n", ip.c_str(), port, httpCode);
   }
 
   // Aggiungi SOLO dispositivi con radar verificato (non aggiungere router, stampanti, etc.)
   if (isRadar && clientCount < MAX_CLIENTS) {
-    int addedIdx = addClient(ip, deviceName, port, true);
+    int addedIdx = addClient(ip, deviceName, port, true, mdnsHostForAdd);
     if (addedIdx >= 0) {
       clients[addedIdx].radarVerified = true;
     }

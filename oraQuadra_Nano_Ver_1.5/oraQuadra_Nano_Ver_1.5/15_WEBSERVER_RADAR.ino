@@ -334,7 +334,8 @@ void handleRadarTest(AsyncWebServerRequest *request) {
   radarServerConnected = true;
   lastRadarRemoteUpdate = millis();
 
-  String json = "{\"status\":\"ok\",\"device\":\"oraQuadraNano\"}";
+  extern String deviceHostname;
+  String json = "{\"status\":\"ok\",\"device\":\"oraQuadraNano\",\"host\":\"" + deviceHostname + "\",\"mac\":\"" + WiFi.macAddress() + "\"}";
   request->send(200, "application/json", json);
 }
 

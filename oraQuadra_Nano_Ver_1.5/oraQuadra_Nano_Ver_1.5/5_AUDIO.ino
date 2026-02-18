@@ -714,12 +714,14 @@ bool announceBootLocal() {
     gfx->fillScreen(0x0000);  // Sfondo nero
     // Disegna un messaggio di benvenuto al centro
     gfx->setTextColor(0xFFFF);  // Bianco
-    gfx->setTextSize(2);
+    gfx->setFont(u8g2_font_inb21_mr);
+
     gfx->setCursor(110, 200);
     gfx->print("OraQuadraNano");
-    gfx->setCursor(200, 140);
-    gfx->setTextSize(1);
+    
+    gfx->setCursor(100, 310);
     gfx->print("Avvio in corso...");
+    
     Serial.println("[BOOT] Schermata di benvenuto visualizzata");
   }
 

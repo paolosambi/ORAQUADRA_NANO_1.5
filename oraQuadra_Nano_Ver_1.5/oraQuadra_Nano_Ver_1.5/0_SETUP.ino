@@ -747,6 +747,7 @@ void setup_alexa() {
       MDNS.addServiceTxt("radardevice", "tcp", "name", "OraQuadraNano");
       MDNS.addServiceTxt("radardevice", "tcp", "type", "clock");
       MDNS.addServiceTxt("radardevice", "tcp", "port", "8080");
+      MDNS.addServiceTxt("radardevice", "tcp", "mac", WiFi.macAddress().c_str());
       Serial.println("mDNS: Servizio _radardevice._tcp annunciato (porta 8080)");
     }
 
