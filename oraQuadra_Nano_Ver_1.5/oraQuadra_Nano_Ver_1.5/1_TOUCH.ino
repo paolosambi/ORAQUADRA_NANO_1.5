@@ -339,6 +339,21 @@ void checkButtons() {
     return; // Esce dalla funzione per concentrarsi sulla gestione del reset.
   }
 
+  // ====================== GESTIONE MODE SELECTOR ======================
+  if (modeSelectorActive) {
+    ts.read();  // Lettura fresh per stato attuale
+    if (ts.isTouched && !waitingForRelease) {
+      int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+      int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+      handleModeSelectorTouch(x, y);
+      waitingForRelease = true;
+      modeSelectorLastActivity = millis();  // Solo su tocco effettivo
+    } else if (!ts.isTouched) {
+      waitingForRelease = false;
+    }
+    return;
+  }
+
   // ====================== GESTIONE PAGINA SETUP ======================
   if (setupPageActive) { // Se la pagina di setup è attiva.
     if (ts.isTouched) { // Se lo schermo è toccato.
@@ -697,12 +712,28 @@ if ((currentMode == MODE_BTTF && isBTTFCenter) || (currentMode != MODE_BTTF && i
 
       // --------------------- QUADRANTE 1 - ALTO SINISTRA: Cambia modalità --------------------------------//
       if (touch_last_y < 240) {
-        playTouchSound();  // Feedback sonoro
-        handleModeChange(); // Chiama la funzione per cambiare la modalità di visualizzazione dell'orologio.
+        // ZONA CENTRO-SINISTRA (x:0-140, y:190-240): apri mode selector overlay
+        if (touch_last_x <= 140 && touch_last_y >= 190) {
+          playTouchSound();
+          showModeSelector();
+          waitingForRelease = true;
+          return;
+        } else {
+          // Resto del quadrante 1: cambio modo sequenziale
+          playTouchSound();
+          handleModeChange();
+        }
       }
 
       // --------------------- QUADRANTE 3 - BASSO SINISTRA: Avvia ciclaggio colori --------------------------------//
       else if (touch_last_y > 240) {
+        // ZONA CENTRO-SINISTRA (x:0-140, y:240-290): apri mode selector overlay
+        if (touch_last_x <= 140 && touch_last_y <= 290) {
+          playTouchSound();
+          showModeSelector();
+          waitingForRelease = true;
+          return;
+        }
         // Quadrante 3 (in basso a sinistra): Gestione del ciclo dei colori.
         // SOLO per modalità che usano l'orologio a parole (WordClock) senza animazione propria
         bool isWordClockMode = (currentMode == MODE_FADE ||

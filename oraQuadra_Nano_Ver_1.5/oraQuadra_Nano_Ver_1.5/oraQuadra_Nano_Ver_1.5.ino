@@ -836,6 +836,16 @@ extern volatile bool dualFlashRequested;
 extern volatile bool dualTestSyncRequested;
 #endif
 
+// Funzioni definite in 47_MODE_SELECTOR.ino
+void showModeSelector();
+void hideModeSelector();
+void handleModeSelectorTouch(int x, int y);
+void switchToMode(uint8_t targetMode);
+void executePendingModeSwitch();
+extern bool modeSelectorActive;
+extern uint32_t modeSelectorLastActivity;
+extern volatile int8_t pendingModeSelectorSwitch;
+
 // Funzioni definite in 43_WEBSERVER_OTA.ino (OTA Update via browser)
 void setup_ota_webserver(AsyncWebServer* server);
 
@@ -2916,9 +2926,30 @@ void loop() {
     lastButtonCheck = currentMillis;
   }
 
+  // Se mode selector overlay attivo, blocca TUTTO il resto del loop (come capodannoActive)
+  if (modeSelectorActive) {
+    // Verifica timeout mode selector (15 secondi senza tocco)
+    // NOTA: usa millis() fresco, NON currentMillis (che e' catturato a inizio loop,
+    // prima di checkButtons(), quindi puo' essere piu' vecchio di modeSelectorLastActivity)
+    if (millis() - modeSelectorLastActivity > 15000) {
+      hideModeSelector();
+    } else {
+      #ifdef EFFECT_LED_RGB
+      updateLedRgb();
+      #endif
+      yield();
+      return;
+    }
+  }
+
+  // Gestione cambio modo dal mode selector (deferred dal touch handler)
+  if (pendingModeSelectorSwitch >= 0) {
+    executePendingModeSwitch();
+  }
+
   // ========== CAMBIO MODALITA' RANDOM AUTOMATICO ==========
   // Se abilitato, cambia la modalità display ogni X minuti (scegliendo tra le modalità abilitate)
-  if (randomModeEnabled && !setupPageActive && !capodannoActive
+  if (randomModeEnabled && !setupPageActive && !modeSelectorActive && !capodannoActive
   #ifdef EFFECT_CALENDAR
       && !calendarAlarmActive
   #endif
@@ -3354,7 +3385,8 @@ if (currentIsNight != lastWasNightTime) {
       #endif
 
       // Se allarme gas o calendario attivo, non aggiornare display (mantieni schermata allarme)
-      if (!gasAlarmActive
+      // Se mode selector overlay attivo, non aggiornare display (mantieni overlay)
+      if (!gasAlarmActive && !modeSelectorActive
       #ifdef EFFECT_CALENDAR
           && !calendarAlarmActive
       #endif
