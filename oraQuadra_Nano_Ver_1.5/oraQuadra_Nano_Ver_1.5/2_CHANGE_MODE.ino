@@ -228,27 +228,6 @@ void cleanupPreviousMode(DisplayMode previousMode) {
   }
 #endif
 
-#ifdef EFFECT_CHRISTMAS
-  if (previousMode == MODE_CHRISTMAS) {
-    christmasInitialized = false;
-    Serial.println("[CLEANUP] Christmas: reset");
-  }
-#endif
-
-#ifdef EFFECT_FIRE
-  if (previousMode == MODE_FIRE) {
-    fireInitialized = false;
-    Serial.println("[CLEANUP] Fire: reset");
-  }
-#endif
-
-#ifdef EFFECT_FIRE_TEXT
-  if (previousMode == MODE_FIRE_TEXT) {
-    fireTextInitialized = false;
-    Serial.println("[CLEANUP] Fire Text: reset");
-  }
-#endif
-
   // Fade/Slow modes
   if (previousMode == MODE_FADE) {
     fadeInitialized = false;
@@ -284,6 +263,15 @@ void cleanupPreviousMode(DisplayMode previousMode) {
 
 // Funzione per forzare un aggiornamento completo del display
 void forceDisplayUpdate() {
+  // Slave multi-display: il display e' controllato dal master via SyncPacket.
+  // Evita ridisegni locali che causano flickering (fillScreen + redraw a ogni chiamata)
+  #ifdef EFFECT_DUAL_DISPLAY
+  extern bool isDualSlave();
+  if (isDualSlave()) {
+    return;  // Skip: lo slave non deve forzare ridisegni locali
+  }
+  #endif
+
   // Se allarme calendario attivo, ridisegna la schermata allarme e NON il modo corrente
   #ifdef EFFECT_CALENDAR
   extern bool calendarAlarmActive;
@@ -438,24 +426,6 @@ void forceDisplayUpdate() {
     case MODE_FLUX_CAPACITOR:
       fluxCapacitorInitialized = false;   // Forza la reinizializzazione del Flux Capacitor.
       updateFluxCapacitor();              // Chiama la funzione per aggiornare il Flux Capacitor.
-      break;
-#endif
-#ifdef EFFECT_CHRISTMAS
-    case MODE_CHRISTMAS:
-      christmasInitialized = false;       // Forza la reinizializzazione del tema natalizio.
-      initChristmas();                    // Chiama la funzione per inizializzare il tema natalizio.
-      break;
-#endif
-#ifdef EFFECT_FIRE
-    case MODE_FIRE:
-      fireInitialized = false;            // Forza la reinizializzazione dell'effetto fuoco.
-      initFire();                         // Chiama la funzione per inizializzare il fuoco.
-      break;
-#endif
-#ifdef EFFECT_FIRE_TEXT
-    case MODE_FIRE_TEXT:
-      fireTextInitialized = false;        // Forza la reinizializzazione delle lettere fiammeggianti.
-      initFireText();                     // Chiama la funzione per inizializzare le lettere fiammeggianti.
       break;
 #endif
 #ifdef EFFECT_MP3_PLAYER
@@ -721,15 +691,6 @@ bool isValidMode(DisplayMode mode) {
 #ifdef EFFECT_FLUX_CAPACITOR
     case MODE_FLUX_CAPACITOR:
 #endif
-#ifdef EFFECT_CHRISTMAS
-    case MODE_CHRISTMAS:
-#endif
-#ifdef EFFECT_FIRE
-    case MODE_FIRE:
-#endif
-#ifdef EFFECT_FIRE_TEXT
-    case MODE_FIRE_TEXT:
-#endif
 #ifdef EFFECT_MP3_PLAYER
     case MODE_MP3_PLAYER:
 #endif
@@ -752,6 +713,12 @@ bool isValidMode(DisplayMode mode) {
 }
 
 void handleModeChange() {
+  // Slave multi-display: modo controllato dal master via SyncPacket
+  #ifdef EFFECT_DUAL_DISPLAY
+  extern bool isDualSlave();
+  if (isDualSlave()) return;
+  #endif
+
   // ========== VERIFICA PROTEZIONE DISTRIBUITA ==========
   if (!distributedCheck2()) {
     protectionFailCount++;
@@ -972,24 +939,6 @@ void handleModeChange() {
     case MODE_FLUX_CAPACITOR:
       modeName = "FLUX CAPACITOR";
       modeColor = YELLOW;  // Giallo come le luci del flusso canalizzatore
-      break;
-#endif
-#ifdef EFFECT_CHRISTMAS
-    case MODE_CHRISTMAS:
-      modeName = "BUON NATALE!";
-      modeColor = RED;  // Rosso natalizio
-      break;
-#endif
-#ifdef EFFECT_FIRE
-    case MODE_FIRE:
-      modeName = "FUOCO CAMINO";
-      modeColor = ORANGE;  // Arancione fuoco
-      break;
-#endif
-#ifdef EFFECT_FIRE_TEXT
-    case MODE_FIRE_TEXT:
-      modeName = "LETTERE DI FUOCO";
-      modeColor = ORANGE;  // Arancione fuoco
       break;
 #endif
 #ifdef EFFECT_MP3_PLAYER

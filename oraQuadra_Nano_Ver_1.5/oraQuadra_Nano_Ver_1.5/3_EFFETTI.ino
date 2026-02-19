@@ -1467,14 +1467,16 @@ float distance(float x1, float y1, float x2, float y2) {
 //===================================================================//
 //                        EFFETTO SERPENTE                           //
 //===================================================================//
+// Variabili globali Snake per sincronizzazione multi-display
+uint8_t snakePathChoice = 0;      // Percorso zigzag scelto (0-3)
+uint16_t snakePathIndex = 0;      // Posizione corrente nel percorso (0-256)
+bool snakeIsCompleted = false;    // Percorso completato
+
 void updateSnake() {
   static uint8_t lastHour = 255;
   static uint8_t lastMinute = 255;
   static bool snakeInitialized = false;
-  static bool snakeCompleted = false;
-  static uint16_t pathIndex = 0;
   static const uint16_t* currentPath = nullptr;  // Puntatore al percorso scelto
-  static uint8_t pathChoice = 0;
   uint32_t currentMillis = millis();
 
   // Inizializzazione o cambio orario
@@ -1494,9 +1496,9 @@ void updateSnake() {
       gfx->write(pgm_read_byte(&TFT_L[i]));
     }
 
-    pathIndex = 0;
+    snakePathIndex = 0;
     snakeInitialized = true;
-    snakeCompleted = false;
+    snakeIsCompleted = false;
     snakeInitNeeded = false;
     lastHour = currentHour;
     lastMinute = currentMinute;
@@ -1583,8 +1585,12 @@ void updateSnake() {
     };
 
     // Seleziona casualmente uno dei 4 percorsi zig zag
-    pathChoice = random(0, 4);
-    switch(pathChoice) {
+#ifdef EFFECT_DUAL_DISPLAY
+    extern bool isDualSlave();
+    if (!isDualSlave())  // Slave usa snakePathChoice ricevuto dal master
+#endif
+    snakePathChoice = random(0, 4);
+    switch(snakePathChoice) {
       case 0: currentPath = ZIGZAG_TOP_LEFT; Serial.println("[SNAKE] ZIG ZAG da alto-sinistra"); break;
       case 1: currentPath = ZIGZAG_TOP_RIGHT; Serial.println("[SNAKE] ZIG ZAG da alto-destra"); break;
       case 2: currentPath = ZIGZAG_BOTTOM_LEFT; Serial.println("[SNAKE] ZIG ZAG da basso-sinistra"); break;
@@ -1628,7 +1634,7 @@ void updateSnake() {
 
 
   // Se il serpente ha completato tutto il percorso (256 posizioni)
-  if (snakeCompleted) {
+  if (snakeIsCompleted) {
     // EFFETTO ARCOBALENO CICLICO sulle lettere dell'orario - OTTIMIZZATO
     static uint32_t lastRainbowUpdate = 0;
     static uint8_t rainbowOffset = 0;
@@ -1659,9 +1665,83 @@ void updateSnake() {
   if (currentMillis - snake.lastMove >= snake.speed) {
     snake.lastMove = currentMillis;
 
+#ifdef EFFECT_DUAL_DISPLAY
+    // ===== SLAVE: rendering dello stato ricevuto dal master =====
+    extern bool isDualSlave();
+    if (isDualSlave()) {
+      static uint16_t prevSlaveSegments[SNAKE_MAX_LENGTH];
+      static bool prevSlaveValid = false;
+
+      if (snakeIsCompleted) {
+        // Pulizia una tantum quando il master segnala completamento
+        if (prevSlaveValid) {
+          gfx->setFont(u8g2_font_inb21_mr);
+          for (uint16_t pos = 0; pos < NUM_LEDS; pos++) {
+            if (!targetPixels[pos]) {
+              gfx->setTextColor(convertColor(TextBackColor));
+              gfx->setCursor(pgm_read_word(&TFT_X[pos]), pgm_read_word(&TFT_Y[pos]));
+              gfx->write(pgm_read_byte(&TFT_L[pos]));
+            }
+          }
+          prevSlaveValid = false;
+        }
+        return;  // Rainbow gestito dal blocco snakeIsCompleted sopra
+      }
+
+      gfx->setFont(u8g2_font_inb21_mr);
+
+      // Cancella vecchia coda se i segmenti sono cambiati
+      if (prevSlaveValid) {
+        uint16_t oldTail = prevSlaveSegments[snake.length - 1];
+        if (oldTail < NUM_LEDS) {
+          // Controlla se la vecchia coda e' ancora nel serpente corrente
+          bool stillInSnake = false;
+          for (uint8_t j = 0; j < snake.length; j++) {
+            if (snake.segments[j].ledIndex == oldTail) { stillInSnake = true; break; }
+          }
+          if (!stillInSnake) {
+            if (targetPixels[oldTail] && activePixels[oldTail]) {
+              gfx->setTextColor(RGBtoRGB565(snakeTrailColors[oldTail]));
+            } else {
+              gfx->setTextColor(convertColor(TextBackColor));
+            }
+            gfx->setCursor(pgm_read_word(&TFT_X[oldTail]), pgm_read_word(&TFT_Y[oldTail]));
+            gfx->write(pgm_read_byte(&TFT_L[oldTail]));
+          }
+        }
+      }
+
+      // Disegna il corpo del serpente con lo stato ricevuto dal master
+      uint8_t baseHue = (millis() / 30) % 255;
+      for (uint8_t i = 0; i < snake.length; i++) {
+        uint16_t pos = snake.segments[i].ledIndex;
+        if (pos >= NUM_LEDS) continue;
+        uint8_t hue = (baseHue + (i * 255 / snake.length)) % 255;
+        Color segmentColor = hsvToRgb(hue, 255, 255);
+        if (targetPixels[pos]) {
+          activePixels[pos] = true;
+          snakeTrailColors[pos].r = segmentColor.r;
+          snakeTrailColors[pos].g = segmentColor.g;
+          snakeTrailColors[pos].b = segmentColor.b;
+        }
+        gfx->setTextColor(convertColor(segmentColor));
+        gfx->setCursor(pgm_read_word(&TFT_X[pos]), pgm_read_word(&TFT_Y[pos]));
+        gfx->write(pgm_read_byte(&TFT_L[pos]));
+      }
+
+      // Salva segmenti correnti per il prossimo frame
+      for (uint8_t i = 0; i < snake.length; i++) {
+        prevSlaveSegments[i] = snake.segments[i].ledIndex;
+      }
+      prevSlaveValid = true;
+      return;
+    }
+#endif
+
+    // ===== MASTER/STANDALONE: avanzamento normale =====
     // Avanza lungo il percorso LED
-    if (pathIndex >= 256) {
-      snakeCompleted = true;
+    if (snakePathIndex >= 256) {
+      snakeIsCompleted = true;
       Serial.println("[SNAKE] Percorso completato");
 
       // PULIZIA FINALE: ridisegna tutte le lettere NON orario in grigio
@@ -1682,7 +1762,7 @@ void updateSnake() {
     uint16_t oldTailPos = snake.segments[snake.length - 1].ledIndex;
 
     // Ottieni la nuova posizione della testa dal percorso
-    uint16_t newHeadPos = currentPath[pathIndex];
+    uint16_t newHeadPos = currentPath[snakePathIndex];
 
     // Muovi tutti i segmenti indietro di uno (la coda scompare)
     for (int8_t i = snake.length - 1; i > 0; i--) {
@@ -1691,7 +1771,7 @@ void updateSnake() {
 
     // La testa si muove nella nuova posizione
     snake.segments[0].ledIndex = newHeadPos;
-    pathIndex++;
+    snakePathIndex++;
 
     // Calcola i colori per gli effetti
     uint8_t baseHue = (millis() / 30) % 255;

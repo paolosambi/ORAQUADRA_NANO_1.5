@@ -66,17 +66,15 @@ uint16_t getModeSelectorColor(uint8_t mode) {
     case 18: return 0xF81F;  // MODE_MJPEG - MAGENTA
     case 19: return 0x07FF;  // MODE_ESP32CAM - CYAN
     case 20: return 0xFFE0;  // MODE_FLUX_CAPACITOR - YELLOW
-    case 21: return 0xF800;  // MODE_CHRISTMAS - RED
-    case 22: return 0xFD20;  // MODE_FIRE - ORANGE
-    case 23: return 0xFD20;  // MODE_FIRE_TEXT - ORANGE
-    case 24: return 0x07FF;  // MODE_MP3_PLAYER - CYAN
-    case 25: return 0x07E0;  // MODE_WEB_RADIO - GREEN
-    case 26: return 0x07FF;  // MODE_RADIO_ALARM - CYAN
-    case 27: return 0xF81F;  // MODE_WEB_TV - MAGENTA
-    case 28: return 0x07FF;  // MODE_CALENDAR - CYAN
-    case 29: return 0xF800;  // MODE_YOUTUBE - RED
-    case 30: return 0x05BF;  // MODE_NEWS - azzurro (0,180,255)
-    case 31: return 0xFFFF;  // MODE_PONG - WHITE
+    case 21: return 0x07FF;  // MODE_MP3_PLAYER - CYAN
+    case 22: return 0x07E0;  // MODE_WEB_RADIO - GREEN
+    case 23: return 0x07FF;  // MODE_RADIO_ALARM - CYAN
+    case 24: return 0xF81F;  // MODE_WEB_TV - MAGENTA
+    case 25: return 0x07FF;  // MODE_CALENDAR - CYAN
+    case 26: return 0xF800;  // MODE_YOUTUBE - RED
+    case 27: return 0x05BF;  // MODE_NEWS - azzurro (0,180,255)
+    case 28: return 0xFFFF;  // MODE_PONG - WHITE
+    case 29: return 0x67EA;  // MODE_SCROLLTEXT - verde lime
     default: return 0xFFFF;
   }
 }
@@ -105,17 +103,15 @@ const char* getModeSelectorName(uint8_t mode) {
     case 18: return "MJPEG";
     case 19: return "ESP32CAM";
     case 20: return "Flux Cap";
-    case 21: return "Natale";
-    case 22: return "Fuoco";
-    case 23: return "Fire Text";
-    case 24: return "MP3";
-    case 25: return "Radio";
-    case 26: return "Sveglia";
-    case 27: return "Web TV";
-    case 28: return "Calendario";
-    case 29: return "YouTube";
-    case 30: return "News";
-    case 31: return "Pong";
+    case 21: return "MP3";
+    case 22: return "Radio";
+    case 23: return "Sveglia";
+    case 24: return "Web TV";
+    case 25: return "Calendario";
+    case 26: return "YouTube";
+    case 27: return "News";
+    case 28: return "Pong";
+    case 29: return "Scroll";
     default: return "???";
   }
 }
@@ -267,22 +263,7 @@ void drawModeIcon(int cx, int cy, uint8_t mode) {
       gfx->fillCircle(cx, cy, 3, col);
       break;
 
-    case 21: // CHRISTMAS - albero
-      gfx->fillTriangle(cx, y0 + 2, cx - 12, y0 + 24, cx + 12, y0 + 24, 0x07E0); // verde
-      gfx->fillRect(cx - 3, y0 + 24, 6, 6, 0x8200); // tronco marrone
-      gfx->fillCircle(cx - 4, y0 + 14, 2, 0xF800);   // pallina rossa
-      gfx->fillCircle(cx + 3, y0 + 18, 2, 0xFFE0);   // pallina gialla
-      gfx->fillCircle(cx, y0 + 6, 2, 0xFFE0);        // stella
-      break;
-
-    case 22: // FIRE - fiamma
-    case 23: // FIRE_TEXT
-      gfx->fillCircle(cx, cy + 4, 8, 0xF800);         // base rossa
-      gfx->fillCircle(cx, cy, 6, 0xFD20);             // centro arancione
-      gfx->fillTriangle(cx, y0 + 2, cx - 5, cy + 2, cx + 5, cy + 2, 0xFFE0); // punta gialla
-      break;
-
-    case 24: // MP3_PLAYER - nota musicale
+    case 21: // MP3_PLAYER - nota musicale
       gfx->fillCircle(cx - 4, cy + 8, 5, col);
       gfx->fillRect(cx, y0 + 4, 3, 22, col);
       gfx->fillRect(cx, y0 + 4, 10, 3, col);
@@ -290,7 +271,7 @@ void drawModeIcon(int cx, int cy, uint8_t mode) {
       gfx->fillCircle(cx + 8, cy + 2, 4, col);
       break;
 
-    case 25: // WEB_RADIO - antenna con onde
+    case 22: // WEB_RADIO - antenna con onde
       gfx->fillRect(cx - 1, cy - 2, 3, 16, col);    // antenna
       gfx->fillTriangle(cx - 8, cy + 14, cx + 8, cy + 14, cx, cy + 8, col); // base
       // Onde
@@ -298,7 +279,7 @@ void drawModeIcon(int cx, int cy, uint8_t mode) {
       gfx->drawCircle(cx, cy - 6, 11, col);
       break;
 
-    case 26: // RADIO_ALARM - sveglia
+    case 23: // RADIO_ALARM - sveglia
       gfx->drawCircle(cx, cy + 2, 12, col);
       gfx->drawCircle(cx, cy + 2, 11, col);
       gfx->drawLine(cx, cy + 2, cx, cy - 5, col); // lancetta
@@ -308,14 +289,14 @@ void drawModeIcon(int cx, int cy, uint8_t mode) {
       gfx->fillCircle(cx + 10, cy - 8, 4, col);
       break;
 
-    case 27: // WEB_TV - schermo
+    case 24: // WEB_TV - schermo
       gfx->drawRoundRect(x0 + 2, y0 + 2, 28, 20, 3, col);
       gfx->drawRoundRect(x0 + 3, y0 + 3, 26, 18, 2, col);
       gfx->fillRect(cx - 5, y0 + 24, 10, 3, col); // piedistallo
       gfx->fillRect(cx - 8, y0 + 27, 16, 2, col); // base
       break;
 
-    case 28: // CALENDAR - griglia
+    case 25: // CALENDAR - griglia
       gfx->drawRect(x0 + 2, y0 + 6, 28, 24, col);
       gfx->fillRect(x0 + 2, y0 + 6, 28, 6, col);  // header
       // Righe
@@ -325,19 +306,19 @@ void drawModeIcon(int cx, int cy, uint8_t mode) {
       gfx->drawLine(x0 + 20, y0 + 12, x0 + 20, y0 + 30, col);
       break;
 
-    case 29: // YOUTUBE - rettangolo rosso + play
+    case 26: // YOUTUBE - rettangolo rosso + play
       gfx->fillRoundRect(x0 + 1, y0 + 6, 30, 20, 4, 0xF800);
       gfx->fillTriangle(cx - 3, cy - 4, cx - 3, cy + 5, cx + 6, cy, 0xFFFF);
       break;
 
-    case 30: // NEWS - righe di testo
+    case 27: // NEWS - righe di testo
       gfx->fillRect(x0 + 2, y0 + 4, 28, 4, col);
       gfx->fillRect(x0 + 2, y0 + 12, 22, 3, 0xC618);
       gfx->fillRect(x0 + 2, y0 + 18, 26, 3, 0xC618);
       gfx->fillRect(x0 + 2, y0 + 24, 18, 3, 0xC618);
       break;
 
-    case 31: // PONG - paddle + pallina
+    case 28: // PONG - paddle + pallina
       gfx->fillRect(x0 + 3, cy - 8, 4, 16, col);     // paddle sx
       gfx->fillRect(x0 + 25, cy - 6, 4, 12, col);    // paddle dx
       gfx->fillCircle(cx + 2, cy - 2, 3, col);        // pallina
@@ -345,6 +326,11 @@ void drawModeIcon(int cx, int cy, uint8_t mode) {
       for (int dy = 0; dy < 32; dy += 6) {
         gfx->fillRect(cx - 1, y0 + dy, 2, 3, 0x4208);
       }
+      break;
+
+    case 29: // SCROLLTEXT - testo scorrevole
+      gfx->fillRect(x0 + 2, y0 + 12, 28, 8, col);
+      gfx->fillTriangle(x0 + 26, y0 + 8, x0 + 26, y0 + 24, x0 + 32, y0 + 16, col);
       break;
 
     default: // fallback - punto interrogativo
@@ -450,6 +436,16 @@ void drawModeSelectorGrid() {
 
 // ====================== showModeSelector ======================
 void showModeSelector() {
+  // Slave multi-display: menu modo solo sul master
+  #ifdef EFFECT_DUAL_DISPLAY
+  extern bool isDualSlave();
+  if (isDualSlave()) return;
+  // Bypass proxy DualGFX per disegnare a schermo intero (480x480 locale)
+  extern void dualGfxBypass(bool bypass);
+  extern bool isDualDisplayActive();
+  if (isDualDisplayActive()) dualGfxBypass(true);
+  #endif
+
   modeSelectorActive = true;
   modeSelectorScroll = 0;
   modeSelectorLastActivity = millis();
@@ -486,6 +482,14 @@ void showModeSelector() {
 // ====================== hideModeSelector ======================
 void hideModeSelector() {
   modeSelectorActive = false;
+
+  // Ripristina proxy DualGFX prima di forceDisplayUpdate
+  #ifdef EFFECT_DUAL_DISPLAY
+  extern void dualGfxBypass(bool bypass);
+  extern bool isDualDisplayActive();
+  if (isDualDisplayActive()) dualGfxBypass(false);
+  #endif
+
   gfx->fillScreen(MS_BG_COLOR);
   forceDisplayUpdate();
   Serial.println("[MODE_SEL] Overlay chiuso");
@@ -555,6 +559,14 @@ volatile int8_t pendingModeSelectorSwitch = -1;  // -1 = nessun cambio, 0-31 = m
 void switchToMode(uint8_t targetMode) {
   pendingModeSelectorSwitch = (int8_t)targetMode;
   modeSelectorActive = false;
+
+  // Ripristina proxy DualGFX prima di disegnare il modo
+  #ifdef EFFECT_DUAL_DISPLAY
+  extern void dualGfxBypass(bool bypass);
+  extern bool isDualDisplayActive();
+  if (isDualDisplayActive()) dualGfxBypass(false);
+  #endif
+
   gfx->fillScreen(BLACK);
   Serial.printf("[MODE_SEL] Richiesto switch a modo %d\n", targetMode);
 }

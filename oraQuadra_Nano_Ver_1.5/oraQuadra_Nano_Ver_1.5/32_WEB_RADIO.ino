@@ -56,8 +56,6 @@
 #define WR_CONTROLS_Y 215
 #define WR_LIST_Y 285
 #define WR_LIST_HEIGHT 125
-#define WR_EXIT_Y 420
-
 // VU meters - ai lati con design sottile
 #define WR_VU_LEFT_X 0
 #define WR_VU_RIGHT_X 432
@@ -754,39 +752,12 @@ void drawWebRadioStationList() {
     gfx->fillTriangle(arrowX, WR_LIST_Y + listH - 8, arrowX - 6, WR_LIST_Y + listH - 18, arrowX + 6, WR_LIST_Y + listH - 18, WR_ACCENT_COLOR);
   }
 }
-// ================== PULSANTE EXIT - DESIGN MODERNO ==================
+// ================== PULSANTE MODE >> (basso centro) ==================
 void drawWebRadioExitButton() {
-  int btnW = 140;
-  int btnH = 46;
-  int x = (480 - btnW) / 2;
-  int y = WR_EXIT_Y;
-
-  // Ombra profonda
-  gfx->fillRoundRect(x + 3, y + 3, btnW, btnH, 14, 0x4000);
-
-  // Sfondo gradiente rosso (simulato)
-  gfx->fillRoundRect(x, y, btnW, btnH, 14, 0xC000);
-  gfx->fillRoundRect(x + 4, y + 4, btnW - 8, btnH - 16, 10, 0xF800);
-
-  // Bordo
-  gfx->drawRoundRect(x, y, btnW, btnH, 14, 0x7800);
-
-  // Highlight superiore
-  gfx->drawFastHLine(x + 15, y + 4, btnW - 30, 0xFC00);
-
-  // Icona X
-  int iconX = x + 25;
-  int iconY = y + btnH / 2;
-  gfx->drawLine(iconX - 6, iconY - 6, iconX + 6, iconY + 6, WR_TEXT_COLOR);
-  gfx->drawLine(iconX - 6, iconY + 6, iconX + 6, iconY - 6, WR_TEXT_COLOR);
-  gfx->drawLine(iconX - 5, iconY - 6, iconX + 7, iconY + 6, WR_TEXT_COLOR);
-  gfx->drawLine(iconX - 5, iconY + 6, iconX + 7, iconY - 6, WR_TEXT_COLOR);
-
-  // Testo EXIT
-  gfx->setFont(u8g2_font_helvB18_tr);
-  gfx->setTextColor(WR_TEXT_COLOR);
-  gfx->setCursor(x + 48, y + 32);
-  gfx->print("EXIT");
+  gfx->setFont(u8g2_font_helvR08_tr);
+  gfx->setTextColor(WR_ACCENT_COLOR);
+  gfx->setCursor(210, 479);
+  gfx->print("MODE >>");
 }
 
 // ================== GESTIONE TOUCH ==================
@@ -908,13 +879,8 @@ bool handleWebRadioTouch(int16_t x, int16_t y) {
     return false;
   }
 
-  // ===== EXIT (controllato PRIMA dello scroll per evitare sovrapposizione area y) =====
-  int exitBtnW = 140;
-  int exitBtnH = 46;
-  int exitX = (480 - exitBtnW) / 2;
-  if (y >= WR_EXIT_Y && y <= WR_EXIT_Y + exitBtnH) {
-    if (x >= exitX && x <= exitX + exitBtnW) return true;
-  }
+  // ===== MODE >> (basso centro y>455, x 180-310) =====
+  if (y > 455 && x >= 180 && x <= 310) return true;
 
   // ===== SCROLL MANUALE (Aree sopra/sotto la lista) =====
   if (y >= WR_LIST_Y - 30 && y < WR_LIST_Y && webRadioScrollOffset > 0) {

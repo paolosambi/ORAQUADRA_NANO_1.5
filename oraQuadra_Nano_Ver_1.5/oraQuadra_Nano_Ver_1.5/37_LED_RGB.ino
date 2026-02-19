@@ -248,26 +248,6 @@ void getLedColorForMode(DisplayMode mode, uint8_t &r, uint8_t &g, uint8_t &b) {
       break;
 #endif
 
-#ifdef EFFECT_CHRISTMAS
-    case MODE_CHRISTMAS:
-      // Caso speciale: gestito direttamente in updateLedRgb()
-      // Qui ritorniamo rosso come fallback
-      r = 255; g = 0; b = 0;
-      break;
-#endif
-
-#ifdef EFFECT_FIRE
-    case MODE_FIRE:
-      r = 255; g = 80; b = 0;
-      break;
-#endif
-
-#ifdef EFFECT_FIRE_TEXT
-    case MODE_FIRE_TEXT:
-      r = 255; g = 60; b = 0;
-      break;
-#endif
-
 #ifdef EFFECT_MP3_PLAYER
     case MODE_MP3_PLAYER:
       r = 150; g = 0; b = 255;
@@ -426,18 +406,7 @@ void updateLedRgb() {
     for (int i = 0; i < WS2812_NUM_LEDS; i++) {
       ledStrip.setPixelColor(i, color);
     }
-  }
-#ifdef EFFECT_CHRISTMAS
-  else if ((DisplayMode)currentMode == MODE_CHRISTMAS) {
-    // Caso speciale: 6 LED rossi alternati a 6 LED verdi
-    uint32_t red   = ledStrip.Color(255, 0, 0);
-    uint32_t green = ledStrip.Color(0, 255, 0);
-    for (int i = 0; i < WS2812_NUM_LEDS; i++) {
-      ledStrip.setPixelColor(i, (i % 2 == 0) ? red : green);
-    }
-  }
-#endif
-  else {
+  } else {
     // Colore tema basato sulla modalità corrente
     uint8_t r, g, b;
     getLedColorForMode((DisplayMode)currentMode, r, g, b);

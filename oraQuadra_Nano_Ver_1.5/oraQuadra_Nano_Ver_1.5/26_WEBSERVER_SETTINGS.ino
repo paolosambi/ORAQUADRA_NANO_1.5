@@ -133,13 +133,6 @@ extern void stopMP3Track();
 extern bool isMP3Playing();  // Funzione helper per controllare se MP3 sta riproducendo
 #endif
 
-// Dichiarazione extern per flag scena Christmas (definita in 28_CHRISTMAS.ino)
-#ifdef EFFECT_CHRISTMAS
-extern bool xmasSceneDrawn;
-#endif
-
-
-
 // ================== VARIABILI PER GESTIONE MODALITÀ ABILITATE ==================
 // Bitmask per memorizzare quali modalità sono abilitate (salvato in EEPROM)
 // Ogni bit rappresenta una modalità (bit 0 = MODE_FADE, bit 1 = MODE_SLOW, ecc.)
@@ -166,10 +159,8 @@ bool rainbowModeEnabled = false;      // Flag per modalità rainbow
 // Mappa da ID modalità a indice array (0-21)
 // Include tutte le modalità che supportano preset colore
 // Esclude solo 16 (GEMINI) e 18 (MJPEG) che sono disabilitate
-//const uint8_t TEXT_MODE_IDS[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23};
-const uint8_t TEXT_MODE_IDS[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 28};
-//const uint8_t NUM_TEXT_MODES = 22;
-const uint8_t NUM_TEXT_MODES = 22;
+const uint8_t TEXT_MODE_IDS[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 25};
+const uint8_t NUM_TEXT_MODES = 20;
 
 // Colori default per ogni modalità (ordine corrisponde a TEXT_MODE_IDS)
 const uint8_t DEFAULT_MODE_COLORS[][3] = {
@@ -192,10 +183,7 @@ const uint8_t DEFAULT_MODE_COLORS[][3] = {
   {0, 255, 0},      // 17: GALAGA2 - Verde
   {255, 255, 255},  // 19: ESP32CAM - Bianco
   {255, 128, 0},    // 20: FLUX_CAP - Arancione
-  {255, 0, 0},      // 21: CHRISTMAS - Rosso
-  {255, 100, 0},    // 22: FIRE - Arancione fuoco
-  {255, 100, 0},     // 23: FIRE_TEXT - Arancione fuoco
-  {255, 255, 0}     // 28: CALENDAR - Giallo (AGGIUNTO)
+  {255, 255, 0}     // 25: CALENDAR - Giallo
 };
 
 // Converte ID modalità in indice array (0-10), ritorna -1 se non è modalità testuale
@@ -283,10 +271,7 @@ const uint8_t DEFAULT_MODE_PRESETS[] = {
   PRESET_NONE,  // 17: GALAGA2 - nessun preset
   PRESET_NONE,  // 19: ESP32CAM - nessun preset
   PRESET_NONE,  // 20: FLUX_CAP - nessun preset
-  PRESET_NONE,  // 21: CHRISTMAS - nessun preset
-  PRESET_NONE,  // 22: FIRE - nessun preset
-  PRESET_NONE,   // 23: FIRE_TEXT - nessun preset
-  PRESET_NONE   // 28: CALENDAR (AGGIUNTO)
+  PRESET_NONE   // 25: CALENDAR - nessun preset
 };
 
 // Carica preset per una modalità specifica da EEPROM
@@ -744,10 +729,9 @@ void handleSettingsConfig(AsyncWebServerRequest *request) {
   // Array delle modalità abilitate (solo quelle che esistono realmente)
   json += "  \"enabledModes\": [";
   bool first = true;
-  // Lista delle modalità valide (esclude 16=GEMINI, 18=MJPEG, 27=WEB_TV disabilitato)
-  // 24=MP3_PLAYER, 25=WEB_RADIO, 26=RADIO_ALARM sono modalità valide
-  // Array delle modalità valide (esclude 16=GEMINI, 18=MJPEG, 27=WEB_TV)
-  const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32};
+  // Lista delle modalità valide (esclude 16=GEMINI, 18=MJPEG)
+  // 24=MP3_PLAYER, 25=WEB_RADIO, 26=RADIO_ALARM, 27=NEWS sono modalità valide
+  const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32};
   const int numValidModes = sizeof(validModes) / sizeof(validModes[0]);
   for (int i = 0; i < numValidModes; i++) {
     int modeId = validModes[i];
@@ -836,6 +820,34 @@ void handleSettingsConfig(AsyncWebServerRequest *request) {
 
   // Flag meteo configurato (Open-Meteo non richiede API key, serve solo la città)
   json += "  \"hasWeatherApiKey\": " + String(apiOpenWeatherCity.length() >= 2 ? "true" : "false") + ",\n";
+
+  // Dual display per-mode mask
+  #ifdef EFFECT_DUAL_DISPLAY
+  extern bool dualDisplayEnabled;
+  extern uint64_t dualModesMask;
+  extern uint8_t panelRole;
+  json += "  \"dualDisplayAvailable\": true,\n";
+  json += "  \"dualDisplayEnabled\": " + String(dualDisplayEnabled ? "true" : "false") + ",\n";
+  json += "  \"dualPanelRole\": " + String(panelRole) + ",\n";
+  json += "  \"dualEnabledModes\": [";
+  {
+    bool dFirst = true;
+    for (int i = 0; i < numValidModes; i++) {
+      int mId = validModes[i];
+      if (dualModesMask & (1ULL << mId)) {
+        if (!dFirst) json += ",";
+        json += String(mId);
+        dFirst = false;
+      }
+    }
+  }
+  json += "],\n";
+  #else
+  json += "  \"dualDisplayAvailable\": false,\n";
+  json += "  \"dualDisplayEnabled\": false,\n";
+  json += "  \"dualPanelRole\": 0,\n";
+  json += "  \"dualEnabledModes\": [],\n";
+  #endif
 
   // Lingua
   #ifdef ENABLE_MULTILANGUAGE
@@ -1570,16 +1582,6 @@ void handleSettingsSetMode(AsyncWebServerRequest *request) {
       webForceDisplayUpdate = true;
 
       // Reset flag inizializzazione per modalità speciali
-      #ifdef EFFECT_CHRISTMAS
-      christmasInitialized = false;
-      xmasSceneDrawn = false;  // Reset anche la scena statica
-      #endif
-      #ifdef EFFECT_FIRE
-      fireInitialized = false;
-      #endif
-      #ifdef EFFECT_FIRE_TEXT
-      fireTextInitialized = false;
-      #endif
       #ifdef EFFECT_CALENDAR
       extern bool calendarStationInitialized;
       calendarStationInitialized = false;
@@ -1837,6 +1839,87 @@ void handleResetBME280Calibration(AsyncWebServerRequest *request) {
   request->send(200, "application/json", json);
 }
 
+// ================== SALVA DUAL MODES MASK ==================
+#ifdef EFFECT_DUAL_DISPLAY
+void handleSettingsSaveDualModesMask(AsyncWebServerRequest *request) {
+  extern uint64_t dualModesMask;
+  extern void saveDualModesMask();
+
+  // Reset mask
+  dualModesMask = 0;
+
+  if (request->hasParam("enabled")) {
+    String enabledList = request->getParam("enabled")->value();
+    // Parse lista separata da virgole
+    int start = 0;
+    int end;
+    while ((end = enabledList.indexOf(',', start)) != -1) {
+      int modeId = enabledList.substring(start, end).toInt();
+      if (modeId >= 0 && modeId < 40) {
+        dualModesMask |= (1ULL << modeId);
+      }
+      start = end + 1;
+    }
+    // Ultimo elemento
+    if (start < (int)enabledList.length()) {
+      int modeId = enabledList.substring(start).toInt();
+      if (modeId >= 0 && modeId < 40) {
+        dualModesMask |= (1ULL << modeId);
+      }
+    }
+  }
+
+  saveDualModesMask();
+  Serial.printf("[SETTINGS] Salvata dualModesMask: 0x%010llX\n", dualModesMask);
+  request->send(200, "text/plain", "OK");
+}
+
+void handleSettingsDualDebug(AsyncWebServerRequest *request) {
+  extern uint64_t dualModesMask;
+  extern bool dualDisplayEnabled;
+  extern bool dualDisplayInitialized;
+  extern uint8_t gridW, gridH;
+  extern uint8_t panelRole;
+  extern uint8_t panelX, panelY;
+  extern int getActivePeerCount();
+  extern bool isDualDisplayActive();
+  extern bool isModeDualEnabled(uint8_t mode);
+  extern Arduino_RGB_Display *realGfx;
+  extern Arduino_GFX *gfx;
+
+  String json = "{\n";
+  json += "  \"dualModesMask\": \"0x";
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%010llX", dualModesMask);
+  json += String(buf) + "\",\n";
+  json += "  \"dualModesMaskBits\": [";
+  bool first = true;
+  for (int i = 0; i < 30; i++) {
+    if (!first) json += ",";
+    json += String((dualModesMask & (1ULL << i)) ? 1 : 0);
+    first = false;
+  }
+  json += "],\n";
+  json += "  \"currentMode\": " + String((int)currentMode) + ",\n";
+  json += "  \"currentModeDualEnabled\": " + String(isModeDualEnabled((uint8_t)currentMode) ? "true" : "false") + ",\n";
+  json += "  \"dualDisplayEnabled\": " + String(dualDisplayEnabled ? "true" : "false") + ",\n";
+  json += "  \"dualDisplayInitialized\": " + String(dualDisplayInitialized ? "true" : "false") + ",\n";
+  json += "  \"isDualDisplayActive\": " + String(isDualDisplayActive() ? "true" : "false") + ",\n";
+  json += "  \"gridW\": " + String(gridW) + ",\n";
+  json += "  \"gridH\": " + String(gridH) + ",\n";
+  json += "  \"panelRole\": " + String(panelRole) + ",\n";
+  json += "  \"panelX\": " + String(panelX) + ",\n";
+  json += "  \"panelY\": " + String(panelY) + ",\n";
+  json += "  \"activePeerCount\": " + String(getActivePeerCount()) + ",\n";
+  json += "  \"gfxIsDualGfx\": " + String((gfx != realGfx) ? "true" : "false") + ",\n";
+  json += "  \"realGfxPtr\": \"0x" + String((uint32_t)realGfx, HEX) + "\",\n";
+  json += "  \"currentGfxPtr\": \"0x" + String((uint32_t)gfx, HEX) + "\"\n";
+  json += "}";
+
+  request->send(200, "application/json", json);
+}
+#endif
+
 // ================== REGISTRAZIONE ENDPOINTS ==================
 
 void setup_settings_webserver(AsyncWebServer* server) {
@@ -1887,6 +1970,13 @@ void setup_settings_webserver(AsyncWebServer* server) {
 
   server->on("/settings/savemodes", HTTP_GET, handleSettingsSaveModes);
   Serial.println("[SETTINGS WEB] ✓ GET /settings/savemodes");
+
+  #ifdef EFFECT_DUAL_DISPLAY
+  server->on("/settings/savedualmodesmask", HTTP_GET, handleSettingsSaveDualModesMask);
+  Serial.println("[SETTINGS WEB] ✓ GET /settings/savedualmodesmask");
+  server->on("/settings/dualdebug", HTTP_GET, handleSettingsDualDebug);
+  Serial.println("[SETTINGS WEB] ✓ GET /settings/dualdebug");
+  #endif
 
   server->on("/settings/getapikeys", HTTP_GET, handleGetApiKeys);
   Serial.println("[SETTINGS WEB] ✓ GET /settings/getapikeys");

@@ -38,6 +38,11 @@
 #define EEPROM_DUAL_MARKER        932
 #define EEPROM_DUAL_MARKER_VALUE  0xDD
 
+// ===== EEPROM per-mode dual display mask (943-948) =====
+#define EEPROM_DUAL_MODES_MASK_ADDR   943  // 5 bytes (943-947) = 40 bit per i modi 0-39
+#define EEPROM_DUAL_MODES_MARKER_ADDR 948  // Marker 0xDE
+#define EEPROM_DUAL_MODES_MARKER_VALUE 0xDE
+
 // ===== Costanti protocollo =====
 #define DUAL_MAGIC               0xDC  // "Dual Clock"
 #define DUAL_SYNC_INTERVAL_MS    33    // ~30fps per sincronizzazione stato
@@ -78,6 +83,23 @@ struct SyncPacket {
   uint8_t  brightness;      // Luminosita' display
   uint8_t  preset;          // Preset corrente
   uint8_t  rainbowEnabled;  // Modalita' rainbow attiva
+  // --- Impostazioni sincronizzate Master -> Slave (16 bytes) ---
+  uint8_t  brightnessDay;   // Luminosita' giorno del master
+  uint8_t  brightnessNight; // Luminosita' notte del master
+  uint8_t  volumeDay;       // Volume giorno del master
+  uint8_t  volumeNight;     // Volume notte del master
+  uint8_t  enabledMask0;    // enabledModesMask byte 0 (LSB)
+  uint8_t  enabledMask1;    // enabledModesMask byte 1
+  uint8_t  enabledMask2;    // enabledModesMask byte 2
+  uint8_t  enabledMask3;    // enabledModesMask byte 3
+  uint8_t  enabledMaskExt;  // enabledModesMask byte 4 (bits 32-39)
+  uint8_t  ledEnabled;      // LED RGB abilitato
+  uint8_t  ledBrightness;   // LED RGB luminosita'
+  uint8_t  ledOverride;     // LED RGB override colore
+  uint8_t  ledOverR;        // LED RGB override rosso
+  uint8_t  ledOverG;        // LED RGB override verde
+  uint8_t  ledOverB;        // LED RGB override blu
+  uint8_t  ledAudioReact;   // LED RGB audio reactive
   // Area dati aggiuntivi per sincronizzazione specifica del modo
   uint8_t  dataLen;         // Lunghezza dati aggiuntivi (0-200)
   uint8_t  data[200];       // Dati mode-specific
@@ -137,12 +159,16 @@ bool broadcastPeerAdded    = false;  // Peer broadcast registrato
 bool discoveryInProgress   = false;  // Ricerca peer in corso
 volatile bool dualFlashRequested = false;  // Flag per lampeggio pannello (thread-safe)
 volatile bool dualTestSyncRequested = false; // Flag per test sync (thread-safe)
+
+// Bitmask per-mode: bit N=1 → mode N usa multi-display. Default: tutti abilitati (40 bit)
+uint64_t dualModesMask = 0xFFFFFFFFFFULL;
 unsigned long discoveryStart = 0;    // Timestamp inizio discovery
 unsigned long lastDiscoveryBroadcast = 0; // Ultimo broadcast discovery inviato
 
 // Ultimo pacchetto di sincronizzazione ricevuto (per lo slave)
 SyncPacket lastReceivedSync;
-bool       newSyncAvailable = false; // Flag: nuovo pacchetto sync da processare
+volatile bool newSyncAvailable = false; // Flag: nuovo pacchetto sync da processare (volatile: scritto da callback WiFi)
+portMUX_TYPE syncMux = portMUX_INITIALIZER_UNLOCKED; // Mutex per proteggere lastReceivedSync da race condition
 
 // ===== Forward declarations (necessarie per Arduino IDE) =====
 // Coordinate virtuali
@@ -162,7 +188,7 @@ void scanForPanels();
 static void sendDiscoveryBroadcast();
 // Sincronizzazione
 void sendSyncPacket();
-void processSyncPacket(const SyncPacket &pkt);
+void processSyncPacket(SyncPacket &pkt);
 void sendHeartbeat();
 void packModeSpecificData(SyncPacket &pkt);
 void unpackModeSpecificData(const SyncPacket &pkt);
@@ -276,6 +302,59 @@ public:
 };
 
 DualGFX *dualGfx = nullptr;
+
+// Bypass proxy DualGFX per disegnare a schermo intero sul pannello locale (480x480)
+// Usato dal mode selector overlay che deve riempire tutto lo schermo del master
+void dualGfxBypass(bool bypass) {
+  extern Arduino_RGB_Display *realGfx;
+  extern Arduino_GFX *gfx;
+  if (bypass) {
+    gfx = realGfx;  // Disegna direttamente sul display fisico
+  } else {
+    if (dualGfx && dualDisplayEnabled && (gridW > 1 || gridH > 1)) {
+      gfx = dualGfx;  // Ripristina il proxy DualGFX
+    }
+  }
+}
+
+// ===== Per-mode dual display mask =====
+// Ritorna true se il mode specificato usa il multi-display
+bool isModeDualEnabled(uint8_t mode) {
+  return (dualModesMask & (1ULL << mode)) != 0;
+}
+
+// Salva dualModesMask in EEPROM (5 bytes big-endian + marker)
+void saveDualModesMask() {
+  for (int i = 0; i < 5; i++) {
+    EEPROM.write(EEPROM_DUAL_MODES_MASK_ADDR + i, (uint8_t)(dualModesMask >> (i * 8)));
+  }
+  EEPROM.write(EEPROM_DUAL_MODES_MARKER_ADDR, EEPROM_DUAL_MODES_MARKER_VALUE);
+  EEPROM.commit();
+  Serial.printf("[DUAL] Salvata dualModesMask: 0x%010llX\n", dualModesMask);
+}
+
+// Carica dualModesMask da EEPROM (5 bytes + marker check)
+void loadDualModesMask() {
+  if (EEPROM.read(EEPROM_DUAL_MODES_MARKER_ADDR) != EEPROM_DUAL_MODES_MARKER_VALUE) {
+    // Prima volta: scrivi il default in EEPROM per evitare dati sporchi
+    dualModesMask = 0xFFFFFFFFFFULL;
+    saveDualModesMask();
+    Serial.println("[DUAL] dualModesMask: primo avvio, scritto default tutti abilitati");
+    return;
+  }
+  dualModesMask = 0;
+  for (int i = 0; i < 5; i++) {
+    dualModesMask |= ((uint64_t)EEPROM.read(EEPROM_DUAL_MODES_MASK_ADDR + i)) << (i * 8);
+  }
+  // Protezione: se la mask e' 0 (nessun modo usa dual = inutile), resetta al default
+  if (dualModesMask == 0) {
+    dualModesMask = 0xFFFFFFFFFFULL;
+    saveDualModesMask();
+    Serial.println("[DUAL] dualModesMask era 0, resettata a default tutti abilitati");
+    return;
+  }
+  Serial.printf("[DUAL] Caricata dualModesMask: 0x%010llX\n", dualModesMask);
+}
 
 // Attiva/disattiva il proxy DualGFX in base alla configurazione griglia
 void initDualGfxProxy() {
@@ -800,8 +879,10 @@ void onDualDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int le
       if (panelRole != 2) return; // Solo lo slave processa i sync
       if ((size_t)len < sizeof(SyncPacket) - 200) return; // Dimensione minima senza dati
 
+      portENTER_CRITICAL(&syncMux);
       memcpy(&lastReceivedSync, incomingData, min((size_t)len, sizeof(SyncPacket)));
       newSyncAvailable = true;
+      portEXIT_CRITICAL(&syncMux);
 
       // Aggiorna heartbeat del master
       int idx = findPeerIndex(mac_addr);
@@ -1221,6 +1302,18 @@ static void sendDiscoveryBroadcast() {
 // Variabili extern necessarie dal file principale
 extern uint8_t currentPreset;
 extern bool rainbowModeEnabled;
+extern uint8_t brightnessDay;
+extern uint8_t brightnessNight;
+extern uint8_t volumeDay;
+extern uint8_t volumeNight;
+extern uint64_t enabledModesMask;
+extern bool    ledRgbEnabled;
+extern uint8_t ledRgbBrightness;
+extern bool    ledRgbOverride;
+extern uint8_t ledRgbOverrideR;
+extern uint8_t ledRgbOverrideG;
+extern uint8_t ledRgbOverrideB;
+extern uint8_t ledAudioReactive;
 
 // ===== Invia pacchetto di sincronizzazione stato =====
 // Chiamato dal master ogni DUAL_SYNC_INTERVAL_MS per mantenere gli slave sincronizzati
@@ -1243,12 +1336,35 @@ void sendSyncPacket() {
   pkt.brightness     = lastAppliedBrightness;
   pkt.preset         = currentPreset;
   pkt.rainbowEnabled = rainbowModeEnabled ? 1 : 0;
+  // Impostazioni sincronizzate Master -> Slave
+  pkt.brightnessDay  = brightnessDay;
+  pkt.brightnessNight = brightnessNight;
+  pkt.volumeDay      = volumeDay;
+  pkt.volumeNight    = volumeNight;
+  pkt.enabledMask0   = (uint8_t)(enabledModesMask & 0xFF);
+  pkt.enabledMask1   = (uint8_t)((enabledModesMask >> 8) & 0xFF);
+  pkt.enabledMask2   = (uint8_t)((enabledModesMask >> 16) & 0xFF);
+  pkt.enabledMask3   = (uint8_t)((enabledModesMask >> 24) & 0xFF);
+  pkt.enabledMaskExt = (uint8_t)((enabledModesMask >> 32) & 0xFF);
+  pkt.ledEnabled     = ledRgbEnabled ? 1 : 0;
+  pkt.ledBrightness  = ledRgbBrightness;
+  pkt.ledOverride    = ledRgbOverride ? 1 : 0;
+  pkt.ledOverR       = ledRgbOverrideR;
+  pkt.ledOverG       = ledRgbOverrideG;
+  pkt.ledOverB       = ledRgbOverrideB;
+  pkt.ledAudioReact  = ledAudioReactive;
   pkt.dataLen        = 0;
 
   // Dati mode-specific: aggiungi informazioni extra per modalita' che ne hanno bisogno
   // I dati vengono scritti nell'area pkt.data[] e pkt.dataLen viene aggiornato
   // Questo permette agli slave di replicare fedelmente lo stato delle animazioni
   packModeSpecificData(pkt);
+
+  // Codifica flag dual bypass nel bit 7 di pkt.mode (mode 0-29, bit 7 sempre libero)
+  // Bit 7 = 1 significa "questo modo NON usa multi-display" (bypass attivo)
+  if (!isModeDualEnabled((uint8_t)currentMode)) {
+    pkt.mode |= 0x80;
+  }
 
   // Calcola la dimensione effettiva del pacchetto (senza i byte data[] non usati)
   size_t pktSize = sizeof(SyncPacket) - 200 + pkt.dataLen;
@@ -1284,16 +1400,19 @@ void packModeSpecificData(SyncPacket &pkt) {
     }
 
     case MODE_SNAKE: {
-      // Invia posizione testa del serpente per sincronizzazione
-      // (i dettagli dipendono dall'implementazione della modalita')
-      if (pkt.dataLen + 4 <= 200) {
-        // Placeholder: x, y come uint16_t
-        uint16_t snakeX = 0; // Da collegare alla variabile reale
-        uint16_t snakeY = 0; // Da collegare alla variabile reale
-        memcpy(pkt.data + pkt.dataLen, &snakeX, 2);
-        pkt.dataLen += 2;
-        memcpy(pkt.data + pkt.dataLen, &snakeY, 2);
-        pkt.dataLen += 2;
+      // Sincronizza stato completo del serpente: pathChoice(1) + pathIndex(2) + completed(1) + 8 segments(16) = 20 bytes
+      extern uint8_t snakePathChoice;
+      extern uint16_t snakePathIndex;
+      extern bool snakeIsCompleted;
+      extern Snake snake;
+      if (pkt.dataLen + 20 <= 200) {
+        pkt.data[pkt.dataLen++] = snakePathChoice;
+        memcpy(pkt.data + pkt.dataLen, &snakePathIndex, 2); pkt.dataLen += 2;
+        pkt.data[pkt.dataLen++] = snakeIsCompleted ? 1 : 0;
+        for (uint8_t i = 0; i < 8; i++) {
+          uint16_t idx = snake.segments[i].ledIndex;
+          memcpy(pkt.data + pkt.dataLen, &idx, 2); pkt.dataLen += 2;
+        }
       }
       break;
     }
@@ -1336,9 +1455,16 @@ void packModeSpecificData(SyncPacket &pkt) {
 
 // ===== Processa un pacchetto di sincronizzazione ricevuto =====
 // Chiamato dallo slave per applicare lo stato ricevuto dal master
-void processSyncPacket(const SyncPacket &pkt) {
+void processSyncPacket(SyncPacket &pkt) {
+  // Estrai flag dual bypass dal bit 7 di pkt.mode e pulisci il campo
+  bool modeDualBypass = (pkt.mode & 0x80) != 0;
+  pkt.mode &= 0x7F;  // Pulisci bit 7, ora pkt.mode contiene solo il modo (0-29)
+
   // Aggiorna lo stato globale con i dati ricevuti dal master
   bool modeChanged = (currentMode != (DisplayMode)pkt.mode);
+
+  // Rileva se il tempo e' cambiato PRIMA di applicare i nuovi valori
+  bool timeChanged = (currentHour != pkt.hours || currentMinute != pkt.minutes);
 
   // Se la modalita' e' cambiata:
   // 1. Cleanup vecchia modalita' (ferma audio, chiude decoder, resetta flag vecchio modo)
@@ -1362,9 +1488,43 @@ void processSyncPacket(const SyncPacket &pkt) {
   currentPreset  = pkt.preset;
   rainbowModeEnabled = (pkt.rainbowEnabled != 0);
 
-  // Applica luminosita'
-  // La funzione adjustBrightness e' gestita nel loop principale,
-  // qui impostiamo solo il valore target
+  // Applica impostazioni sincronizzate dal master
+  brightnessDay   = pkt.brightnessDay;
+  brightnessNight = pkt.brightnessNight;
+  volumeDay       = pkt.volumeDay;
+  volumeNight     = pkt.volumeNight;
+  enabledModesMask = (uint64_t)pkt.enabledMask0
+                   | ((uint64_t)pkt.enabledMask1 << 8)
+                   | ((uint64_t)pkt.enabledMask2 << 16)
+                   | ((uint64_t)pkt.enabledMask3 << 24)
+                   | ((uint64_t)pkt.enabledMaskExt << 32);
+  ledRgbEnabled    = (pkt.ledEnabled != 0);
+  ledRgbBrightness = pkt.ledBrightness;
+  ledRgbOverride   = (pkt.ledOverride != 0);
+  ledRgbOverrideR  = pkt.ledOverR;
+  ledRgbOverrideG  = pkt.ledOverG;
+  ledRgbOverrideB  = pkt.ledOverB;
+  ledAudioReactive = pkt.ledAudioReact;
+
+  // Aggiorna dualModesMask dello slave per il modo corrente in base al master
+  if (modeDualBypass) {
+    dualModesMask &= ~(1ULL << pkt.mode);  // Bit off: modo non usa dual
+  } else {
+    dualModesMask |= (1ULL << pkt.mode);   // Bit on: modo usa dual
+  }
+
+  // Luminosita' display applicata dal blocco brightness nel loop principale
+  // (non chiamare ledcWrite qui per evitare glitch PWM a 30fps)
+
+  // ANTI-FLICKER: Se il tempo e il modo NON sono cambiati, forza lastHour/lastMinute
+  // in sync con currentHour/currentMinute. Questo previene ridisegni accidentali
+  // causati da race condition, corruzioni di stato, o path di codice non previste.
+  // Quando il tempo O il modo cambiano, lascia che la funzione del modo faccia UN solo redraw.
+  if (!modeChanged && !timeChanged) {
+    extern uint8_t lastHour, lastMinute;
+    lastHour = currentHour;
+    lastMinute = currentMinute;
+  }
 
   // Processa dati mode-specific se presenti
   if (pkt.dataLen > 0) {
@@ -1438,18 +1598,6 @@ void resetModeInitFlags() {
   extern bool geminiInitialized;
   geminiInitialized = false;
 #endif
-#ifdef EFFECT_CHRISTMAS
-  extern bool christmasInitialized;
-  christmasInitialized = false;
-#endif
-#ifdef EFFECT_FIRE
-  extern bool fireInitialized;
-  fireInitialized = false;
-#endif
-#ifdef EFFECT_FIRE_TEXT
-  extern bool fireTextInitialized;
-  fireTextInitialized = false;
-#endif
   extern bool fadeInitialized;
   fadeInitialized = false;
   extern bool slowInitialized;
@@ -1507,12 +1655,25 @@ void unpackModeSpecificData(const SyncPacket &pkt) {
     }
 
     case MODE_SNAKE: {
-      // Ripristina posizione serpente
-      if (pkt.dataLen >= 4) {
-        uint16_t snakeX, snakeY;
-        memcpy(&snakeX, pkt.data, 2);
-        memcpy(&snakeY, pkt.data + 2, 2);
-        // Da collegare alle variabili reali della modalita' snake
+      // Ripristina stato completo del serpente dal master
+      extern uint8_t snakePathChoice;
+      extern uint16_t snakePathIndex;
+      extern bool snakeIsCompleted;
+      extern Snake snake;
+      extern bool snakeInitNeeded;
+      if (pkt.dataLen >= 20) {
+        uint8_t offset = 0;
+        uint8_t newPathChoice = pkt.data[offset++];
+        // Se il percorso cambia, forza re-init per aggiornare currentPath
+        if (newPathChoice != snakePathChoice) {
+          snakePathChoice = newPathChoice;
+          snakeInitNeeded = true;
+        }
+        memcpy(&snakePathIndex, pkt.data + offset, 2); offset += 2;
+        snakeIsCompleted = (pkt.data[offset++] != 0);
+        for (uint8_t i = 0; i < 8; i++) {
+          memcpy(&snake.segments[i].ledIndex, pkt.data + offset, 2); offset += 2;
+        }
       }
       break;
     }
@@ -1737,6 +1898,9 @@ void initDualDisplay() {
 
   // Carica configurazione dalla EEPROM
   loadDualDisplaySettings();
+
+  // Carica la maschera per-mode dual display
+  loadDualModesMask();
 
   // Se non abilitato
   if (!dualDisplayEnabled) {
@@ -2007,9 +2171,14 @@ void updateDualDisplay() {
   }
 
   // === SLAVE: Processa pacchetti sync ricevuti ===
+  // Copia locale protetta da mutex per evitare race condition con callback ESP-NOW
   if (panelRole == 2 && newSyncAvailable) {
-    processSyncPacket(lastReceivedSync);
+    SyncPacket localPkt;
+    portENTER_CRITICAL(&syncMux);
+    memcpy(&localPkt, &lastReceivedSync, sizeof(SyncPacket));
     newSyncAvailable = false;
+    portEXIT_CRITICAL(&syncMux);
+    processSyncPacket(localPkt);
   }
 
   // === TUTTI: Invia heartbeat ogni secondo ===

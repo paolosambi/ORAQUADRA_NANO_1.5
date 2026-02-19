@@ -287,6 +287,28 @@ input[type="number"] {
   color: var(--text-muted);
   margin-top: 4px;
 }
+.dual-toggle {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 6px;
+  background: #334155;
+  color: #64748b;
+  border: 1px solid #475569;
+  transition: all 0.2s;
+  line-height: 1.2;
+  user-select: none;
+}
+.dual-toggle.on {
+  background: #1e40af;
+  color: #93c5fd;
+  border-color: #3b82f6;
+}
+.dual-toggle:hover { transform: scale(1.1); }
 
 .info-card {
   background: var(--bg);
@@ -1382,18 +1404,15 @@ const MODES = [
   { id: 17, name: 'GALAGA2', icon: '👾', desc: 'Galaga 2' },
   { id: 19, name: 'ESP-CAM', icon: '📷', desc: 'Camera' },
   { id: 20, name: 'FLUX', icon: '⚡', desc: 'Flux Capacitor' },
-  { id: 21, name: 'CHRISTMAS', icon: '🎄', desc: 'Natale' },
-  { id: 22, name: 'FIRE', icon: '🔥', desc: 'Fuoco Camino' },
-  { id: 23, name: 'FIRE TEXT', icon: '🔥', desc: 'Lettere di Fuoco' },
-  { id: 24, name: 'MP3 PLAYER', icon: '🎵', desc: 'Lettore MP3' },
-  { id: 25, name: 'WEB RADIO', icon: '📻', desc: 'Web Radio' },
-  { id: 26, name: 'RADIO ALARM', icon: '⏰', desc: 'Radiosveglia' },
-  // { id: 27, name: 'WEB TV', icon: '📺', desc: 'TV Live' }  // DISABILITATO - Troppo lag
-  { id: 28, name: 'CALENDAR', icon: '📅', desc: 'Google Agenda' }, // AGGIUNTO ID 28
-  { id: 29, name: 'YOUTUBE', icon: '▶️', desc: 'YouTube Stats' },
-  { id: 30, name: 'NEWS', icon: '📰', desc: 'News RSS' },
-  { id: 31, name: 'PONG', icon: '🏓', desc: 'Pong Dual Display' },
-  { id: 32, name: 'SCROLL TEXT', icon: '💬', desc: 'Testo Scorrevole' },
+  { id: 21, name: 'MP3 PLAYER', icon: '🎵', desc: 'Lettore MP3' },
+  { id: 22, name: 'WEB RADIO', icon: '📻', desc: 'Web Radio' },
+  { id: 23, name: 'RADIO ALARM', icon: '⏰', desc: 'Radiosveglia' },
+  // { id: 24, name: 'WEB TV', icon: '📺', desc: 'TV Live' }  // DISABILITATO - Troppo lag
+  { id: 25, name: 'CALENDAR', icon: '📅', desc: 'Google Agenda' },
+  { id: 26, name: 'YOUTUBE', icon: '▶️', desc: 'YouTube Stats' },
+  { id: 27, name: 'NEWS', icon: '📰', desc: 'News RSS' },
+  { id: 28, name: 'PONG', icon: '🏓', desc: 'Pong Dual Display' },
+  { id: 29, name: 'SCROLL TEXT', icon: '💬', desc: 'Testo Scorrevole' },
 ];
 
 let currentMode = 2;
@@ -1401,9 +1420,13 @@ let enabledModes = {};
 let activePresetId = 0;      // Preset colore attivo
 let rainbowActive = false;   // Se rainbow mode è attivo
 let hasWeatherApiKey = false; // Flag per API key meteo configurata
+let dualDisplayAvailable = false; // Multi-display feature compilata
+let dualDisplayEnabled = false;   // Multi-display globalmente attivo
+let dualPanelRole = 0;            // 0=standalone, 1=master, 2=slave
+let dualEnabledModes = {};        // Per-mode dual display: {modeId: true/false}
 
 // Inizializza tutte le modalità come abilitate di default
-MODES.forEach(m => enabledModes[m.id] = true);
+MODES.forEach(m => { enabledModes[m.id] = true; dualEnabledModes[m.id] = true; });
 
 // Render griglia modalità
 function renderModes() {
@@ -1421,21 +1444,40 @@ function renderModes() {
 
     const card = document.createElement('div');
     card.className = 'mode-card' + (isEnabled ? ' enabled' : ' disabled') + (isActive ? ' active' : '');
-    card.onclick = (e) => {
-      // Non attivare se si clicca sul toggle
-      if (e.target.type === 'checkbox' || e.target.classList.contains('toggle-slider')) return;
-      if (isEnabled) activateMode(mode.id);
-    };
+    const isDualOn = dualEnabledModes[mode.id] !== false;
+    const showDual = dualPanelRole === 1;
     card.innerHTML = `
       ${isActive ? '<span class="mode-badge">★ ATTIVO</span>' : ''}
       <div class="mode-icon">${mode.icon}</div>
       <div class="mode-name">${mode.name}</div>
       <div class="mode-status">${isActive ? 'In uso' : (isEnabled ? 'Clicca per attivare' : 'Disabilitato')}</div>
-      <label class="toggle mode-toggle" onclick="event.stopPropagation()">
-        <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="toggleMode(${mode.id}, this.checked)">
+      <label class="toggle mode-toggle">
+        <input type="checkbox" ${isEnabled ? 'checked' : ''}>
         <span class="toggle-slider"></span>
       </label>
+      ${showDual ? `<div class="dual-toggle ${isDualOn ? 'on' : 'off'}" data-mid="${mode.id}" title="Multi-Display: ${isDualOn ? 'ON' : 'OFF'}">MD</div>` : ''}
     `;
+    // Bind enable/disable toggle via JS
+    const chk = card.querySelector('input[type=checkbox]');
+    if (chk) {
+      chk.addEventListener('click', function(e) { e.stopPropagation(); });
+      chk.addEventListener('change', function() { toggleMode(mode.id, this.checked); });
+    }
+    // Bind dual-toggle via JS
+    const dualBtn = card.querySelector('.dual-toggle');
+    if (dualBtn) {
+      dualBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        const curState = dualEnabledModes[mode.id] !== false;
+        toggleDualMode(mode.id, !curState);
+      });
+    }
+    // Bind card click (attiva mode)
+    card.addEventListener('click', function(e) {
+      if (e.target.closest('.mode-toggle') || e.target.closest('.dual-toggle')) return;
+      if (isEnabled) activateMode(mode.id);
+    });
     grid.appendChild(card);
   });
 }
@@ -1458,6 +1500,22 @@ function toggleMode(modeId, enabled) {
   // updateWebTVLink();  // WebTV disabilitato
 }
 
+// Toggle dual display per-mode
+function toggleDualMode(modeId, enabled) {
+  dualEnabledModes[modeId] = enabled;
+  saveDualModeSettings();
+  renderModes();
+}
+
+function saveDualModeSettings() {
+  const enabledList = Object.keys(dualEnabledModes).filter(k => dualEnabledModes[k]).join(',');
+  fetch('/settings/savedualmodesmask?enabled=' + enabledList)
+    .then(() => {
+      const el = document.getElementById('lastSave');
+      if (el) el.textContent = 'Salvato: ' + new Date().toLocaleTimeString();
+    });
+}
+
 // Variabile globale per URL webcam
 var esp32camWebUrl = '';
 
@@ -1477,7 +1535,7 @@ function updateEspCamLink() {
 function updateMp3PlayerLink() {
   var link = document.getElementById('mp3playerConfigLink');
   if (!link) return;
-  var modeEnabled = enabledModes[24] === true; // 24 = MODE_MP3_PLAYER
+  var modeEnabled = enabledModes[21] === true; // 21 = MODE_MP3_PLAYER
   link.style.display = modeEnabled ? 'inline-block' : 'none';
 }
 
@@ -1485,7 +1543,7 @@ function updateMp3PlayerLink() {
 function updateWebRadioLink() {
   var link = document.getElementById('webradioConfigLink');
   if (!link) return;
-  var modeEnabled = enabledModes[25] === true; // 25 = MODE_WEB_RADIO
+  var modeEnabled = enabledModes[22] === true; // 22 = MODE_WEB_RADIO
   link.style.display = modeEnabled ? 'inline-block' : 'none';
 }
 
@@ -1493,7 +1551,7 @@ function updateWebRadioLink() {
 function updateRadioAlarmLink() {
   var alarmLink = document.getElementById('radioAlarmConfigLink');
   if (!alarmLink) return;
-  var radioAlarmModeEnabled = enabledModes[26] === true; // 26 = MODE_RADIO_ALARM
+  var radioAlarmModeEnabled = enabledModes[23] === true; // 23 = MODE_RADIO_ALARM
   if (radioAlarmModeEnabled) {
     alarmLink.style.display = 'inline-block';
   } else {
@@ -1505,7 +1563,7 @@ function updateRadioAlarmLink() {
 function updateCalendarLink() {
   var link = document.getElementById('calendarConfigLink');
   if (!link) return;
-  var modeEnabled = enabledModes[28] === true; // 28 = MODE_CALENDAR
+  var modeEnabled = enabledModes[25] === true; // 25 = MODE_CALENDAR
   link.style.display = modeEnabled ? 'inline-block' : 'none';
 }
 
@@ -1521,7 +1579,7 @@ function updateLedRgbLink() {
 function updateYoutubeLink() {
   var link = document.getElementById('youtubeConfigLink');
   if (!link) return;
-  var modeEnabled = enabledModes[29] === true; // 29 = MODE_YOUTUBE
+  var modeEnabled = enabledModes[26] === true; // 26 = MODE_YOUTUBE
   if (modeEnabled) {
     fetch('/youtube/status').then(r => r.ok ? link.style.display = 'inline-block' : null).catch(() => {});
   } else {
@@ -1533,7 +1591,7 @@ function updateYoutubeLink() {
 function updateNewsLink() {
   var link = document.getElementById('newsConfigLink');
   if (!link) return;
-  var modeEnabled = enabledModes[30] === true; // 30 = MODE_NEWS
+  var modeEnabled = enabledModes[27] === true; // 27 = MODE_NEWS
   if (modeEnabled) {
     fetch('/news/status').then(r => r.ok ? link.style.display = 'inline-block' : null).catch(() => {});
   } else {
@@ -1552,7 +1610,7 @@ function updateDualLink() {
 function updateScrollTextLink() {
   var link = document.getElementById('scrolltextConfigLink');
   if (!link) return;
-  var modeEnabled = enabledModes[32] === true; // 32 = MODE_SCROLLTEXT
+  var modeEnabled = enabledModes[29] === true; // 29 = MODE_SCROLLTEXT
   if (modeEnabled) {
     fetch('/scrolltext/status').then(r => r.ok ? link.style.display = 'inline-block' : null).catch(() => {});
   } else {
@@ -2070,8 +2128,8 @@ const MODE_DEFAULT_COLORS = {
 const TEXT_MODES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 17];
 
 // Modalità che NON supportano preset colori (grafiche/speciali)
-const NO_COLOR_MODES = [10, 11, 12, 13, 14, 19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32];  // 27 rimosso (WebTV disabilitato)
-// 10=ANALOG, 11=FLIP, 12=BTTF, 13=LED RING, 14=WEATHER, 19=ESP-CAM, 20=FLUX, 21=CHRISTMAS, 22=FIRE, 23=FIRE TEXT, 24=MP3 PLAYER, 25=WEB RADIO, 26=RADIO ALARM, 27=WEB TV
+const NO_COLOR_MODES = [10, 11, 12, 13, 14, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29];  // 24 rimosso (WebTV disabilitato)
+// 10=ANALOG, 11=FLIP, 12=BTTF, 13=LED RING, 14=WEATHER, 19=ESP-CAM, 20=FLUX, 21=MP3 PLAYER, 22=WEB RADIO, 23=RADIO ALARM, 24=WEB TV, 25=CALENDAR, 26=YOUTUBE, 27=NEWS, 28=PONG, 29=SCROLL TEXT
 
 // Verifica se la modalità corrente supporta il colore personalizzato
 function isTextMode(modeId) {
@@ -2326,8 +2384,9 @@ const MODE_NAMES = {
   0: 'FADE', 1: 'SLOW', 2: 'FAST', 3: 'MATRIX', 4: 'MATRIX2',
   5: 'SNAKE', 6: 'WATER', 7: 'MARIO', 8: 'TRON', 9: 'GALAGA',
   10: 'ANALOG', 11: 'FLIP', 12: 'BTTF', 13: 'LED RING', 14: 'WEATHER',
-  15: 'CLOCK', 17: 'GALAGA2', 19: 'ESP-CAM', 20: 'FLUX', 21: 'CHRISTMAS', 22: 'FIRE', 23: 'FIRE TEXT',
-  24: 'MP3 PLAYER', 25: 'WEB RADIO', 26: 'RADIO ALARM'
+  15: 'CLOCK', 17: 'GALAGA2', 19: 'ESP-CAM', 20: 'FLUX',
+  21: 'MP3 PLAYER', 22: 'WEB RADIO', 23: 'RADIO ALARM',
+  24: 'WEB TV', 25: 'CALENDAR', 26: 'YOUTUBE', 27: 'NEWS', 28: 'PONG', 29: 'SCROLL TEXT'
 };
 
 // Nomi preset per il riassunto
@@ -3146,6 +3205,14 @@ function loadSettings() {
         // Reset e carica da server
         MODES.forEach(m => enabledModes[m.id] = false);
         data.enabledModes.forEach(id => enabledModes[id] = true);
+      }
+      // Dual display per-mode
+      dualDisplayAvailable = data.dualDisplayAvailable === true;
+      dualDisplayEnabled = data.dualDisplayEnabled === true;
+      dualPanelRole = data.dualPanelRole || 0;
+      if (data.dualEnabledModes) {
+        MODES.forEach(m => dualEnabledModes[m.id] = false);
+        data.dualEnabledModes.forEach(id => dualEnabledModes[id] = true);
       }
       renderModes();
       renderPresets();  // Aggiorna preset filtrati per la modalità corrente

@@ -208,26 +208,22 @@ EEPROM Size:      1024 byte
 |:---:|---|---|---|
 | 19 | **ESP32-CAM** | Streaming video da camera | `EFFECT_ESP32CAM` |
 | 20 | **FLUX CAPACITOR** | Flusso canalizzatore animato | `EFFECT_FLUX_CAPACITOR` |
-| 21 | **CHRISTMAS** | Tema natalizio con neve | `EFFECT_CHRISTMAS` |
-| 22 | **FIRE** | Effetto fuoco camino (Fire2012) | `EFFECT_FIRE` |
-| 23 | **FIRE TEXT** | Lettere fiammeggianti | `EFFECT_FIRE_TEXT` |
 
-### Multimedia e Audio (MODE 24-26)
+### Multimedia e Audio (MODE 21-23)
 
 | # | Modalita | Descrizione | Define |
 |:---:|---|---|---|
-| 24 | **MP3 PLAYER** | Lettore MP3/WAV da SD card con interfaccia touch | `EFFECT_MP3_PLAYER` |
-| 25 | **WEB RADIO** | Streaming radio internet con VU meter e lista stazioni | `EFFECT_WEB_RADIO` |
-| 26 | **RADIO ALARM** | Radiosveglia con selezione stazione, snooze e programmazione giorni | `EFFECT_RADIO_ALARM` |
+| 21 | **MP3 PLAYER** | Lettore MP3/WAV da SD card con interfaccia touch | `EFFECT_MP3_PLAYER` |
+| 22 | **WEB RADIO** | Streaming radio internet con VU meter e lista stazioni | `EFFECT_WEB_RADIO` |
+| 23 | **RADIO ALARM** | Radiosveglia con selezione stazione, snooze e programmazione giorni | `EFFECT_RADIO_ALARM` |
 
-### Calendario e Info (MODE 27-30)
+### Calendario e Info (MODE 25-27)
 
 | # | Modalita | Descrizione | Define |
 |:---:|---|---|---|
-| 27 | **CALENDAR** | Calendario mensile/giornaliero con eventi locali e Google Calendar | `EFFECT_CALENDAR` |
-| 28 | **EMPTY** | Riservato per uso futuro | - |
-| 29 | **YOUTUBE** | Statistiche canale YouTube (iscritti, visualizzazioni, video) | `EFFECT_YOUTUBE` |
-| 30 | **NEWS** | Feed notizie RSS da ANSA, BBC, CNN con categorie navigabili | `EFFECT_NEWS` |
+| 25 | **CALENDAR** | Calendario mensile/giornaliero con eventi locali e Google Calendar | `EFFECT_CALENDAR` |
+| 26 | **YOUTUBE** | Statistiche canale YouTube (iscritti, visualizzazioni, video) | `EFFECT_YOUTUBE` |
+| 27 | **NEWS** | Feed notizie RSS da ANSA, BBC, CNN con categorie navigabili | `EFFECT_NEWS` |
 
 ---
 
@@ -467,7 +463,7 @@ Striscia di 12 LED RGB WS2812 indirizzabili singolarmente, con colori che seguon
 | **Override Manuale** | Color picker per impostare un colore fisso personalizzato |
 | **Audio Reactive** | Luminosita pulsante sincronizzata con la musica |
 | **Luminosita** | Regolabile tramite slider (0-255) |
-| **Christmas** | Effetto speciale: alternanza rosso/verde (6+6 LED) |
+
 | **Persistenza** | Impostazioni salvate in EEPROM (indirizzi 900-907) |
 
 ---
@@ -606,9 +602,6 @@ oraQuadra_Nano_Ver_1.5/
 |-- 25_MAGNETOMETER.ino            # Bussola magnetometro
 |-- 26_WEBSERVER_SETTINGS.ino      # Web server impostazioni generali
 |-- 27_FLUX_CAPACITOR.ino          # Flux Capacitor animato
-|-- 28_CHRISTMAS.ino               # Tema natalizio
-|-- 29_FIRE.ino                    # Effetto fuoco
-|-- 30_FIRE_TEXT.ino               # Testo fiammeggiante
 |-- 31_MP3_PLAYER.ino              # Lettore MP3 da SD card
 |-- 32_WEB_RADIO.ino               # Web Radio streaming con VU meter
 |-- 33_RADIO_ALARM.ino             # Radiosveglia programmabile
@@ -672,9 +665,6 @@ Nel file principale `oraQuadra_Nano_Ver_1.5.ino`, commentare o decommentare le d
 #define EFFECT_CLOCK          // Orologio con subdial meteo
 #define EFFECT_ESP32CAM       // Streaming camera
 #define EFFECT_FLUX_CAPACITOR // Flux Capacitor
-#define EFFECT_CHRISTMAS      // Tema natalizio
-#define EFFECT_FIRE           // Effetto fuoco
-#define EFFECT_FIRE_TEXT      // Testo fiammeggiante
 #define EFFECT_MP3_PLAYER     // Lettore MP3/WAV da SD card
 #define EFFECT_WEB_RADIO      // Web Radio streaming con interfaccia touch
 #define EFFECT_RADIO_ALARM    // Radiosveglia con selezione stazione
@@ -754,7 +744,6 @@ Nel file principale `oraQuadra_Nano_Ver_1.5.ino`, commentare o decommentare le d
   - Colori automatici che seguono il tema della modalita attiva
   - Override manuale colore tramite color picker
   - Modalita audio reactive: luminosita LED pulsante con la musica
-  - Caso speciale MODE_CHRISTMAS: alternanza rosso/verde (6+6 LED)
   - Pagina web `/ledrgb` con controlli completi
   - Toggle on/off nella pagina Settings
   - Impostazioni persistenti in EEPROM (indirizzi 900-907)

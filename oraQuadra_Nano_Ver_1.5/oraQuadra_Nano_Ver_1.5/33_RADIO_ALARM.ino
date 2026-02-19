@@ -68,8 +68,6 @@ int webRadioStationCount = 0;
 #define RA_STATION_Y      245     // Stazione radio (H=50)
 #define RA_VOLUME_Y       305     // Volume (H=45)
 #define RA_CONTROLS_Y     360     // TEST/SNOOZE (H=50)
-#define RA_EXIT_Y         425     // Exit button (H=40)
-
 #define RA_CENTER_X       20      // Margine laterale
 #define RA_CENTER_W       440     // Larghezza area centrale
 
@@ -669,36 +667,12 @@ void drawRAModernButton(int bx, int by, int bw, int bh, bool active, uint16_t ac
   }
 }
 
-// ================== EXIT BUTTON - STILE WEBRADIO ==================
+// ================== PULSANTE MODE >> (basso centro) ==================
 void drawRAExitButton() {
-  int btnW = 120;
-  int btnX = 240 - btnW / 2;
-  int y = RA_EXIT_Y;
-  int btnH = 40;
-
-  // Ombra
-  gfx->fillRoundRect(btnX + 2, y + 2, btnW, btnH, 10, RA_BUTTON_SHADOW);
-
-  // Sfondo arancione
-  gfx->fillRoundRect(btnX, y, btnW, btnH, 10, 0xFB20);
-
-  // Bordo glow arancione
-  gfx->drawRoundRect(btnX, y, btnW, btnH, 10, 0xFD60);
-  gfx->drawRoundRect(btnX + 1, y + 1, btnW - 2, btnH - 2, 9, 0xFD60);
-
-  // Icona X
-  int iconX = btnX + 28;
-  int iconY = y + btnH / 2;
-  gfx->drawLine(iconX - 6, iconY - 6, iconX + 6, iconY + 6, RA_TEXT_COLOR);
-  gfx->drawLine(iconX - 6, iconY + 6, iconX + 6, iconY - 6, RA_TEXT_COLOR);
-  gfx->drawLine(iconX - 5, iconY - 6, iconX + 7, iconY + 6, RA_TEXT_COLOR);
-  gfx->drawLine(iconX - 5, iconY + 6, iconX + 7, iconY - 6, RA_TEXT_COLOR);
-
-  // Testo
-  gfx->setFont(u8g2_font_helvB14_tr);
-  gfx->setTextColor(RA_TEXT_COLOR);
-  gfx->setCursor(btnX + 48, y + 28);
-  gfx->print("EXIT");
+  gfx->setFont(u8g2_font_helvR08_tr);
+  gfx->setTextColor(RA_ACCENT_COLOR);
+  gfx->setCursor(210, 479);
+  gfx->print("MODE >>");
 }
 
 // ================== GESTIONE TOUCH ==================
@@ -895,15 +869,11 @@ bool handleRadioAlarmTouch(int16_t x, int16_t y) {
     }
   }
 
-  // ===== EXIT =====
-  int exitBtnW = 120;
-  int exitX = centerX - exitBtnW / 2;
-  if (y >= RA_EXIT_Y && y <= RA_EXIT_Y + 40) {
-    if (x >= exitX && x <= exitX + exitBtnW) {
-      Serial.println("[RADIO-ALARM] EXIT");
-      saveRadioAlarmSettings();
-      return true;
-    }
+  // ===== MODE >> (basso centro y>455, x 180-310) =====
+  if (y > 455 && x >= 180 && x <= 310) {
+    Serial.println("[RADIO-ALARM] MODE >>");
+    saveRadioAlarmSettings();
+    return true;
   }
 
   return false;

@@ -47,9 +47,6 @@ void loadMP3PlayerSettings();
 #define PLAYLIST_Y      360
 #define PLAYLIST_H      50
 
-#define EXIT_BTN_Y      420
-#define EXIT_BTN_H      46
-
 // Area centrale
 #define MP3_CENTER_X    55
 #define MP3_CENTER_W    370
@@ -837,55 +834,25 @@ void drawMP3ModeButton() {
   gfx->drawCircle(indX, indY, 10, MP3_TEXT_COLOR);
 }
 
-// ================== DISEGNA TASTO USCITA - DESIGN MODERNO ==================
+// ================== PULSANTE MODE >> (basso centro) ==================
 void drawMP3ExitButton() {
-  int btnW = 140;
-  int btnX = 240 - btnW / 2;
-  int y = EXIT_BTN_Y;
-
-  // Ombra profonda
-  gfx->fillRoundRect(btnX + 3, y + 3, btnW, EXIT_BTN_H, 14, 0x4000);
-
-  // Sfondo gradiente rosso (simulato)
-  gfx->fillRoundRect(btnX, y, btnW, EXIT_BTN_H, 14, 0xC000);
-  gfx->fillRoundRect(btnX + 4, y + 4, btnW - 8, EXIT_BTN_H - 16, 10, 0xF800);
-
-  // Bordo
-  gfx->drawRoundRect(btnX, y, btnW, EXIT_BTN_H, 14, 0x7800);
-
-  // Highlight superiore
-  gfx->drawFastHLine(btnX + 15, y + 4, btnW - 30, 0xFC00);
-
-  // Icona X
-  int iconX = btnX + 25;
-  int iconY = y + EXIT_BTN_H / 2;
-  gfx->drawLine(iconX - 6, iconY - 6, iconX + 6, iconY + 6, MP3_TEXT_COLOR);
-  gfx->drawLine(iconX - 6, iconY + 6, iconX + 6, iconY - 6, MP3_TEXT_COLOR);
-  gfx->drawLine(iconX - 5, iconY - 6, iconX + 7, iconY + 6, MP3_TEXT_COLOR);
-  gfx->drawLine(iconX - 5, iconY + 6, iconX + 7, iconY - 6, MP3_TEXT_COLOR);
-
-  // Testo EXIT
-  gfx->setFont(u8g2_font_helvB18_tr);
-  gfx->setTextColor(MP3_TEXT_COLOR);
-  gfx->setCursor(btnX + 48, y + 32);
-  gfx->print("EXIT");
+  gfx->setFont(u8g2_font_helvR08_tr);
+  gfx->setTextColor(MP3_ACCENT_COLOR);
+  gfx->setCursor(210, 479);
+  gfx->print("MODE >>");
 }
 
 // ================== GESTIONE TOUCH ==================
 bool handleMP3PlayerTouch(int16_t x, int16_t y) {
   if (!mp3Player.initialized) return false;
 
-  // Area tasto ESCI (btnW=140, centrato)
-  int exitBtnW = 140;
-  int exitBtnX = 240 - exitBtnW / 2;
-  if (y >= EXIT_BTN_Y && y <= EXIT_BTN_Y + EXIT_BTN_H) {
-    if (x >= exitBtnX && x <= exitBtnX + exitBtnW) {
-      Serial.println("[MP3] Tasto ESCI premuto");
-      stopMP3Track();
-      saveMP3PlayerSettings();
-      cleanupMP3Player();
-      return true;  // Segnala di uscire dalla modalita'
-    }
+  // Pulsante MODE >> (basso centro y>455, x 180-310)
+  if (y > 455 && x >= 180 && x <= 310) {
+    Serial.println("[MP3] Pulsante MODE >> premuto");
+    stopMP3Track();
+    saveMP3PlayerSettings();
+    cleanupMP3Player();
+    return true;  // Segnala di uscire dalla modalita'
   }
 
   // Area controlli

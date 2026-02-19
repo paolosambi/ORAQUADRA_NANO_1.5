@@ -93,9 +93,6 @@
 //#define EFFECT_MJPEG_STREAM   // Streaming video MJPEG via WiFi da server Python (con audio opzionale) - DISABILITATO
 #define EFFECT_ESP32CAM       // Streaming video da ESP32-CAM Freenove (MJPEG diretto dalla camera)
 #define EFFECT_FLUX_CAPACITOR // Flusso canalizzatore animato stile Ritorno al Futuro
-#define EFFECT_CHRISTMAS      // Tema natalizio con albero di Natale e neve che si accumula
-#define EFFECT_FIRE           // Effetto fuoco camino a schermo intero (Fire2012)
-#define EFFECT_FIRE_TEXT      // Effetto lettere fiammeggianti (orario che brucia)
 #define EFFECT_MP3_PLAYER     // Lettore MP3/WAV da SD card - ABILITATO (conflitto DMA risolto)
 #define EFFECT_WEB_RADIO      // Interfaccia Web Radio a display con controlli touch
 #define EFFECT_RADIO_ALARM    // Radiosveglia con selezione stazione WebRadio
@@ -454,43 +451,34 @@ enum DisplayMode {
 #ifdef EFFECT_FLUX_CAPACITOR
   MODE_FLUX_CAPACITOR = 20, // Flusso canalizzatore animato stile Ritorno al Futuro.
 #endif
-#ifdef EFFECT_CHRISTMAS
-  MODE_CHRISTMAS = 21,      // Tema natalizio con albero di Natale e neve che si accumula.
-#endif
-#ifdef EFFECT_FIRE
-  MODE_FIRE = 22,           // Effetto fuoco camino a schermo intero.
-#endif
-#ifdef EFFECT_FIRE_TEXT
-  MODE_FIRE_TEXT = 23,      // Effetto lettere fiammeggianti (orario che brucia).
-#endif
 #ifdef EFFECT_MP3_PLAYER
-  MODE_MP3_PLAYER = 24,     // Lettore MP3/WAV da SD card.
+  MODE_MP3_PLAYER = 21,     // Lettore MP3/WAV da SD card.
 #endif
 #ifdef EFFECT_WEB_RADIO
-  MODE_WEB_RADIO = 25,      // Interfaccia Web Radio con controlli touch.
+  MODE_WEB_RADIO = 22,      // Interfaccia Web Radio con controlli touch.
 #endif
 #ifdef EFFECT_RADIO_ALARM
-  MODE_RADIO_ALARM = 26,    // Radiosveglia con selezione stazione.
+  MODE_RADIO_ALARM = 23,    // Radiosveglia con selezione stazione.
 #endif
 #ifdef EFFECT_WEB_TV
-  MODE_WEB_TV = 27,         // Streaming TV da server Python via MJPEG.
+  MODE_WEB_TV = 24,         // Streaming TV da server Python via MJPEG.
 #endif
 #ifdef EFFECT_CALENDAR
-  MODE_CALENDAR = 28,       // Calendario Google
+  MODE_CALENDAR = 25,       // Calendario Google
 #endif
 #ifdef EFFECT_YOUTUBE
-  MODE_YOUTUBE = 29,        // Statistiche canale YouTube
+  MODE_YOUTUBE = 26,        // Statistiche canale YouTube
 #endif
 #ifdef EFFECT_NEWS
-  MODE_NEWS = 30,           // News Feed Italia da newsapi.org
+  MODE_NEWS = 27,           // News Feed Italia da newsapi.org
 #endif
 #ifdef EFFECT_PONG
-  MODE_PONG = 31,           // Gioco PONG Dual Display
+  MODE_PONG = 28,           // Gioco PONG Dual Display
 #endif
 #ifdef EFFECT_SCROLLTEXT
-  MODE_SCROLLTEXT = 32,     // Testo scorrevole animato
+  MODE_SCROLLTEXT = 29,     // Testo scorrevole animato
 #endif
-  NUM_MODES = 33    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
+  NUM_MODES = 30    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
 };
 
 // ================== STRUTTURE DATI ==================
@@ -822,6 +810,8 @@ void vPrint(const char* text);
 bool isDualDisplayActive();
 bool isDualMaster();
 bool isDualSlave();
+bool isModeDualEnabled(uint8_t mode);
+void dualGfxBypass(bool bypass);
 void initDualGfxProxy();
 void sendConfigPushToAllPeers();
 void setup_dualdisplay_webserver(AsyncWebServer* server);
@@ -837,6 +827,7 @@ extern uint16_t dualFrameCounter;
 extern bool    dualDisplayInitialized;
 extern bool    discoveryInProgress;
 extern volatile bool dualFlashRequested;
+extern uint64_t dualModesMask;
 extern volatile bool dualTestSyncRequested;
 #endif
 
@@ -906,27 +897,6 @@ extern int calAlarmSnoozeMinutes;
 // Funzioni definite in 14_CAPODANNO.ino
 void updateCapodanno();
 void checkCapodannoTrigger();
-
-// Funzioni definite in 28_CHRISTMAS.ino
-#ifdef EFFECT_CHRISTMAS
-void initChristmas();
-void updateChristmas();
-extern bool christmasInitialized;
-#endif
-
-// Funzioni definite in 29_FIRE.ino
-#ifdef EFFECT_FIRE
-void initFire();
-void updateFire();
-extern bool fireInitialized;
-#endif
-
-// Funzioni definite in 30_FIRE_TEXT.ino
-#ifdef EFFECT_FIRE_TEXT
-void initFireText();
-void updateFireText();
-extern bool fireTextInitialized;
-#endif
 
 #ifdef EFFECT_MP3_PLAYER
 void initMP3Player();
@@ -2885,6 +2855,9 @@ void loop() {
   if (WiFi.status() == WL_CONNECTED) {
     ArduinoOTA.handle(); // Gestisce le eventuali richieste di aggiornamento OTA.
     events(); // Gestisce gli eventi della libreria ezTime (es. cambio di ora).
+#ifdef EFFECT_DUAL_DISPLAY
+    if (!isDualSlave()) // Slave: orario dal master, non risincronizzare NTP
+#endif
     retryNTPSync(); // Ritenta sincronizzazione NTP se fallita al boot
     espalexa.loop(); // Gestisce le comunicazioni con Alexa.
     updateRadarServer(); // Gestisce riconnessione radar server remoto
@@ -2957,14 +2930,24 @@ void loop() {
       #ifdef EFFECT_LED_RGB
       updateLedRgb();
       #endif
+      #ifdef EFFECT_DUAL_DISPLAY
+      // Continua a inviare sync e heartbeat mentre il menu e' aperto
+      // (usa realGfx temporaneamente ripristinato dal bypass)
+      updateDualDisplay();
+      #endif
       yield();
       return;
     }
   }
 
   // Gestione cambio modo dal mode selector (deferred dal touch handler)
+  // Slave: modo controllato dal master via SyncPacket
   if (pendingModeSelectorSwitch >= 0) {
+  #ifdef EFFECT_DUAL_DISPLAY
+    if (!isDualSlave())
+  #endif
     executePendingModeSwitch();
+    pendingModeSelectorSwitch = -1; // Reset flag in ogni caso
   }
 
   // ========== CAMBIO MODALITA' RANDOM AUTOMATICO ==========
@@ -2972,6 +2955,9 @@ void loop() {
   if (randomModeEnabled && !setupPageActive && !modeSelectorActive && !capodannoActive
   #ifdef EFFECT_CALENDAR
       && !calendarAlarmActive
+  #endif
+  #ifdef EFFECT_DUAL_DISPLAY
+      && !isDualSlave()  // Slave: modo controllato dal master
   #endif
   ) {
     uint32_t randomIntervalMs = (uint32_t)randomModeInterval * 60000UL;  // Converti minuti in millisecondi
@@ -3117,6 +3103,12 @@ void loop() {
   if (currentMillis - lastBrightnessUpdate > 200) {
     lastBrightnessUpdate = currentMillis;
 
+#ifdef EFFECT_DUAL_DISPLAY
+    if (isDualSlave()) {
+      // Slave: luminosita' gestita dal master via SyncPacket
+      ledcWrite(PWM_CHANNEL, lastAppliedBrightness);
+    } else {
+#endif
     uint8_t targetBrightness;
     bool remoteRadarActive = useRemoteRadar();
     bool localRadarActive = radarAvailable && radarBrightnessControl && !remoteRadarActive;
@@ -3150,6 +3142,9 @@ void loop() {
       ledcWrite(PWM_CHANNEL, targetBrightness);
       lastAppliedBrightness = targetBrightness;
     }
+#ifdef EFFECT_DUAL_DISPLAY
+    }
+#endif
   }
   //#endif
 
@@ -3240,14 +3235,21 @@ if (currentIsNight != lastWasNightTime) {
   }
 
   // ========== GESTIONE MODE SWITCH SICURO (dal webserver task) ==========
+  // Slave: modo controllato dal master via SyncPacket, ignora switch locali
   {
     extern volatile bool pendingModeSwitch;
     if (pendingModeSwitch) {
       pendingModeSwitch = false;
+  #ifdef EFFECT_DUAL_DISPLAY
+      if (!isDualSlave()) {
+  #endif
       Serial.printf("[LOOP] Mode switch sicuro: da %d a FADE\n", currentMode);
       cleanupPreviousMode(currentMode);
       currentMode = MODE_FADE;
       forceDisplayUpdate();
+  #ifdef EFFECT_DUAL_DISPLAY
+      }
+  #endif
     }
   }
 
@@ -3311,7 +3313,11 @@ if (currentIsNight != lastWasNightTime) {
     }
     #endif
 
-  // Aggiornamento orario ogni secondo se connesso al WiFi
+  // Aggiornamento orario ogni secondo
+  // Slave multi-display: orario gestito dal master via SyncPacket, skip aggiornamento locale
+#ifdef EFFECT_DUAL_DISPLAY
+  if (!isDualSlave()) {
+#endif
   if (WiFi.status() == WL_CONNECTED && currentMillis - lastUpdate > 1000) {
     currentHour = myTZ.hour();     // Ottiene l'ora dal fuso orario.
     currentMinute = myTZ.minute();   // Ottiene i minuti.
@@ -3346,6 +3352,9 @@ if (currentIsNight != lastWasNightTime) {
 
     lastUpdate = currentMillis;
   }
+#ifdef EFFECT_DUAL_DISPLAY
+  }
+#endif
 
   // ===== CONTROLLO TRIGGER CAPODANNO (PRIORITÀ ASSOLUTA) =====
   // Controlla se è 01/01 alle 00:00 per attivare l'effetto speciale
@@ -3363,16 +3372,45 @@ if (currentIsNight != lastWasNightTime) {
   // ===== GESTIONE RAINBOW MODE =====
   // Aggiorna il colore rainbow (ciclo colori) se abilitato
   // NON blocca gli effetti, aggiorna solo currentColor
+  // Slave multi-display: colori gestiti dal master via SyncPacket, skip locale
   extern bool rainbowModeEnabled;
+#ifdef EFFECT_DUAL_DISPLAY
+  if (rainbowModeEnabled && !isDualSlave()) {
+#else
   if (rainbowModeEnabled) {
+#endif
     updateRainbowColor(currentMillis);  // Aggiorna solo il colore, non ridisegna
   }
 
   // ===== GESTIONE COLOR CYCLE (ciclaggio colori touch basso-sinistra) =====
   // Aggiorna il colore quando l'utente tiene premuto l'angolo basso-sinistra in WordClock
+  // Slave multi-display: colori gestiti dal master via SyncPacket, skip locale
+#ifdef EFFECT_DUAL_DISPLAY
+  if (colorCycle.isActive && !isDualSlave()) {
+#else
   if (colorCycle.isActive) {
+#endif
     updateColorCycling(currentMillis);
   }
+
+  // ========== AGGIORNAMENTO DUAL DISPLAY ESP-NOW ==========
+  // Processato PRIMA del mode switch per garantire che lo slave usi i dati piu' freschi dal master
+  #ifdef EFFECT_DUAL_DISPLAY
+  updateDualDisplay();
+  // Per-mode dual display bypass: se il modo corrente ha dual disabilitato,
+  // usa display locale (480x480) invece del proxy DualGFX
+  // Usa condizione stabile (non dipende da heartbeat peer) per evitare glitch
+  if (dualDisplayEnabled && dualDisplayInitialized && (gridW > 1 || gridH > 1)) {
+    static bool lastDualBypassState = false;
+    bool shouldBypass = !isModeDualEnabled((uint8_t)currentMode);
+    if (shouldBypass != lastDualBypassState) {
+      Serial.printf("[DUAL] Mode %d: bypass=%d (mask=0x%010llX)\n",
+                    (int)currentMode, shouldBypass, dualModesMask);
+      lastDualBypassState = shouldBypass;
+    }
+    dualGfxBypass(shouldBypass);
+  }
+  #endif
 
   if (!setupPageActive && !resetCountdownStarted) {
     // Gestione del display in base alla modalità corrente (se non è attiva la pagina di setup e non è iniziato un reset)
@@ -3595,26 +3633,6 @@ if (currentIsNight != lastWasNightTime) {
           break;
 #endif
 
-#ifdef EFFECT_CHRISTMAS
-        case MODE_CHRISTMAS:
-          updateChristmas();  // Aggiorna tema natalizio con neve e albero.
-          // Non usa blinkWord_E perché ha la propria animazione fullscreen
-          break;
-#endif
-
-#ifdef EFFECT_FIRE
-        case MODE_FIRE:
-          updateFire();  // Aggiorna effetto fuoco camino.
-          // Non usa blinkWord_E perché ha la propria animazione fullscreen
-          break;
-#endif
-
-#ifdef EFFECT_FIRE_TEXT
-        case MODE_FIRE_TEXT:
-          updateFireText();  // Aggiorna effetto lettere fiammeggianti.
-          // Non usa blinkWord_E perché ha la propria animazione
-          break;
-#endif
 
 #ifdef EFFECT_MP3_PLAYER
         case MODE_MP3_PLAYER:
@@ -3668,14 +3686,26 @@ if (currentIsNight != lastWasNightTime) {
           blinkWord_E();                    
           break;
           
-        case MODE_FAST:
+        case MODE_FAST: {
           // Aggiorna la modalità "Fast" solo al cambio di ora o minuto
+#ifdef EFFECT_DUAL_DISPLAY
+          // Su slave: rileva cambio colore dal master (preset/color picker) per ridisegno immediato
+          // Rainbow escluso: colorCycle cambia colore ogni frame, updateFastMode ha fillScreen(BLACK)
+          static uint8_t _fastPrevR = 0, _fastPrevG = 0, _fastPrevB = 0;
+          bool _fastColorDiff = (currentColor.r != _fastPrevR || currentColor.g != _fastPrevG || currentColor.b != _fastPrevB);
+          _fastPrevR = currentColor.r; _fastPrevG = currentColor.g; _fastPrevB = currentColor.b;
+          if (isDualSlave() && !rainbowModeEnabled && _fastColorDiff) {
+            updateFastMode();
+            break;
+          }
+#endif
           if (lastHour != currentHour || lastMinute != currentMinute) {
             updateFastMode();     // Aggiorna la visualizzazione veloce dell'ora.
           } else {
             blinkWord_E();
           }
           break;
+        }
       }
       } // Fine if (!gasAlarmActive)
     }
@@ -3690,11 +3720,6 @@ if (currentIsNight != lastWasNightTime) {
   // Aggiorna colore anello LED in base al tema/modalità corrente
   #ifdef EFFECT_LED_RGB
   updateLedRgb();
-  #endif
-
-  // ========== AGGIORNAMENTO DUAL DISPLAY ESP-NOW ==========
-  #ifdef EFFECT_DUAL_DISPLAY
-  updateDualDisplay();
   #endif
 
   // Permette al watchdog timer dell'ESP32 di non resettare il dispositivo

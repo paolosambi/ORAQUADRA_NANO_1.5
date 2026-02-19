@@ -201,7 +201,7 @@ async function load(){
     render();
   }
   // Controlla se gia in mode scrolltext
-  try{const r=await fetch('/settings/status');const d=await r.json();if(d.mode===32)modeActivated=true;}catch(e){}
+  try{const r=await fetch('/settings/status');const d=await r.json();if(d.mode===29)modeActivated=true;}catch(e){}
 }
 load();
 </script>

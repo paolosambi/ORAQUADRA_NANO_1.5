@@ -140,7 +140,7 @@ async function loadStatus(){
     const r = await fetch('/pong/status');
     const d = await r.json();
     const sb = document.getElementById('statusBox');
-    const isPong = d.mode === 31;
+    const isPong = d.mode === 28;
     const isDual = d.dualActive;
 
     document.getElementById('curMode').textContent = isPong ? 'PONG' : d.modeName || ('Modo ' + d.mode);

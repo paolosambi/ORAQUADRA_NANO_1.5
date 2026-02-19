@@ -18,7 +18,6 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     @keyframes flicker{0%,100%{opacity:1}92%{opacity:1}93%{opacity:0.8}94%{opacity:1}97%{opacity:0.9}98%{opacity:1}}
     @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
     @keyframes matrixFall{0%{transform:translateY(-100%);opacity:1}100%{transform:translateY(1000%);opacity:0}}
-    @keyframes fireFlicker{0%,100%{transform:scaleY(1);opacity:0.8}50%{transform:scaleY(1.1);opacity:1}}
     @keyframes snowFall{0%{transform:translateY(-10px) rotate(0deg);opacity:1}100%{transform:translateY(400px) rotate(360deg);opacity:0.3}}
     @keyframes neonPulse{0%,100%{text-shadow:0 0 5px var(--glow-color),0 0 10px var(--glow-color),0 0 20px var(--glow-color),0 0 40px var(--glow-color)}50%{text-shadow:0 0 10px var(--glow-color),0 0 20px var(--glow-color),0 0 40px var(--glow-color),0 0 80px var(--glow-color)}}
     @keyframes borderGlow{0%,100%{box-shadow:0 0 5px var(--glow-color),inset 0 0 5px var(--glow-color)}50%{box-shadow:0 0 20px var(--glow-color),0 0 40px var(--glow-color),inset 0 0 10px var(--glow-color)}}
@@ -93,9 +92,6 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
 
     .matrix-rain{position:absolute;top:0;left:0;right:0;bottom:0;overflow:hidden;z-index:1;opacity:0.3}
     .matrix-drop{position:absolute;color:#00ff00;font-family:monospace;font-size:14px;text-shadow:0 0 10px #00ff00;animation:matrixFall linear infinite;opacity:0.8}
-
-    .fire-container{position:absolute;bottom:0;left:0;right:0;height:100%;display:flex;justify-content:center;align-items:flex-end;overflow:hidden}
-    .flame{position:absolute;bottom:-20px;width:60px;height:80px;background:linear-gradient(0deg,#ff6600,#ff9900,#ffcc00,transparent);border-radius:50% 50% 50% 50% / 60% 60% 40% 40%;filter:blur(3px);animation:fireFlicker 0.5s ease-in-out infinite alternate}
 
     .snow-container{position:absolute;top:0;left:0;right:0;bottom:0;overflow:hidden;pointer-events:none}
     .snowflake{position:absolute;top:-10px;color:#fff;font-size:12px;animation:snowFall linear infinite;opacity:0.8;text-shadow:0 0 5px #fff}
@@ -410,7 +406,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
 
     const MODES = ['Fade','Slow','Fast','Matrix','Matrix2','Snake','Water','Mario',
                    'Tron','Galaga','Flux','FlipClock','BTTF','LED Ring','Weather','Radar',
-                   'Gemini','Galaga2','MJPEG','ESP32CAM','FluxCap','Christmas','Fire','FireText',
+                   'Gemini','Galaga2','MJPEG','ESP32CAM','FluxCap',
                    'MP3 Player','Web Radio','Radio Alarm','Web TV','Calendario','YouTube','News','Pong','ScrollText'];
 
     let currentMode = 0;
@@ -563,28 +559,6 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
         </div><div class="crt-overlay vignette"></div>`;
     }
 
-    function showFire(){
-      const screen = document.getElementById('screen');
-      screen.innerHTML = `
-        <div class="fire-container">
-          ${Array(15).fill(0).map((_,i)=>`<div class="flame" style="left:${5+i*6}%;animation-delay:${Math.random()*0.5}s;height:${60+Math.random()*40}px"></div>`).join('')}
-        </div><div class="crt-overlay vignette"></div>`;
-      screen.style.background = 'linear-gradient(0deg,#ff4400,#220000)';
-    }
-
-    function showChristmas(){
-      const screen = document.getElementById('screen');
-      let snow = '';
-      for(let i=0;i<30;i++) snow += `<div class="snowflake" style="left:${Math.random()*100}%;animation-duration:${3+Math.random()*4}s;animation-delay:${Math.random()*3}s">❄</div>`;
-      screen.innerHTML = `
-        <div class="special-display" style="background:linear-gradient(180deg,#001428,#002244)">
-          <div class="snow-container">${snow}</div>
-          <div class="special-icon" style="filter:none">🎄</div>
-          <div class="special-title" style="color:#ff0000">Merry Christmas!</div>
-          <div class="special-desc" style="color:#88ff88">❄ ❄ ❄</div>
-        </div><div class="crt-overlay vignette"></div>`;
-    }
-
     function showSpecial(icon, title, desc){
       const screen = document.getElementById('screen');
       screen.innerHTML = `
@@ -650,15 +624,13 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
       else if(currentMode === 14) showSpecial('🌤️', 'Weather Station', 'Temp: '+(data.tempIndoor?.toFixed(1)||'--')+'°C');
       else if(currentMode === 18 || currentMode === 19) showSpecial('📹', 'Video Stream', 'Streaming Active');
       else if(currentMode === 20) showFluxCapacitor();
-      else if(currentMode === 21) showChristmas();
-      else if(currentMode === 22 || currentMode === 23) showFire();
-      else if(currentMode === 24) showSpecial('🎵', 'MP3 Player', 'Music Player');
-      else if(currentMode === 25) showSpecial('📻', 'Web Radio', 'Internet Radio');
-      else if(currentMode === 26) showSpecial('⏰', 'Radio Alarm', 'Sveglia Radio');
-      else if(currentMode === 28) showSpecial('📅', 'Calendario', 'Google Agenda');
-      else if(currentMode === 29) showSpecial('▶️', 'YouTube Stats', 'Channel Statistics');
-      else if(currentMode === 30) showSpecial('📰', 'News', 'ANSA / BBC / Repubblica');
-      else if(currentMode === 31) showSpecial('🏓', 'Pong', 'Dual Display Arcade Game');
+      else if(currentMode === 21) showSpecial('🎵', 'MP3 Player', 'Music Player');
+      else if(currentMode === 22) showSpecial('📻', 'Web Radio', 'Internet Radio');
+      else if(currentMode === 23) showSpecial('⏰', 'Radio Alarm', 'Sveglia Radio');
+      else if(currentMode === 25) showSpecial('📅', 'Calendario', 'Google Agenda');
+      else if(currentMode === 26) showSpecial('▶️', 'YouTube Stats', 'Channel Statistics');
+      else if(currentMode === 27) showSpecial('📰', 'News', 'ANSA / BBC / Repubblica');
+      else if(currentMode === 28) showSpecial('🏓', 'Pong', 'Dual Display Arcade Game');
       else showSpecial('⏰', MODES[currentMode]||'Mode '+currentMode, '');
     }
 
