@@ -54,6 +54,10 @@
 #define PKT_DISCOVERY_REQ    4  // Richiesta discovery broadcast
 #define PKT_DISCOVERY_RESP   5  // Risposta discovery dal master
 #define PKT_CONFIG_PUSH      6  // Il master invia configurazione allo slave
+#define PKT_MODE_CONFIG      7  // Sync config mode-specific (chunked, master->slave)
+
+// ===== Config ID per PKT_MODE_CONFIG =====
+#define MODE_CFG_SCROLLTEXT  0x01
 
 // ===== Indirizzo broadcast ESP-NOW =====
 static const uint8_t broadcastMAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
@@ -925,6 +929,13 @@ void onDualDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int le
         handlePongRemoteTouch(virtualTouchY);
       }
 #endif
+      // Gestione touch remoto per modalita' SCROLLTEXT
+#ifdef EFFECT_SCROLLTEXT
+      if (currentMode == MODE_SCROLLTEXT) {
+        extern void handleScrollTextTouch(int x, int y);
+        handleScrollTextTouch(virtualTouchX, virtualTouchY);
+      }
+#endif
       break;
     }
 
@@ -1046,6 +1057,20 @@ void onDualDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int le
       discoveryInProgress = false;
       Serial.printf("[DUAL] Configurazione applicata! enabled=%d pos=(%d,%d) grid=%dx%d\n",
                     dualDisplayEnabled, panelX, panelY, gridW, gridH);
+      break;
+    }
+
+    // --- Config mode-specific (master invia config persistente allo slave) ---
+    case PKT_MODE_CONFIG: {
+      if (panelRole != 2) return; // Solo lo slave riceve
+      if (len < 6) return;
+      uint8_t configId = incomingData[2];
+#ifdef EFFECT_SCROLLTEXT
+      if (configId == MODE_CFG_SCROLLTEXT) {
+        extern void scrollReceiveConfigChunk(const uint8_t* data, int len);
+        scrollReceiveConfigChunk(incomingData, len);
+      }
+#endif
       break;
     }
 
@@ -1294,6 +1319,15 @@ void packModeSpecificData(SyncPacket &pkt) {
     }
 #endif
 
+#ifdef EFFECT_SCROLLTEXT
+    case MODE_SCROLLTEXT: {
+      extern int scrollPackSyncData(uint8_t* data, int maxLen);
+      int written = scrollPackSyncData(pkt.data + pkt.dataLen, 200 - pkt.dataLen);
+      pkt.dataLen += written;
+      break;
+    }
+#endif
+
     default:
       // Nessun dato aggiuntivo necessario
       break;
@@ -1424,6 +1458,10 @@ void resetModeInitFlags() {
   extern bool pongInitialized;
   pongInitialized = false;
 #endif
+#ifdef EFFECT_SCROLLTEXT
+  extern bool scrollTextInitialized;
+  scrollTextInitialized = false;
+#endif
 
   // --- Pattern "InitNeeded = true" ---
 #ifdef EFFECT_CLOCK
@@ -1497,6 +1535,14 @@ void unpackModeSpecificData(const SyncPacket &pkt) {
         pongScoreRight = pkt.data[off++];
         pongGameOver = (pkt.data[off] != 0);
       }
+      break;
+    }
+#endif
+
+#ifdef EFFECT_SCROLLTEXT
+    case MODE_SCROLLTEXT: {
+      extern void scrollUnpackSyncData(const uint8_t* data, int dataLen);
+      scrollUnpackSyncData(pkt.data, pkt.dataLen);
       break;
     }
 #endif

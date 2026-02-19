@@ -23,6 +23,11 @@ extern void stopCalendarAlarm();
 extern void snoozeCalendarAlarm();
 #endif
 
+// Dichiarazioni esterne per ScrollText
+#ifdef EFFECT_SCROLLTEXT
+extern void handleScrollTextTouch(int x, int y);
+#endif
+
 // Dichiarazioni esterne per News
 #ifdef EFFECT_NEWS
 extern void newsSetCategory(int index);
@@ -533,6 +538,28 @@ void checkButtons() {
 
     // Master: controlla racchetta sinistra
     handlePongTouch(x, y);
+    waitingForRelease = true;
+    return;
+  }
+  #endif
+
+  // ====================== GESTIONE TOUCH SCROLL TEXT ======================
+  // Tocco sx = prev msg, dx = next msg, centro = pausa
+  #ifdef EFFECT_SCROLLTEXT
+  if (currentMode == MODE_SCROLLTEXT && touchDetected && !waitingForRelease) {
+    int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+    int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+
+    // Pulsante MODE >> (basso centro y>455, x 180-310)
+    if (y > 455 && x >= 180 && x <= 310) {
+      playTouchSound();
+      handleModeChange();
+      waitingForRelease = true;
+      return;
+    }
+
+    playTouchSound();
+    handleScrollTextTouch(x, y);
     waitingForRelease = true;
     return;
   }

@@ -310,6 +310,12 @@ void getLedColorForMode(DisplayMode mode, uint8_t &r, uint8_t &g, uint8_t &b) {
       break;
 #endif
 
+#ifdef EFFECT_SCROLLTEXT
+    case MODE_SCROLLTEXT:
+      r = 100; g = 255; b = 50;  // Verde lime ScrollText
+      break;
+#endif
+
     default:
       // Fallback: bianco caldo
       r = 255; g = 200; b = 100;

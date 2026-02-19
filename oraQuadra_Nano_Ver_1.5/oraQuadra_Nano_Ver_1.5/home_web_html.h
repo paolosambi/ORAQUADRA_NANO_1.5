@@ -324,6 +324,11 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
           <h3>PONG</h3>
           <p>Gioco Pong Dual Display</p>
         </a>
+        <a href="/scrolltext" class="nav-card primary" id="card-scrolltext" style="display:none;--accent:#7CFC00;--accent-rgb:124,252,0">
+          <span class="icon">&#128172;</span>
+          <h3>Testo Scorrevole</h3>
+          <p>Messaggi animati sul display</p>
+        </a>
         <a href="/update" class="nav-card primary" style="--accent:#ff9500;--accent-rgb:255,149,0">
           <span class="icon">&#128259;</span>
           <h3>Aggiornamento OTA</h3>
@@ -406,7 +411,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     const MODES = ['Fade','Slow','Fast','Matrix','Matrix2','Snake','Water','Mario',
                    'Tron','Galaga','Flux','FlipClock','BTTF','LED Ring','Weather','Radar',
                    'Gemini','Galaga2','MJPEG','ESP32CAM','FluxCap','Christmas','Fire','FireText',
-                   'MP3 Player','Web Radio','Radio Alarm','Web TV','Calendario','YouTube','News','Pong'];
+                   'MP3 Player','Web Radio','Radio Alarm','Web TV','Calendario','YouTube','News','Pong','ScrollText'];
 
     let currentMode = 0;
     let currentColor = '#00ff00';
@@ -669,7 +674,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     }
 
     async function checkPages(){
-      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player','webradio','radioalarm','webtv','cal','ledrgb','youtube','news','pong','dualdisplay'];
+      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player','webradio','radioalarm','webtv','cal','ledrgb','youtube','news','pong','dualdisplay','scrolltext'];
       for(const p of pages){
         try{
           const r = await fetch('/'+p,{method:'HEAD'});

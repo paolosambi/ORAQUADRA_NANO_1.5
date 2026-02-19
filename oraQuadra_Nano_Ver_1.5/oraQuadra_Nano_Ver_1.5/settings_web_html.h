@@ -452,6 +452,7 @@ input[type="number"] {
     <a href="/youtube" class="nav-link" id="youtubeConfigLink" style="display:none;">▶️ YouTube Stats</a>
     <a href="/news" class="nav-link" id="newsConfigLink" style="display:none;">📰 News</a>
     <a href="/dualdisplay" class="nav-link" id="dualConfigLink" style="display:none;">🖥 Multi-Display</a>
+    <a href="/scrolltext" class="nav-link" id="scrolltextConfigLink" style="display:none;">💬 Testo Scorrevole</a>
     <!-- WebTV disabilitato - troppo lag per ESP32 -->
   </div>
 
@@ -1392,6 +1393,7 @@ const MODES = [
   { id: 29, name: 'YOUTUBE', icon: '▶️', desc: 'YouTube Stats' },
   { id: 30, name: 'NEWS', icon: '📰', desc: 'News RSS' },
   { id: 31, name: 'PONG', icon: '🏓', desc: 'Pong Dual Display' },
+  { id: 32, name: 'SCROLL TEXT', icon: '💬', desc: 'Testo Scorrevole' },
 ];
 
 let currentMode = 2;
@@ -1452,6 +1454,7 @@ function toggleMode(modeId, enabled) {
   updateYoutubeLink();
   updateNewsLink();
   updateDualLink();
+  updateScrollTextLink();
   // updateWebTVLink();  // WebTV disabilitato
 }
 
@@ -1543,6 +1546,18 @@ function updateDualLink() {
   var link = document.getElementById('dualConfigLink');
   if (!link) return;
   fetch('/dualdisplay/status').then(r => r.ok ? link.style.display = 'inline-block' : null).catch(() => {});
+}
+
+// Aggiorna visibilità link Testo Scorrevole
+function updateScrollTextLink() {
+  var link = document.getElementById('scrolltextConfigLink');
+  if (!link) return;
+  var modeEnabled = enabledModes[32] === true; // 32 = MODE_SCROLLTEXT
+  if (modeEnabled) {
+    fetch('/scrolltext/status').then(r => r.ok ? link.style.display = 'inline-block' : null).catch(() => {});
+  } else {
+    link.style.display = 'none';
+  }
 }
 
 // WebTV disabilitato - funzione commentata
@@ -2055,7 +2070,7 @@ const MODE_DEFAULT_COLORS = {
 const TEXT_MODES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 17];
 
 // Modalità che NON supportano preset colori (grafiche/speciali)
-const NO_COLOR_MODES = [10, 11, 12, 13, 14, 19, 20, 21, 22, 23, 24, 25, 26, 28];  // 27 rimosso (WebTV disabilitato)
+const NO_COLOR_MODES = [10, 11, 12, 13, 14, 19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32];  // 27 rimosso (WebTV disabilitato)
 // 10=ANALOG, 11=FLIP, 12=BTTF, 13=LED RING, 14=WEATHER, 19=ESP-CAM, 20=FLUX, 21=CHRISTMAS, 22=FIRE, 23=FIRE TEXT, 24=MP3 PLAYER, 25=WEB RADIO, 26=RADIO ALARM, 27=WEB TV
 
 // Verifica se la modalità corrente supporta il colore personalizzato
@@ -3232,6 +3247,7 @@ function loadSettings() {
       updateYoutubeLink();
       updateNewsLink();
       updateDualLink();
+      updateScrollTextLink();
       // updateWebTVLink();  // WebTV disabilitato
 
       // Lingua

@@ -106,6 +106,7 @@
 #define EFFECT_NEWS           // News Feed da newsapi.org per categorie
 #define EFFECT_DUAL_DISPLAY   // Multi-Display ESP-NOW (fino a 4 pannelli 2x2)
 #define EFFECT_PONG           // Gioco PONG per Dual Display (2 pannelli 2x1)
+#define EFFECT_SCROLLTEXT     // Testo scorrevole animato con 10 messaggi configurabili
 
 // ================== INCLUSIONE LIBRERIE ==================
 #include <Arduino.h>             // Libreria base per la programmazione di schede Arduino (ESP32).
@@ -486,7 +487,10 @@ enum DisplayMode {
 #ifdef EFFECT_PONG
   MODE_PONG = 31,           // Gioco PONG Dual Display
 #endif
-  NUM_MODES = 32    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
+#ifdef EFFECT_SCROLLTEXT
+  MODE_SCROLLTEXT = 32,     // Testo scorrevole animato
+#endif
+  NUM_MODES = 33    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
 };
 
 // ================== STRUTTURE DATI ==================
@@ -845,6 +849,16 @@ void executePendingModeSwitch();
 extern bool modeSelectorActive;
 extern uint32_t modeSelectorLastActivity;
 extern volatile int8_t pendingModeSelectorSwitch;
+
+// Funzioni definite in 48_SCROLLTEXT.ino (EFFECT_SCROLLTEXT)
+#ifdef EFFECT_SCROLLTEXT
+void initScrollText();
+void updateScrollText();
+void handleScrollTextTouch(int x, int y);
+void cleanupScrollText();
+void setup_scrolltext_webserver(AsyncWebServer* server);
+extern bool scrollTextInitialized;
+#endif
 
 // Funzioni definite in 43_WEBSERVER_OTA.ino (OTA Update via browser)
 void setup_ota_webserver(AsyncWebServer* server);
@@ -2039,7 +2053,7 @@ void setup_settings_webserver(AsyncWebServer* server);
 DisplayMode getNextEnabledMode(DisplayMode current);
 DisplayMode getPrevEnabledMode(DisplayMode current);
 bool isModeEnabled(uint8_t mode);
-extern uint32_t enabledModesMask;
+extern uint64_t enabledModesMask;
 
 #ifdef EFFECT_FLUX_CAPACITOR
 // Forward declarations Flux Capacitor Webserver
@@ -2364,6 +2378,12 @@ Serial.println("LittleFS inizializzato correttamente.");
     #ifdef EFFECT_DUAL_DISPLAY
     setup_dualdisplay_webserver(clockWebServer);
     Serial.println("[WEBSERVER] Multi-Display disponibile su /dualdisplay");
+    #endif
+
+    // Testo Scorrevole animato
+    #ifdef EFFECT_SCROLLTEXT
+    setup_scrolltext_webserver(clockWebServer);
+    Serial.println("[WEBSERVER] Testo Scorrevole disponibile su /scrolltext");
     #endif
 
     // OTA Update via browser (sempre disponibile, non dipende da #define)
@@ -3623,6 +3643,12 @@ if (currentIsNight != lastWasNightTime) {
 #ifdef EFFECT_PONG
         case MODE_PONG:
           updatePong();  // Gioco PONG Dual Display
+          break;
+#endif
+
+#ifdef EFFECT_SCROLLTEXT
+        case MODE_SCROLLTEXT:
+          updateScrollText();  // Testo scorrevole animato
           break;
 #endif
 

@@ -143,14 +143,15 @@ extern bool xmasSceneDrawn;
 // ================== VARIABILI PER GESTIONE MODALITÀ ABILITATE ==================
 // Bitmask per memorizzare quali modalità sono abilitate (salvato in EEPROM)
 // Ogni bit rappresenta una modalità (bit 0 = MODE_FADE, bit 1 = MODE_SLOW, ecc.)
-uint32_t enabledModesMask = 0xFFFFFFFF;  // Default: tutte abilitate
+uint64_t enabledModesMask = 0xFFFFFFFFFFULL;  // Default: tutte abilitate (40 bit)
 
 // Flag per mode switch sicuro dal main loop (evita crash da accesso concorrente a gfx)
 volatile bool pendingModeSwitch = false;
 
-// Indirizzo EEPROM per salvare le modalità abilitate (4 bytes)
+// Indirizzo EEPROM per salvare le modalità abilitate (4+1 bytes)
 // SPOSTATO a 700+ per evitare conflitti
 #define EEPROM_ENABLED_MODES_ADDR 700
+#define EEPROM_ENABLED_MODES_EXT_ADDR 705  // 5° byte per modi 32-39
 
 // ================== RAINBOW MODE ==================
 #define EEPROM_RAINBOW_MODE_ADDR 704  // 1 byte per rainbow mode (0=off, 1=on)
@@ -592,15 +593,17 @@ void hexToColor(const String& hex, uint8_t& r, uint8_t& g, uint8_t& b) {
 bool isModeEnabled(uint8_t mode) {
   // Mode 16 (GEMINI) e 18 (MJPEG) sono sempre disabilitati
   if (mode == 16 || mode == 18) return false;
-  return (enabledModesMask & (1UL << mode)) != 0;
+  if (mode >= 64) return false;
+  return (enabledModesMask & (1ULL << mode)) != 0;
 }
 
 // Abilita/disabilita una modalità
 void setModeEnabled(uint8_t mode, bool enabled) {
+  if (mode >= 64) return;
   if (enabled) {
-    enabledModesMask |= (1UL << mode);
+    enabledModesMask |= (1ULL << mode);
   } else {
-    enabledModesMask &= ~(1UL << mode);
+    enabledModesMask &= ~(1ULL << mode);
   }
 }
 
@@ -611,30 +614,38 @@ void loadRainbowMode() {
   Serial.printf("[SETTINGS] Rainbow mode: %s\n", rainbowModeEnabled ? "ON" : "OFF");
 }
 
-// Carica modalità abilitate da EEPROM
+// Carica modalità abilitate da EEPROM (5 bytes: 700-703 + 705)
 void loadEnabledModes() {
-  uint32_t saved = 0;
-  saved |= (uint32_t)EEPROM.read(EEPROM_ENABLED_MODES_ADDR) << 24;
-  saved |= (uint32_t)EEPROM.read(EEPROM_ENABLED_MODES_ADDR + 1) << 16;
-  saved |= (uint32_t)EEPROM.read(EEPROM_ENABLED_MODES_ADDR + 2) << 8;
-  saved |= (uint32_t)EEPROM.read(EEPROM_ENABLED_MODES_ADDR + 3);
+  uint32_t lower = 0;
+  lower |= (uint32_t)EEPROM.read(EEPROM_ENABLED_MODES_ADDR) << 24;
+  lower |= (uint32_t)EEPROM.read(EEPROM_ENABLED_MODES_ADDR + 1) << 16;
+  lower |= (uint32_t)EEPROM.read(EEPROM_ENABLED_MODES_ADDR + 2) << 8;
+  lower |= (uint32_t)EEPROM.read(EEPROM_ENABLED_MODES_ADDR + 3);
+  uint8_t ext = EEPROM.read(EEPROM_ENABLED_MODES_EXT_ADDR);
 
-  // Se EEPROM non inizializzata (0xFFFFFFFF), mantieni default (tutte abilitate)
-  if (saved != 0xFFFFFFFF) {
-    enabledModesMask = saved;
-    // Rispetta le impostazioni salvate dall'utente
+  // Se EEPROM non inizializzata (tutti 0xFF), mantieni default (tutte abilitate)
+  if (lower == 0xFFFFFFFF && ext == 0xFF) {
+    Serial.println("[SETTINGS] EEPROM non inizializzata, default tutte abilitate");
+    return;
   }
-  Serial.printf("[SETTINGS] Modalità abilitate caricate: 0x%08X\n", enabledModesMask);
+
+  // Ricostruisci mask 40-bit: lower (bits 0-31) + ext (bits 32-39)
+  enabledModesMask = (uint64_t)lower | ((uint64_t)ext << 32);
+  Serial.printf("[SETTINGS] Modalità abilitate caricate: 0x%02X%08lX\n",
+                ext, lower);
 }
 
-// Salva modalità abilitate in EEPROM
+// Salva modalità abilitate in EEPROM (5 bytes: 700-703 + 705)
 void saveEnabledModes() {
   EEPROM.write(EEPROM_ENABLED_MODES_ADDR, (enabledModesMask >> 24) & 0xFF);
   EEPROM.write(EEPROM_ENABLED_MODES_ADDR + 1, (enabledModesMask >> 16) & 0xFF);
   EEPROM.write(EEPROM_ENABLED_MODES_ADDR + 2, (enabledModesMask >> 8) & 0xFF);
   EEPROM.write(EEPROM_ENABLED_MODES_ADDR + 3, enabledModesMask & 0xFF);
+  EEPROM.write(EEPROM_ENABLED_MODES_EXT_ADDR, (enabledModesMask >> 32) & 0xFF);
   EEPROM.commit();
-  Serial.printf("[SETTINGS] Modalità abilitate salvate: 0x%08X\n", enabledModesMask);
+  Serial.printf("[SETTINGS] Modalità abilitate salvate: 0x%02X%08lX\n",
+                (uint8_t)((enabledModesMask >> 32) & 0xFF),
+                (uint32_t)(enabledModesMask & 0xFFFFFFFF));
 }
 
 // Trova la prossima modalità abilitata (per cambio modo con touch)
@@ -736,7 +747,7 @@ void handleSettingsConfig(AsyncWebServerRequest *request) {
   // Lista delle modalità valide (esclude 16=GEMINI, 18=MJPEG, 27=WEB_TV disabilitato)
   // 24=MP3_PLAYER, 25=WEB_RADIO, 26=RADIO_ALARM sono modalità valide
   // Array delle modalità valide (esclude 16=GEMINI, 18=MJPEG, 27=WEB_TV)
-  const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30};
+  const int validModes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32};
   const int numValidModes = sizeof(validModes) / sizeof(validModes[0]);
   for (int i = 0; i < numValidModes; i++) {
     int modeId = validModes[i];
@@ -1580,6 +1591,10 @@ void handleSettingsSetMode(AsyncWebServerRequest *request) {
       bttfInitialized = false;
       ledRingInitialized = false;
       weatherStationInitialized = false;
+      #ifdef EFFECT_SCROLLTEXT
+      extern bool scrollTextInitialized;
+      scrollTextInitialized = false;
+      #endif
 
       // Dual display: sync immediato al cambio modo via web
 #ifdef EFFECT_DUAL_DISPLAY
@@ -1614,15 +1629,15 @@ void handleSettingsSaveModes(AsyncWebServerRequest *request) {
     int end;
     while ((end = enabledList.indexOf(',', start)) != -1) {
       int modeId = enabledList.substring(start, end).toInt();
-      if (modeId >= 0 && modeId < 32) {
+      if (modeId >= 0 && modeId < NUM_MODES) {
         setModeEnabled(modeId, true);
       }
       start = end + 1;
     }
     // Ultimo elemento (o unico se non ci sono virgole)
-    if (start < enabledList.length()) {
+    if (start < (int)enabledList.length()) {
       int modeId = enabledList.substring(start).toInt();
-      if (modeId >= 0 && modeId < 32) {
+      if (modeId >= 0 && modeId < NUM_MODES) {
         setModeEnabled(modeId, true);
       }
     }

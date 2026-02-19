@@ -212,6 +212,14 @@ void cleanupPreviousMode(DisplayMode previousMode) {
   }
 #endif
 
+#ifdef EFFECT_SCROLLTEXT
+  if (previousMode == MODE_SCROLLTEXT) {
+    scrollTextInitialized = false;
+    cleanupScrollText();  // Libera canvas double buffer (~460KB PSRAM)
+    Serial.println("[CLEANUP] ScrollText: reset + canvas free");
+  }
+#endif
+
 #ifdef EFFECT_GEMINI_AI
   if (previousMode == MODE_GEMINI_AI) {
     geminiInitialized = false;
@@ -285,6 +293,24 @@ void forceDisplayUpdate() {
     return;
   }
   #endif
+
+  // Cleanup ScrollText double buffer se stiamo uscendo da MODE_SCROLLTEXT
+  // (necessario per cambio modo via web che non passa per cleanupPreviousMode)
+  #ifdef EFFECT_SCROLLTEXT
+  extern uint16_t *scrollFrameBuf;
+  extern OffscreenGFX *scrollOffscreen;
+  extern bool scrollTextInitialized;
+  if (currentMode != MODE_SCROLLTEXT && scrollFrameBuf) {
+    scrollTextInitialized = false;
+    cleanupScrollText();  // Libera ~460KB PSRAM + reset gfx
+    Serial.println("[FORCE_UPDATE] ScrollText buffer liberato");
+  }
+  #endif
+
+  // Reset stato gfx a default (previene corruzione font da modalità speciali)
+  gfx->setFont(u8g2_font_inb21_mr);
+  gfx->setTextSize(1);
+  gfx->setTextWrap(true);
 
   // Pulizia completa dello schermo impostando tutti i pixel a nero.
   gfx->fillScreen(BLACK);
@@ -467,6 +493,12 @@ void forceDisplayUpdate() {
     case MODE_PONG:
       pongInitialized = false;
       initPong();
+      break;
+#endif
+#ifdef EFFECT_SCROLLTEXT
+    case MODE_SCROLLTEXT:
+      scrollTextInitialized = false;
+      initScrollText();
       break;
 #endif
   }
@@ -709,6 +741,9 @@ bool isValidMode(DisplayMode mode) {
 #endif
 #ifdef EFFECT_PONG
     case MODE_PONG:
+#endif
+#ifdef EFFECT_SCROLLTEXT
+    case MODE_SCROLLTEXT:
 #endif
       return true;
     default:
@@ -979,6 +1014,12 @@ void handleModeChange() {
     case MODE_PONG:
       modeName = "PONG";
       modeColor = WHITE;
+      break;
+#endif
+#ifdef EFFECT_SCROLLTEXT
+    case MODE_SCROLLTEXT:
+      modeName = "SCROLL TEXT";
+      modeColor = GREEN;
       break;
 #endif
     default:
