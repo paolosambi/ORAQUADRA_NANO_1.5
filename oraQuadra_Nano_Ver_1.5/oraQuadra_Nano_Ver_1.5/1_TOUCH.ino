@@ -345,19 +345,39 @@ void checkButtons() {
   }
 
   // ====================== GESTIONE MODE SELECTOR ======================
-  if (modeSelectorActive) {
-    ts.read();  // Lettura fresh per stato attuale
-    if (ts.isTouched && !waitingForRelease) {
-      int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
-      int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
-      handleModeSelectorTouch(x, y);
-      waitingForRelease = true;
-      modeSelectorLastActivity = millis();  // Solo su tocco effettivo
-    } else if (!ts.isTouched) {
-      waitingForRelease = false;
+//  if (modeSelectorActive) {
+//    ts.read();  // Lettura fresh per stato attuale
+//    if (ts.isTouched && !waitingForRelease) {
+//      int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+//      int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+//      handleModeSelectorTouch(x, y);
+//      waitingForRelease = true;
+//      modeSelectorLastActivity = millis();  // Solo su tocco effettivo
+//    } else if (!ts.isTouched) {
+//      waitingForRelease = false;
+//    }
+//    return;
+//  }
+
+if (modeSelectorActive) {
+    // Rimuovi ts.read() da qui, usa il touchDetected già calcolato sopra!
+    if (touchDetected && !waitingForRelease) {
+        // Usa le coordinate già mappate se disponibili, o mappale una sola volta
+        int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+        int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+        
+        handleModeSelectorTouch(x, y);
+        
+        // Imposta il blocco solo DOPO un tocco valido
+        waitingForRelease = true; 
+        modeSelectorLastActivity = millis();
+    } 
+    // Gestione rilascio più fluida
+    if (!touchDetected) {
+        waitingForRelease = false;
     }
-    return;
-  }
+    return; // Mantieni il return per isolare l'overlay
+}
 
   // ====================== GESTIONE PAGINA SETUP ======================
   if (setupPageActive) { // Se la pagina di setup è attiva.
