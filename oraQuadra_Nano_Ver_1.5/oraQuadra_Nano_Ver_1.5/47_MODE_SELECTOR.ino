@@ -75,6 +75,7 @@ uint16_t getModeSelectorColor(uint8_t mode) {
     case 27: return 0x05BF;  // MODE_NEWS - azzurro (0,180,255)
     case 28: return 0xFFFF;  // MODE_PONG - WHITE
     case 29: return 0x67EA;  // MODE_SCROLLTEXT - verde lime
+    case 30: return 0x07FF;  // MODE_BREAKOUT - ciano arcade
     default: return 0xFFFF;
   }
 }
@@ -112,6 +113,7 @@ const char* getModeSelectorName(uint8_t mode) {
     case 27: return "News";
     case 28: return "Pong";
     case 29: return "Scroll";
+    case 30: return "Breakout";
     default: return "???";
   }
 }
@@ -331,6 +333,20 @@ void drawModeIcon(int cx, int cy, uint8_t mode) {
     case 29: // SCROLLTEXT - testo scorrevole
       gfx->fillRect(x0 + 2, y0 + 12, 28, 8, col);
       gfx->fillTriangle(x0 + 26, y0 + 8, x0 + 26, y0 + 24, x0 + 32, y0 + 16, col);
+      break;
+
+    case 30: // BREAKOUT - mattoni + paddle + pallina
+      // 3 righe di mattoni
+      gfx->fillRect(x0 + 2, y0 + 2, 8, 4, 0xF800);  // rosso
+      gfx->fillRect(x0 + 12, y0 + 2, 8, 4, 0xFD20);  // arancio
+      gfx->fillRect(x0 + 22, y0 + 2, 8, 4, 0xFFE0);  // giallo
+      gfx->fillRect(x0 + 2, y0 + 8, 8, 4, 0x07E0);   // verde
+      gfx->fillRect(x0 + 12, y0 + 8, 8, 4, 0x07FF);   // ciano
+      gfx->fillRect(x0 + 22, y0 + 8, 8, 4, 0x001F);   // blu
+      // Pallina
+      gfx->fillCircle(cx, cy + 4, 3, 0xFFFF);
+      // Paddle
+      gfx->fillRoundRect(cx - 8, y0 + 28, 16, 4, 2, col);
       break;
 
     default: // fallback - punto interrogativo

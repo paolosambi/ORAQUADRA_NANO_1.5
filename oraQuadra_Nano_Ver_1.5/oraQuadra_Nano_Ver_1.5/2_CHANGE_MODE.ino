@@ -738,6 +738,9 @@ bool isValidMode(DisplayMode mode) {
 #ifdef EFFECT_SCROLLTEXT
     case MODE_SCROLLTEXT:
 #endif
+#ifdef EFFECT_BREAKOUT
+    case MODE_BREAKOUT:
+#endif
       return true;
     default:
       return false;

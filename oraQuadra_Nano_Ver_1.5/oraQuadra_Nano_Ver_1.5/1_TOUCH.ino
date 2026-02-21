@@ -47,6 +47,7 @@ void checkButtons() {
   static bool waitingForRelease = false; // Flag che indica se stiamo aspettando che il tocco venga rilasciato.
   static uint32_t touchStartTime = 0;    // Memorizza il timestamp dell'inizio di un tocco prolungato (es. per il reset WiFi).
   static int16_t scrollStartY = -1;     // Memorizza la coordinata Y iniziale di un potenziale scroll nella pagina di setup.
+  static int16_t scrollStartX = -1;     // Memorizza la coordinata X per distinguere tap da scroll.
   static bool checkingSetupScroll = false; // Flag che indica se stiamo attualmente rilevando un gesto di scroll per aprire il setup.
   static uint32_t lastCornerCheck = 0;   // Memorizza il timestamp dell'ultimo controllo degli angoli per il reset WiFi.
   static uint8_t cornerTouchLostCounter = 0; // Contatore per tenere traccia di quanti controlli consecutivi degli angoli non hanno rilevato tutti e quattro.
@@ -519,6 +520,7 @@ if (modeSelectorActive) {
     // Se il tocco è nella parte superiore dello schermo (area tipicamente non usata per interazioni dirette).
     if (y < 50) {
       scrollStartY = y;          // Memorizza la coordinata Y iniziale del potenziale scroll.
+      scrollStartX = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 480 - 1); // Memorizza X per tap rapido.
       checkingSetupScroll = true; // Imposta il flag per indicare che stiamo controllando uno scroll.
       return;
     }
@@ -1035,9 +1037,16 @@ if ((currentMode == MODE_BTTF && isBTTFCenter) || (currentMode != MODE_BTTF && i
   #ifdef MENU_SCROLL
   if (checkingSetupScroll) {
     if (!ts.isTouched) {
-      // Rilascio del tocco, annulla il controllo dello scroll.
+      // Rilascio senza scroll = tap rapido nella zona alta (y<50).
+      // Se era nella meta' sinistra, trattalo come cambio modo (quadrante 1).
+      if (scrollStartX >= 0 && scrollStartX < 240) {
+        playTouchSound();
+        handleModeChange();
+        waitingForRelease = true;
+      }
       checkingSetupScroll = false;
       scrollStartY = -1;
+      scrollStartX = -1;
     } else {
       // Verifica se il gesto di scroll verso il basso è sufficiente.
       int16_t y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 480 - 1);
@@ -1045,6 +1054,7 @@ if ((currentMode == MODE_BTTF && isBTTFCenter) || (currentMode != MODE_BTTF && i
       if (y - scrollStartY > 100) {  // Se lo spostamento verticale è di almeno 100 pixel verso il basso.
         checkingSetupScroll = false; // Annulla il controllo dello scroll.
         scrollStartY = -1;           // Resetta la posizione iniziale dello scroll.
+        scrollStartX = -1;
 
         // Attiva la visualizzazione della pagina di setup.
         showSetupPage();

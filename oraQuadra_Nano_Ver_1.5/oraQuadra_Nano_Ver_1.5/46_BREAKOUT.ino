@@ -145,6 +145,8 @@ void resetBreakoutBall() {
   brkBallVY = -vs;  // Sempre verso l'alto all'inizio
 }
 
+void drawBreakoutStandalone();  // forward declaration
+
 void initBreakout() {
   brkPaddleX = 480;  // Centro canvas 960
   brkRemotePaddleX = 480;
@@ -174,10 +176,15 @@ void initBreakout() {
   if (isDualDisplayActive()) {
     vFillScreen(BLACK);
   } else {
-    gfx->fillScreen(BLACK);
+    // Multi-Display non attivo: mostra avviso
+    drawBreakoutStandalone();
+    Serial.println("[BREAKOUT] Multi-Display non attivo - mostrato avviso");
+    return;
   }
   #else
-  gfx->fillScreen(BLACK);
+  drawBreakoutStandalone();
+  Serial.println("[BREAKOUT] Multi-Display non disponibile - mostrato avviso");
+  return;
   #endif
 
   Serial.println("[BREAKOUT] Inizializzato");
@@ -385,23 +392,54 @@ void drawBreakoutGameOver() {
 // ==================== STANDALONE ====================
 void drawBreakoutStandalone() {
   gfx->fillScreen(BLACK);
+
+  // Bordo decorativo
+  gfx->drawRect(20, 20, 440, 440, 0x4208);
+
+  // Titolo
   gfx->setFont(u8g2_font_maniac_te);
   gfx->setTextColor(CYAN);
-  gfx->setCursor(100, 180);
+  gfx->setCursor(90, 120);
   gfx->print("BREAKOUT");
+
+  // Icona warning
+  gfx->fillTriangle(240, 160, 220, 195, 260, 195, YELLOW);
   gfx->setFont(u8g2_font_helvB14_te);
+  gfx->setTextColor(BLACK);
+  gfx->setCursor(235, 192);
+  gfx->print("!");
+
+  // Messaggio principale
+  gfx->setFont(u8g2_font_helvB14_te);
+  gfx->setTextColor(0x07FF); // ciano
+  gfx->setCursor(45, 235);
+  gfx->print("Multi-Display richiesto!");
+
+  // Istruzioni
+  gfx->setFont(u8g2_font_helvR12_te);
   gfx->setTextColor(0x7BEF);
-  gfx->setCursor(50, 250);
-  gfx->print("Attiva Multi-Display");
-  gfx->setCursor(50, 280);
-  gfx->print("per giocare a BREAKOUT!");
-  gfx->setCursor(40, 330);
-  gfx->setTextColor(0x4208);
-  gfx->print("Configura 2 pannelli in");
-  gfx->setCursor(55, 355);
-  gfx->print("griglia 2x1 (Master/Slave)");
-  gfx->setCursor(80, 420);
+  gfx->setCursor(40, 275);
+  gfx->print("Configura 2 pannelli in griglia");
+  gfx->setCursor(60, 300);
+  gfx->print("2x1 (Master + Slave)");
+
+  // URL configurazione
+  gfx->setFont(u8g2_font_helvB12_te);
+  gfx->setTextColor(0x07E0); // verde
+  gfx->setCursor(55, 350);
+  gfx->print("Vai alla pagina web:");
   gfx->setTextColor(YELLOW);
+  String url = "http://" + WiFi.localIP().toString() + ":8080";
+  gfx->setCursor(70, 380);
+  gfx->print(url);
+  gfx->setTextColor(0x07E0);
+  gfx->setCursor(100, 405);
+  gfx->print("/dualdisplay");
+
+  // Tocca per uscire
+  gfx->setFont(u8g2_font_helvR10_te);
+  gfx->setTextColor(0x4208);
+  gfx->setCursor(100, 450);
   gfx->print("Tocca per cambiare modo");
 }
 
