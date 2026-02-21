@@ -1261,20 +1261,8 @@ void updateMP3Player() {
   }
   #endif
 
-  // 3. TOUCH (Comune a tutti gli stati)
-  ts.read();
-  if (ts.isTouched) {
-    static uint32_t lastTouch = 0;
-    if (now - lastTouch > 400) {
-      int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
-      int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
-      if (handleMP3PlayerTouch(x, y)) {
-        handleModeChange();
-        return; 
-      }
-      lastTouch = now;
-    }
-  }
+  // 3. TOUCH gestito interamente da checkButtons() in 1_TOUCH.ino
+  // (evita doppio ts.read() che causa perdita touch events)
 
   // 4. RIDISEGNO COMPLETO (Solo se necessario)
   if (mp3Player.needsRedraw) {

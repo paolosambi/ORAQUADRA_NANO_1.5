@@ -213,16 +213,20 @@ int16_t scrollGetTextHeight(ScrollMessage& msg) {
 }
 
 // ===== Calcola larghezza effettiva testo (con data/ora composta) =====
+// FIX: Usa offscreen buffer se disponibile, altrimenti salva/ripristina stato gfx
+// per evitare leak di textSize/font verso altri modi
 int16_t scrollGetTextWidth(ScrollMessage& msg) {
-  scrollApplyFont(msg);
+  extern OffscreenGFX *scrollOffscreen;
+  Arduino_GFX* measureGfx = (scrollOffscreen) ? (Arduino_GFX*)scrollOffscreen : gfx;
+  scrollApplyFont(msg, measureGfx);
   scrollBuildDisplayText(msg);
   // CRITICO: disabilita textWrap per la misurazione!
   // Con wrap=true, getTextBounds tronca la larghezza a 480px (display width)
   // invece di restituire la larghezza reale del testo intero
-  gfx->setTextWrap(false);
+  measureGfx->setTextWrap(false);
   int16_t x1, y1;
   uint16_t w, h;
-  gfx->getTextBounds(scrollDisplayBuf, 0, 0, &x1, &y1, &w, &h);
+  measureGfx->getTextBounds(scrollDisplayBuf, 0, 0, &x1, &y1, &w, &h);
   return (int16_t)w;
 }
 
@@ -679,8 +683,9 @@ void cleanupScrollText() {
     scrollFrameBuf = NULL;
   }
   // Reset stato gfx per evitare corruzione display in altre modalità
-  // (scrollApplyFont imposta textSize su gfx per misurazioni)
+  // (scrollApplyFont imposta textSize e font custom su gfx)
   gfx->setTextSize(1);
+  gfx->setFont(u8g2_font_inb21_mr);
   gfx->setTextWrap(true);
   Serial.println("[SCROLLTEXT] Double buffer liberato + gfx reset");
 }

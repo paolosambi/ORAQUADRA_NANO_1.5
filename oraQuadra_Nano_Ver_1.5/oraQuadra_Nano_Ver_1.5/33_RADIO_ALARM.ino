@@ -138,27 +138,8 @@ void updateRadioAlarm() {
     return;
   }
 
-  // Gestione touch
-  ts.read();
-  if (ts.isTouched) {
-    static uint32_t lastTouch = 0;
-    uint32_t now = millis();
-    if (now - lastTouch > 400) {  // Aumentato da 300 a 400ms
-      int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
-      int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
-
-      // Valida coordinate
-      x = constrain(x, 0, 479);
-      y = constrain(y, 0, 479);
-
-      if (handleRadioAlarmTouch(x, y)) {
-        radioAlarmInitialized = false;
-        handleModeChange();
-        return;
-      }
-      lastTouch = now;
-    }
-  }
+  // Touch gestito interamente da checkButtons() in 1_TOUCH.ino
+  // (evita doppio ts.read() che causa perdita touch events)
 
   // Aggiorna periodicamente se in snooze (per mostrare countdown)
   if (radioAlarmSnoozed) {

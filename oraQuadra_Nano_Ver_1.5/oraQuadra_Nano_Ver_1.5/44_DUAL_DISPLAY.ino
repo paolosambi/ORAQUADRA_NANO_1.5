@@ -1474,6 +1474,11 @@ void processSyncPacket(SyncPacket &pkt) {
     extern void cleanupPreviousMode(DisplayMode previousMode);
     cleanupPreviousMode(currentMode);
     resetModeInitFlags();  // Resetta TUTTI i flag (vecchio + nuovo modo)
+    // Forza ridisegno per modi time-based (FAST, SLOW, FADE etc.)
+    // Senza questo, lastHour==currentHour e il modo non ridisegna (schermo nero)
+    extern uint8_t lastHour, lastMinute;
+    lastHour = 255;
+    lastMinute = 255;
   }
 
   currentMode    = (DisplayMode)pkt.mode;
@@ -1484,7 +1489,16 @@ void processSyncPacket(SyncPacket &pkt) {
   currentColor.r = pkt.colorR;
   currentColor.g = pkt.colorG;
   currentColor.b = pkt.colorB;
-  lastAppliedBrightness = pkt.brightness;
+  // Se il radar server ha comandato display OFF, non sovrascrivere la luminosita'
+  // Salva comunque il valore del master per ripristinarlo quando torna la presenza
+  extern bool radarServerEnabled;
+  extern bool radarRemotePresence;
+  if (radarServerEnabled && !radarRemotePresence) {
+    // Radar dice OFF: mantieni lastAppliedBrightness a 0, salva valore master a parte
+    // (il loop principale forzera' PWM a 0)
+  } else {
+    lastAppliedBrightness = pkt.brightness;
+  }
   currentPreset  = pkt.preset;
   rainbowModeEnabled = (pkt.rainbowEnabled != 0);
 
@@ -1507,10 +1521,24 @@ void processSyncPacket(SyncPacket &pkt) {
   ledAudioReactive = pkt.ledAudioReact;
 
   // Aggiorna dualModesMask dello slave per il modo corrente in base al master
+  // Rileva se lo stato bypass e' cambiato per questo modo (senza cambio modo)
+  bool wasDualEnabled = isModeDualEnabled(pkt.mode);
   if (modeDualBypass) {
     dualModesMask &= ~(1ULL << pkt.mode);  // Bit off: modo non usa dual
   } else {
     dualModesMask |= (1ULL << pkt.mode);   // Bit on: modo usa dual
+  }
+  bool nowDualEnabled = isModeDualEnabled(pkt.mode);
+
+  // FIX: Se bypass e' cambiato senza cambio modo, forza reset display
+  if (!modeChanged && wasDualEnabled != nowDualEnabled) {
+    Serial.printf("[DUAL] Slave: bypass cambiato per mode %d: dual=%d->%d\n",
+                  pkt.mode, wasDualEnabled, nowDualEnabled);
+    resetModeInitFlags();
+    // Forza ridisegno per modi time-based
+    extern uint8_t lastHour, lastMinute;
+    lastHour = 255;
+    lastMinute = 255;
   }
 
   // Luminosita' display applicata dal blocco brightness nel loop principale
@@ -1519,8 +1547,9 @@ void processSyncPacket(SyncPacket &pkt) {
   // ANTI-FLICKER: Se il tempo e il modo NON sono cambiati, forza lastHour/lastMinute
   // in sync con currentHour/currentMinute. Questo previene ridisegni accidentali
   // causati da race condition, corruzioni di stato, o path di codice non previste.
-  // Quando il tempo O il modo cambiano, lascia che la funzione del modo faccia UN solo redraw.
-  if (!modeChanged && !timeChanged) {
+  // Quando il tempo O il modo O il bypass cambiano, lascia che la funzione del modo faccia UN solo redraw.
+  bool bypassChanged = (!modeChanged && wasDualEnabled != nowDualEnabled);
+  if (!modeChanged && !timeChanged && !bypassChanged) {
     extern uint8_t lastHour, lastMinute;
     lastHour = currentHour;
     lastMinute = currentMinute;

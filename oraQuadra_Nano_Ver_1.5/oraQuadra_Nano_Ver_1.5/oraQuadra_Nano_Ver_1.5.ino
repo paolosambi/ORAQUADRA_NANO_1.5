@@ -811,7 +811,9 @@ bool isDualDisplayActive();
 bool isDualMaster();
 bool isDualSlave();
 bool isModeDualEnabled(uint8_t mode);
+int getActivePeerCount();
 void dualGfxBypass(bool bypass);
+void resetModeInitFlags();
 void initDualGfxProxy();
 void sendConfigPushToAllPeers();
 void setup_dualdisplay_webserver(AsyncWebServer* server);
@@ -3106,7 +3108,12 @@ void loop() {
 #ifdef EFFECT_DUAL_DISPLAY
     if (isDualSlave()) {
       // Slave: luminosita' gestita dal master via SyncPacket
-      ledcWrite(PWM_CHANNEL, lastAppliedBrightness);
+      // MA se il radar server comanda display OFF, rispetta il comando
+      if (radarServerEnabled && !radarRemotePresence) {
+        ledcWrite(PWM_CHANNEL, 0);
+      } else {
+        ledcWrite(PWM_CHANNEL, lastAppliedBrightness);
+      }
     } else {
 #endif
     uint8_t targetBrightness;
@@ -3399,16 +3406,33 @@ if (currentIsNight != lastWasNightTime) {
   updateDualDisplay();
   // Per-mode dual display bypass: se il modo corrente ha dual disabilitato,
   // usa display locale (480x480) invece del proxy DualGFX
-  // Usa condizione stabile (non dipende da heartbeat peer) per evitare glitch
+  // RICHIEDE peer attivi: senza slave connesso usa sempre display locale
   if (dualDisplayEnabled && dualDisplayInitialized && (gridW > 1 || gridH > 1)) {
     static bool lastDualBypassState = false;
-    bool shouldBypass = !isModeDualEnabled((uint8_t)currentMode);
+    // Bypass attivo se: modo non usa dual OPPURE nessun peer connesso
+    bool noPeers = (getActivePeerCount() == 0);
+    bool shouldBypass = noPeers || !isModeDualEnabled((uint8_t)currentMode);
     if (shouldBypass != lastDualBypassState) {
-      Serial.printf("[DUAL] Mode %d: bypass=%d (mask=0x%010llX)\n",
-                    (int)currentMode, shouldBypass, dualModesMask);
+      Serial.printf("[DUAL] Mode %d: bypass=%d (peers=%d, mask=0x%010llX)\n",
+                    (int)currentMode, shouldBypass, getActivePeerCount(), dualModesMask);
       lastDualBypassState = shouldBypass;
+      // Reset display state on bypass transition
+      // Switch gfx pointer FIRST, then clear+reset on the new target
+      dualGfxBypass(shouldBypass);
+      gfx->setTextSize(1);
+      gfx->setFont(u8g2_font_inb21_mr);
+      gfx->setTextWrap(true);
+      gfx->fillScreen(BLACK);
+      resetModeInitFlags();  // Forza reinit del modo corrente
+      // Forza ridisegno per modi time-based (FAST, SLOW, FADE etc.)
+      lastHour = 255;
+      lastMinute = 255;
+      // Reset pixel arrays per i modi base
+      memset(activePixels, 0, sizeof(activePixels));
+      memset(targetPixels, 0, sizeof(targetPixels));
+    } else {
+      dualGfxBypass(shouldBypass);
     }
-    dualGfxBypass(shouldBypass);
   }
   #endif
 

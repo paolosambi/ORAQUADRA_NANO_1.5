@@ -1655,6 +1655,7 @@ void drawWeatherIcon(int16_t centerX, int16_t centerY, String iconCode) {
     gfx->setTextColor(convertColor(Color(255, 255, 255)));
     gfx->setCursor(centerX - 10, centerY - 12);
     gfx->print("?");
+    gfx->setTextSize(1);  // Ripristina textSize default
   }
 
   // ===== FRECCIA DIREZIONE VENTO =====

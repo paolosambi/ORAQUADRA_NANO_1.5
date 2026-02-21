@@ -650,16 +650,25 @@ void executePendingModeSwitch() {
   gfx->setCursor(xPos, 240);
   gfx->println(modeName);
 
+  // Dual display: invia sync SUBITO cosi' lo slave cambia modo immediatamente
+#ifdef EFFECT_DUAL_DISPLAY
+  extern bool dualDisplayEnabled;
+  extern bool dualDisplayInitialized;
+  extern uint8_t panelRole;
+  if (dualDisplayEnabled && dualDisplayInitialized && panelRole == 1) {
+    extern void sendSyncPacket();
+    sendSyncPacket();
+  }
+#endif
+
   delay(1000);
 
   gfx->setFont(u8g2_font_inb21_mr);
   gfx->fillScreen(BLACK);
   forceDisplayUpdate();
 
+  // Dual display: invia sync aggiornato dopo forceDisplayUpdate
 #ifdef EFFECT_DUAL_DISPLAY
-  extern bool dualDisplayEnabled;
-  extern bool dualDisplayInitialized;
-  extern uint8_t panelRole;
   if (dualDisplayEnabled && dualDisplayInitialized && panelRole == 1) {
     extern void sendSyncPacket();
     sendSyncPacket();

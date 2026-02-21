@@ -147,25 +147,8 @@ void updateWebRadioUI() {
     return;
   }
 
-  // 1. GESTIONE TOUCH
-  ts.read();
-  if (ts.isTouched) {
-    static uint32_t lastTouch = 0;
-    uint32_t now = millis();
-    if (now - lastTouch > 400) {  
-      int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
-      int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
-
-      if (handleWebRadioTouch(x, y)) {
-        // Exit richiesto
-        webRadioInitialized = false;
-        saveWebRadioSettings();
-        handleModeChange();
-        return;
-      }
-      lastTouch = now;
-    }
-  }
+  // 1. TOUCH gestito interamente da checkButtons() in 1_TOUCH.ino
+  // (evita doppio ts.read() che causa perdita touch events)
 
   // 2. RIDISEGNO TOTALE (Solo se necessario, es. cambio stazione o avvio)
   if (webRadioNeedsRedraw) {

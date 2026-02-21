@@ -485,51 +485,60 @@ if (modeSelectorActive) {
   if (ts.isTouched && !waitingForRelease) {
 
   // ====================== TOUCH MODALITA' AUDIO (MP3, WebRadio, RadioAlarm) ======================
-  // Quadrante alto-sinistra = cambio modo (come FADE, SLOW, FAST)
-  // MODE >> basso centro = cambio modo
+  // MODE >> basso centro = cambio modo sequenziale
+  // Angolo alto-sx (sopra i controlli) = mode selector overlay
   // Il resto del touch viene gestito internamente da ciascuna modalita'
   #ifdef EFFECT_MP3_PLAYER
   if (currentMode == MODE_MP3_PLAYER) {
-    if (touch_last_y < 240 && touch_last_x < 240) {
-      if (touch_last_x <= 140 && touch_last_y >= 190) {
-        playTouchSound(); showModeSelector(); waitingForRelease = true; return;
-      }
+    // Angolo alto-sinistra (sopra preview area y<55): cambio modo sequenziale
+    if (touch_last_x < 80 && touch_last_y < 55) {
       playTouchSound(); handleModeChange(); waitingForRelease = true; return;
     }
-    if (touch_last_y > 455 && touch_last_x >= 180 && touch_last_x <= 310) {
+    // Gestione touch completa qui (evita doppio ts.read in updateMP3Player)
+    extern bool handleMP3PlayerTouch(int16_t x, int16_t y);
+    if (handleMP3PlayerTouch(touch_last_x, touch_last_y)) {
       playTouchSound(); handleModeChange(); waitingForRelease = true; return;
     }
-    return;  // Il resto del touch viene gestito da updateMP3Player()
+    waitingForRelease = true;
+    return;
   }
   #endif
 
   #ifdef EFFECT_WEB_RADIO
   if (currentMode == MODE_WEB_RADIO) {
-    if (touch_last_y < 240 && touch_last_x < 240) {
-      if (touch_last_x <= 140 && touch_last_y >= 190) {
-        playTouchSound(); showModeSelector(); waitingForRelease = true; return;
-      }
+    // Angolo alto-sinistra (sopra station name y<55): cambio modo sequenziale
+    if (touch_last_x < 80 && touch_last_y < 55) {
       playTouchSound(); handleModeChange(); waitingForRelease = true; return;
     }
-    if (touch_last_y > 455 && touch_last_x >= 180 && touch_last_x <= 310) {
+    // Gestione touch completa qui (evita doppio ts.read in updateWebRadioUI)
+    extern bool handleWebRadioTouch(int16_t x, int16_t y);
+    if (handleWebRadioTouch(touch_last_x, touch_last_y)) {
+      extern bool webRadioInitialized;
+      webRadioInitialized = false;
+      extern void saveWebRadioSettings();
+      saveWebRadioSettings();
       playTouchSound(); handleModeChange(); waitingForRelease = true; return;
     }
-    return;  // Il resto del touch viene gestito da updateWebRadioUI()
+    waitingForRelease = true;
+    return;
   }
   #endif
 
   #ifdef EFFECT_RADIO_ALARM
   if (currentMode == MODE_RADIO_ALARM) {
-    if (touch_last_y < 240 && touch_last_x < 240) {
-      if (touch_last_x <= 140 && touch_last_y >= 190) {
-        playTouchSound(); showModeSelector(); waitingForRelease = true; return;
-      }
+    // Angolo alto-sinistra (sopra toggle y<50): cambio modo sequenziale
+    if (touch_last_x < 80 && touch_last_y < 50) {
       playTouchSound(); handleModeChange(); waitingForRelease = true; return;
     }
-    if (touch_last_y > 455 && touch_last_x >= 180 && touch_last_x <= 310) {
+    // Gestione touch completa qui (evita doppio ts.read in updateRadioAlarm)
+    extern bool handleRadioAlarmTouch(int16_t x, int16_t y);
+    if (handleRadioAlarmTouch(touch_last_x, touch_last_y)) {
+      extern bool radioAlarmInitialized;
+      radioAlarmInitialized = false;
       playTouchSound(); handleModeChange(); waitingForRelease = true; return;
     }
-    return;  // Il resto del touch viene gestito da updateRadioAlarm()
+    waitingForRelease = true;
+    return;
   }
   #endif
 
@@ -539,21 +548,14 @@ if (modeSelectorActive) {
     int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
     int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
 
-    // Quadrante alto-sinistra: cambio modo (come FADE, SLOW, FAST)
-    if (y < 240 && x < 240) {
-      if (x <= 140 && y >= 190) {
-        playTouchSound(); showModeSelector(); waitingForRelease = true; return;
-      }
-      calendarGridView = true;
-      playTouchSound(); handleModeChange(); waitingForRelease = true; return;
-    }
-
-    // Pulsante MODE >> (basso centro y>455, x 180-310)
+    // MODE>> button (basso centro) - unico punto cambio modo per Calendar
+    // (l'header e' riservato alle frecce < > cambio mese)
     if (y > 455 && x >= 180 && x <= 310) {
       calendarGridView = true;
       playTouchSound(); handleModeChange(); waitingForRelease = true; return;
     }
 
+    // Tutto il resto (frecce mese, griglia, dettaglio giorno) gestito da handleCalendarTouch
     handleCalendarTouch(x, y);
     waitingForRelease = true;
     return;
@@ -633,16 +635,14 @@ if (modeSelectorActive) {
     int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
     int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
 
-    // Quadrante alto-sinistra: cambio modo (come FADE, SLOW, FAST)
-    if (y < 240 && x < 240) {
-      if (x <= 140 && y >= 190) {
-        playTouchSound(); showModeSelector(); waitingForRelease = true; return;
-      }
+    // MODE>> button (basso centro)
+    if (y > 455 && x >= 180 && x <= 310) {
       playTouchSound(); handleModeChange(); waitingForRelease = true; return;
     }
 
-    // Pulsante MODE >> (basso centro y>455, x 180-310)
-    if (y > 455 && x >= 180 && x <= 310) {
+    // Cambio modo: angolo alto-sx (sotto icona news, sopra tabs)
+    // Icona news e' piccola (~40x40), tabs partono da y:80
+    if (x < 60 && y < 50) {
       playTouchSound(); handleModeChange(); waitingForRelease = true; return;
     }
 

@@ -598,6 +598,17 @@ void applyPreset(uint8_t preset) {
   gfx->setCursor(xPos, 240);
   gfx->println(presetName);
 
+  // Dual display: invia sync SUBITO cosi' lo slave cambia modo immediatamente
+#ifdef EFFECT_DUAL_DISPLAY
+  extern bool dualDisplayEnabled;
+  extern bool dualDisplayInitialized;
+  extern uint8_t panelRole;
+  if (dualDisplayEnabled && dualDisplayInitialized && panelRole == 1) {
+    extern void sendSyncPacket();
+    sendSyncPacket();
+  }
+#endif
+
   // Pausa per mostrare il nome
   delay(1000);
 
@@ -630,6 +641,14 @@ void applyPreset(uint8_t preset) {
 
   // Forza ridisegno immediato
   forceDisplayUpdate();
+
+  // Dual display: invia sync aggiornato dopo forceDisplayUpdate
+#ifdef EFFECT_DUAL_DISPLAY
+  if (dualDisplayEnabled && dualDisplayInitialized && panelRole == 1) {
+    extern void sendSyncPacket();
+    sendSyncPacket();
+  }
+#endif
 }
 
 
@@ -1002,6 +1021,18 @@ void handleModeChange() {
   gfx->println(modeName);
 
 
+  // Dual display: invia sync SUBITO cosi' lo slave cambia modo immediatamente
+  // (non aspettare il delay(1000) del nome modalita' che blocca il loop master)
+#ifdef EFFECT_DUAL_DISPLAY
+  extern bool dualDisplayEnabled;
+  extern bool dualDisplayInitialized;
+  extern uint8_t panelRole;
+  if (dualDisplayEnabled && dualDisplayInitialized && panelRole == 1) {
+    extern void sendSyncPacket();
+    sendSyncPacket();
+  }
+#endif
+
   // Attende un secondo per mostrare il nome della modalità all'utente.
   delay(1000);
 
@@ -1012,11 +1043,8 @@ void handleModeChange() {
   // Forza un aggiornamento immediato del display per avviare la nuova modalità.
   forceDisplayUpdate();
 
-  // Dual display: invia sync immediato al cambio modo (non aspettare il prossimo ciclo 33ms)
+  // Dual display: invia sync aggiornato dopo forceDisplayUpdate
 #ifdef EFFECT_DUAL_DISPLAY
-  extern bool dualDisplayEnabled;
-  extern bool dualDisplayInitialized;
-  extern uint8_t panelRole;
   if (dualDisplayEnabled && dualDisplayInitialized && panelRole == 1) {
     extern void sendSyncPacket();
     sendSyncPacket();
