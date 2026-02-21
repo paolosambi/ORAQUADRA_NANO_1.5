@@ -2187,9 +2187,9 @@ void setup() {
     xTaskCreatePinnedToCore(
         audioTask,      // Funzione del task assegnazione a core 0 esp32 della task per AUDIO
         "AudioTask",    // Nome
-        16384,          // Stack size (aumentato per decoder MP3)
+        32768,          // Stack size (32KB - decoder MP3 ha bisogno di spazio)
         NULL,           // Parametri
-        2,              // Priorità alta
+        1,              // Priorità normale (era 2 - troppo alta causava WDT)
         NULL,           // Handle
         0               // CORE 0
     );
@@ -2849,7 +2849,7 @@ void readBME280Temperature() {
 void audioTask(void *pvParameters) {
     while(1) {
         audio.loop();
-        vTaskDelay(1);
+        vTaskDelay(3);  // 3ms - lascia CPU per display/WiFi/touch (era 1ms - troppo aggressivo)
     }
 }
 //////////////////////////////////////////////////////////////////

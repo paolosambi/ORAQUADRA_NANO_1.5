@@ -11,6 +11,9 @@
 void saveMP3PlayerSettings();
 void loadMP3PlayerSettings();
 
+// Flag globale per rescan playlist dopo upload (settato dal webserver, consumato dal polling)
+static volatile bool mp3NeedRescan = false;
+
 // ================== CONFIGURAZIONE MP3 PLAYER ==================
 #define MP3_FOLDER "/MP3"           // Cartella sulla SD dove cercare i file
 #define MP3_MAX_FILES 100           // Numero massimo di file MP3 gestibili
@@ -46,6 +49,11 @@ void loadMP3PlayerSettings();
 
 #define PLAYLIST_Y      360
 #define PLAYLIST_H      50
+
+#define PROGRESS_Y      415
+#define PROGRESS_BAR_X  115
+#define PROGRESS_BAR_W  248
+#define PROGRESS_BAR_H  8
 
 // Area centrale
 #define MP3_CENTER_X    55
@@ -387,6 +395,9 @@ void drawMP3PlayerUI() {
 
   // Pulsante modalita' riproduzione
   drawMP3ModeButton();
+
+  // Progress bar con durata/tempo trascorso
+  drawMP3ProgressBar();
 
   // Tasto uscita
   drawMP3ExitButton();
@@ -832,6 +843,54 @@ void drawMP3ModeButton() {
   int indY = y + MODE_BTN_H / 2;
   gfx->fillCircle(indX, indY, 8, mp3Player.playAll ? MP3_PLAY_COLOR : MP3_TEXT_MUTED);
   gfx->drawCircle(indX, indY, 10, MP3_TEXT_COLOR);
+}
+
+// ================== PROGRESS BAR CON DURATA/TEMPO ==================
+void drawMP3ProgressBar() {
+  #ifdef AUDIO
+  extern Audio audio;
+
+  uint32_t currentTime = 0;
+  uint32_t duration = 0;
+
+  if (mp3Player.playing || mp3Player.paused) {
+    currentTime = audio.getAudioCurrentTime();
+    duration = audio.getAudioFileDuration();
+  }
+
+  // Formato MM:SS
+  char elapsedStr[8], durationStr[8];
+  snprintf(elapsedStr, sizeof(elapsedStr), "%lu:%02lu", currentTime / 60, currentTime % 60);
+  snprintf(durationStr, sizeof(durationStr), "%lu:%02lu", duration / 60, duration % 60);
+
+  // Pulizia area
+  gfx->fillRect(MP3_CENTER_X, PROGRESS_Y - 2, MP3_CENTER_W, 22, MP3_BG_DARK);
+
+  // Tempo trascorso (sinistra)
+  gfx->setFont(u8g2_font_helvR10_tr);
+  gfx->setTextColor(MP3_ACCENT_COLOR);
+  gfx->setCursor(MP3_CENTER_X + 3, PROGRESS_Y + 12);
+  gfx->print(elapsedStr);
+
+  // Durata totale (destra)
+  int durLen = strlen(durationStr);
+  int durX = MP3_CENTER_X + MP3_CENTER_W - durLen * 8 - 3;
+  gfx->setCursor(durX, PROGRESS_Y + 12);
+  gfx->print(durationStr);
+
+  // Sfondo barra
+  gfx->fillRoundRect(PROGRESS_BAR_X, PROGRESS_Y, PROGRESS_BAR_W, PROGRESS_BAR_H, 4, MP3_BG_CARD);
+  gfx->drawRoundRect(PROGRESS_BAR_X, PROGRESS_Y, PROGRESS_BAR_W, PROGRESS_BAR_H, 4, MP3_ACCENT_DARK);
+
+  // Parte riempita
+  if (duration > 0 && currentTime > 0) {
+    int fillW = (int)((float)currentTime / (float)duration * PROGRESS_BAR_W);
+    if (fillW > PROGRESS_BAR_W) fillW = PROGRESS_BAR_W;
+    if (fillW >= 3) {
+      gfx->fillRoundRect(PROGRESS_BAR_X, PROGRESS_Y, fillW, PROGRESS_BAR_H, 4, MP3_ACCENT_COLOR);
+    }
+  }
+  #endif
 }
 
 // ================== PULSANTE MODE >> (basso centro) ==================
@@ -1285,7 +1344,14 @@ void updateMP3Player() {
     lastStatusAnim = now;
   }
 
-  // 6. VU METERS (Solo se in play)
+  // 6. PROGRESS BAR (Aggiorna ogni secondo durante riproduzione)
+  static uint32_t lastProgressUpdate = 0;
+  if ((mp3Player.playing || mp3Player.paused) && (now - lastProgressUpdate >= 1000)) {
+    drawMP3ProgressBar();
+    lastProgressUpdate = now;
+  }
+
+  // 7. VU METERS (Solo se in play)
   static uint32_t lastVUUpdate = 0;
   if (mp3Player.playing && !mp3Player.paused && (now - lastVUUpdate >= 100)) {
     updateMP3VUMeters();
@@ -1384,6 +1450,20 @@ body{font-family:Arial,sans-serif;background:#1a1a2e;min-height:100vh;padding:20
 .playmode-btn{flex:1;padding:12px;border:2px solid #444;border-radius:10px;background:rgba(0,0,0,.3);color:#fff;cursor:pointer;text-align:center;transition:all 0.3s}
 .playmode-btn.active{border-color:#4CAF50;background:rgba(76,175,80,.3)}
 .playmode-btn:hover{background:rgba(255,255,255,.1)}
+.drop{border:3px dashed #555;border-radius:15px;padding:40px 20px;text-align:center;cursor:pointer;transition:all .3s;margin-bottom:15px}
+.drop:hover,.drop.drag{border-color:#ce93d8;background:rgba(156,39,176,.1)}
+.drop p{margin:5px 0;opacity:.7;font-size:.9em}
+.drop .icon{font-size:2.5em;margin-bottom:5px}
+.prog-wrap{display:none;margin:10px 0}
+.prog-bar{height:8px;background:#2a2a4a;border-radius:4px;overflow:hidden}
+.prog-fill{height:100%;background:linear-gradient(90deg,#9c27b0,#ce93d8);width:0%;transition:width .2s}
+.prog-text{font-size:.8em;opacity:.7;margin-top:5px;text-align:center}
+.frow{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(255,255,255,.08);border-radius:8px;margin-bottom:6px}
+.frow .fname{flex:1;font-size:.95em;word-break:break-all}
+.frow .fsize{font-size:.8em;opacity:.6;margin:0 12px;white-space:nowrap}
+.frow .fdel{background:#f44336;color:#fff;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:.8em}
+.frow .fdel:hover{background:#d32f2f}
+.sd-info{display:flex;justify-content:space-between;font-size:.85em;opacity:.7;margin-bottom:12px}
 .volume-row{display:flex;align-items:center;gap:15px;margin-top:15px}
 .volume-slider{flex:1;height:10px;-webkit-appearance:none;background:#2a2a4a;border-radius:5px;border:1px solid #555}
 .volume-slider::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;background:#ce93d8;border-radius:50%;cursor:pointer;box-shadow:0 0 10px rgba(206,147,216,.5)}
@@ -1415,6 +1495,20 @@ body{font-family:Arial,sans-serif;background:#1a1a2e;min-height:100vh;padding:20
 </div>
 <div class="s"><h3>Playlist</h3>
 <div id="playlist"></div>
+</div>
+<div class="s"><h3>📂 Gestione File SD</h3>
+<div class="sd-info"><span id="sdInfo">Caricamento...</span><span id="sdCount"></span></div>
+<div class="drop" id="dropZone" onclick="document.getElementById('fileIn').click()">
+<div class="icon">📤</div>
+<p><b>Trascina qui i file MP3/WAV</b></p>
+<p>oppure clicca per selezionare</p>
+</div>
+<input type="file" id="fileIn" accept=".mp3,.wav" multiple style="display:none" onchange="uploadFiles(this.files)">
+<div class="prog-wrap" id="progWrap">
+<div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
+<div class="prog-text" id="progText">Caricamento...</div>
+</div>
+<div id="fileList"></div>
 </div>
 <button class="mode-btn" onclick="activateMode()">Mostra su Display</button>
 </div></div><script>
@@ -1471,6 +1565,64 @@ function activateMode(){
 }
 function poll(){fetch('/mp3player/status').then(r=>r.json()).then(d=>{update(d)}).catch(()=>{});}
 poll();setInterval(poll,2000);
+// === GESTIONE FILE ===
+var dz=document.getElementById('dropZone');
+dz.addEventListener('dragover',function(e){e.preventDefault();dz.classList.add('drag');});
+dz.addEventListener('dragleave',function(){dz.classList.remove('drag');});
+dz.addEventListener('drop',function(e){e.preventDefault();dz.classList.remove('drag');uploadFiles(e.dataTransfer.files);});
+function fmtSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';return(b/1048576).toFixed(1)+' MB';}
+function loadFiles(){
+  fetch('/mp3player/files').then(r=>r.json()).then(d=>{
+    document.getElementById('sdInfo').textContent='SD: '+d.total+' file, '+fmtSize(d.usedBytes);
+    document.getElementById('sdCount').textContent=fmtSize(d.freeBytes)+' liberi';
+    var h='';
+    if(d.files.length===0){h='<div class="empty">Nessun file nella cartella /MP3</div>';}
+    else{for(var i=0;i<d.files.length;i++){
+      var f=d.files[i];
+      h+='<div class="frow"><span class="fname">'+f.name+'</span>';
+      h+='<span class="fsize">'+fmtSize(f.size)+'</span>';
+      h+='<button class="fdel" onclick="delFile(\''+f.name.replace(/'/g,"\\'")+'\')">Elimina</button></div>';
+    }}
+    document.getElementById('fileList').innerHTML=h;
+  }).catch(()=>{document.getElementById('sdInfo').textContent='Errore lettura SD';});
+}
+function uploadFiles(files){
+  if(!files||files.length===0)return;
+  var pw=document.getElementById('progWrap');
+  var pf=document.getElementById('progFill');
+  var pt=document.getElementById('progText');
+  pw.style.display='block';
+  var total=files.length,done=0,errors=0;
+  function next(){
+    if(done+errors>=total){
+      pt.textContent='Completato: '+done+'/'+total+(errors?' ('+errors+' errori)':'');
+      setTimeout(function(){pw.style.display='none';},3000);
+      loadFiles();poll();return;
+    }
+    var f=files[done+errors];
+    var ext=f.name.toLowerCase();
+    if(!ext.endsWith('.mp3')&&!ext.endsWith('.wav')){
+      pt.textContent='Saltato (non MP3/WAV): '+f.name;errors++;next();return;
+    }
+    pt.textContent='Caricamento '+(done+1)+'/'+total+': '+f.name;
+    pf.style.width=((done/total)*100)+'%';
+    var fd=new FormData();fd.append('file',f,f.name);
+    var xhr=new XMLHttpRequest();
+    xhr.open('POST','/mp3player/upload',true);
+    xhr.upload.onprogress=function(e){if(e.lengthComputable){var p=((done+e.loaded/e.total)/total)*100;pf.style.width=p+'%';}};
+    xhr.onload=function(){if(xhr.status===200){done++;}else{errors++;pt.textContent='Errore: '+f.name;}next();};
+    xhr.onerror=function(){errors++;next();};
+    xhr.send(fd);
+  }
+  next();
+}
+function delFile(name){
+  if(!confirm('Eliminare '+name+'?'))return;
+  fetch('/mp3player/delete?file='+encodeURIComponent(name)).then(r=>r.json()).then(d=>{
+    if(d.success){loadFiles();poll();}else{alert('Errore: '+d.error);}
+  });
+}
+loadFiles();
 </script></body></html>
 )rawliteral";
 
@@ -1550,6 +1702,13 @@ void setup_mp3player_webserver(AsyncWebServer* server) {
     if (!mp3Player.initialized && mp3Player.totalTracks == 0) {
       scanMP3Files();
     }
+    // Rescan dopo upload/delete (schedulato dal callback, eseguito qui nel contesto sicuro)
+    if (mp3NeedRescan) {
+      mp3NeedRescan = false;
+      scanMP3Files();
+      if (currentMode == MODE_MP3_PLAYER) mp3Player.needsRedraw = true;
+      Serial.printf("[MP3] Playlist aggiornata dopo upload/delete: %d tracce\n", mp3Player.totalTracks);
+    }
     request->send(200, "application/json", getMP3PlayerStatusJSON());
   });
 
@@ -1612,6 +1771,162 @@ void setup_mp3player_webserver(AsyncWebServer* server) {
       }
     }
     request->send(200, "application/json", getMP3PlayerStatusJSON());
+  });
+
+  // API lista file sulla SD (/MP3)
+  server->on("/mp3player/files", HTTP_GET, [](AsyncWebServerRequest *request){
+    String json = "{\"files\":[";
+    File dir = SD.open(MP3_FOLDER);
+    int count = 0;
+    size_t usedBytes = 0;
+    if (dir && dir.isDirectory()) {
+      File f = dir.openNextFile();
+      while (f) {
+        if (!f.isDirectory()) {
+          String name = String(f.name());
+          String lower = name;
+          lower.toLowerCase();
+          if (lower.endsWith(".mp3") || lower.endsWith(".wav")) {
+            if (count > 0) json += ",";
+            size_t sz = f.size();
+            usedBytes += sz;
+            json += "{\"name\":\"" + name + "\",\"size\":" + String(sz) + "}";
+            count++;
+          }
+        }
+        f = dir.openNextFile();
+      }
+      dir.close();
+    }
+    json += "],\"total\":" + String(count);
+    json += ",\"usedBytes\":" + String(usedBytes);
+    uint64_t totalSD = SD.totalBytes();
+    uint64_t usedSD = SD.usedBytes();
+    json += ",\"freeBytes\":" + String((uint32_t)(totalSD - usedSD));
+    json += "}";
+    request->send(200, "application/json", json);
+  });
+
+  // API upload file MP3/WAV sulla SD
+  static String mp3LastUploaded = "";
+  static bool mp3WasPlayingBeforeUpload = false;
+
+  server->on("/mp3player/upload", HTTP_POST,
+    [](AsyncWebServerRequest *request){
+      String resp;
+      if (mp3LastUploaded.length() > 0) {
+        resp = "{\"success\":true,\"filename\":\"" + mp3LastUploaded + "\"}";
+      } else {
+        resp = "{\"success\":false,\"error\":\"Upload fallito\"}";
+      }
+      // Schedula rescan nel loop (non qui nel callback)
+      mp3NeedRescan = true;
+      request->send(200, "application/json", resp);
+    },
+    [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
+      static File uploadFile;
+      static String uploadPath;
+      static bool uploadValid = false;
+
+      if (index == 0) {
+        Serial.printf("[MP3-UPLOAD] Start: %s\n", filename.c_str());
+        String lower = filename;
+        lower.toLowerCase();
+        if (!lower.endsWith(".mp3") && !lower.endsWith(".wav")) {
+          Serial.println("[MP3-UPLOAD] Errore: solo MP3/WAV accettati");
+          mp3LastUploaded = "";
+          uploadValid = false;
+          return;
+        }
+        // Ferma audio se in riproduzione (contesa bus SPI SD)
+        #ifdef AUDIO
+        extern Audio audio;
+        if (mp3Player.playing) {
+          mp3WasPlayingBeforeUpload = true;
+          audio.stopSong();
+          mp3Player.playing = false;
+          mp3Player.paused = false;
+          Serial.println("[MP3-UPLOAD] Audio fermato per upload sicuro");
+          delay(50);  // Lascia rilasciare il bus SPI
+        }
+        #endif
+        // Assicura che /MP3 esista
+        if (!SD.exists(MP3_FOLDER)) SD.mkdir(MP3_FOLDER);
+        uploadPath = String(MP3_FOLDER) + "/" + filename;
+        uploadFile = SD.open(uploadPath.c_str(), FILE_WRITE);
+        if (!uploadFile) {
+          Serial.println("[MP3-UPLOAD] Errore apertura file!");
+          mp3LastUploaded = "";
+          uploadValid = false;
+          return;
+        }
+        uploadValid = true;
+      }
+
+      // Scrivi chunk con yield per prevenire watchdog
+      if (uploadValid && uploadFile && len) {
+        uploadFile.write(data, len);
+        yield();  // Previene watchdog durante upload grandi
+      }
+
+      if (final) {
+        if (uploadValid && uploadFile) {
+          uploadFile.flush();
+          uploadFile.close();
+        }
+        Serial.printf("[MP3-UPLOAD] Completato: %s (%u bytes)\n", uploadPath.c_str(), index + len);
+        // Verifica
+        if (uploadValid && SD.exists(uploadPath.c_str())) {
+          File check = SD.open(uploadPath.c_str(), FILE_READ);
+          if (check && check.size() > 0) {
+            mp3LastUploaded = filename;
+            check.close();
+          } else {
+            if (check) check.close();
+            SD.remove(uploadPath.c_str());
+            mp3LastUploaded = "";
+          }
+        } else {
+          mp3LastUploaded = "";
+        }
+        uploadValid = false;
+        // NON fare scanMP3Files() qui - schedulata nel response handler via mp3NeedRescan
+      }
+    }
+  );
+
+  // API elimina file dalla SD
+  server->on("/mp3player/delete", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (!request->hasParam("file")) {
+      request->send(400, "application/json", "{\"success\":false,\"error\":\"Parametro file mancante\"}");
+      return;
+    }
+    String filename = request->getParam("file")->value();
+    String path = String(MP3_FOLDER) + "/" + filename;
+    if (!SD.exists(path.c_str())) {
+      request->send(404, "application/json", "{\"success\":false,\"error\":\"File non trovato\"}");
+      return;
+    }
+    // Ferma audio se il file in riproduzione viene eliminato
+    #ifdef AUDIO
+    if (mp3Player.playing && mp3Player.currentTrack >= 0 && mp3Player.currentTrack < mp3Player.totalTracks) {
+      String currentFile = String(mp3Player.tracks[mp3Player.currentTrack].filename);
+      if (currentFile == filename) {
+        extern Audio audio;
+        audio.stopSong();
+        mp3Player.playing = false;
+        mp3Player.paused = false;
+      }
+    }
+    #endif
+    if (SD.remove(path.c_str())) {
+      Serial.printf("[MP3-DELETE] Eliminato: %s\n", path.c_str());
+      // Schedula rescan nel prossimo polling (non qui)
+      mp3NeedRescan = true;
+      request->send(200, "application/json", "{\"success\":true}");
+    } else {
+      request->send(500, "application/json", "{\"success\":false,\"error\":\"Errore eliminazione\"}");
+    }
   });
 
   // API attiva modalità MP3 sul display
