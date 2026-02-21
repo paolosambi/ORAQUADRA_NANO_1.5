@@ -290,6 +290,12 @@ void getLedColorForMode(DisplayMode mode, uint8_t &r, uint8_t &g, uint8_t &b) {
       break;
 #endif
 
+#ifdef EFFECT_BREAKOUT
+    case MODE_BREAKOUT:
+      r = 0; g = 255; b = 255;  // Ciano arcade Breakout
+      break;
+#endif
+
 #ifdef EFFECT_SCROLLTEXT
     case MODE_SCROLLTEXT:
       r = 100; g = 255; b = 50;  // Verde lime ScrollText

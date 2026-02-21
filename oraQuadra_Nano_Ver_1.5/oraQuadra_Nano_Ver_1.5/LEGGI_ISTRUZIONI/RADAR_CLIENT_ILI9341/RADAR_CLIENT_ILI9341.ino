@@ -4,7 +4,7 @@
 // Funzionalita complete importate da RADAR_SERVER_C3
 // ============================================================================
 // Autore: Sambinello Paolo
-// Hardware: ESP32 + ILI9341 320x240 TFT + XPT2046 Touch + LD2410 + BME280
+// Hardware: ESP32 + ILI9341 320x240 TFT + XPT2046 Touch + LD2410 + BME280 + TEMT6000
 // Libreria: TFT_eSPI (touch integrato), MyLD2410
 // ============================================================================
 
@@ -139,17 +139,18 @@ unsigned long bootTime = 0;       // Timestamp avvio
 bool pendingRelayPulse = false;   // Attivazione rele pendente (durante boot delay)
 bool relayDeviceOn = false;       // Stato stimato TV/monitor (false=spento al boot)
 
-// ========== SENSORE MONITOR TEMT6000 (DISATTIVATO) ==========
-// #define MONITOR_SENSOR_PIN 34         // GPIO34 (ADC1) per TEMT6000 puntato al monitor
-// #define MONITOR_SENSOR_UPDATE_MS 500  // Lettura ogni 500ms
-// #define MONITOR_THRESHOLD_ON 150      // Soglia per considerare monitor ACCESO (0-4095)
-// #define MONITOR_THRESHOLD_OFF 50      // Soglia per considerare monitor SPENTO (isteresi)
-// #define MONITOR_READINGS_AVG 5        // Numero letture per media (anti-rumore)
-// int monitorLightLevel = 0;            // Livello luce rilevato dal sensore (0-4095)
-// bool monitorDetectedOn = false;       // Stato rilevato: true = monitor acceso
-// bool monitorStateDesired = false;     // Stato desiderato: true = vogliamo monitor acceso
-// unsigned long lastMonitorSensorRead = 0;
-// bool monitorSyncEnabled = true;       // Sync relè abilitato
+// ========== SENSORE LUMINOSITA TEMT6000 (GPIO35) ==========
+// Rileva se il dispositivo controllato (TV/monitor) e' acceso o spento
+// tramite la luce emessa. Controlla il rele di conseguenza:
+//   - Dispositivo SPENTO (luce bassa) + presenza -> attiva rele per accendere
+//   - Dispositivo ACCESO (luce alta) + assenza   -> attiva rele per spegnere
+#define TEMT6000_PIN 35                  // GPIO35 (ADC1, input-only) per TEMT6000
+#define TEMT6000_UPDATE_MS 500           // Lettura ogni 500ms
+#define TEMT6000_THRESHOLD_ON 150        // Soglia per considerare dispositivo ACCESO (0-4095)
+#define TEMT6000_THRESHOLD_OFF 50        // Soglia per considerare dispositivo SPENTO (isteresi)
+#define TEMT6000_READINGS_AVG 5          // Numero letture per media (anti-rumore)
+bool temt6000Connected = false;          // Sensore collegato e funzionante
+unsigned long lastTemt6000Read = 0;      // Ultimo aggiornamento lettura
 
 // ========== SENSORE GAS DFRobot MICS ==========
 #define MICS_CALIBRATION_TIME   2       // Tempo calibrazione in minuti
@@ -185,11 +186,11 @@ unsigned long lastGasAlarmSent = 0;   // Ultimo invio allarme
 #define GAS_ALARM_INTERVAL_MS 5000    // Intervallo minimo tra allarmi (5 sec)
 bool gasAlarmAcknowledged = false;    // Allarme confermato dall'utente
 
-// Variabili per compatibilità con logica monitor (legacy)
-bool monitorDetectedOn = false;       // Legacy: mantiene compatibilità
-bool monitorStateDesired = false;     // Legacy: mantiene compatibilità
-int monitorLightLevel = 0;            // Legacy: mantiene compatibilità
-bool monitorSyncEnabled = false;      // Disabilitato: non più usato con sensore gas
+// Variabili stato TEMT6000 (usate anche dal display e API)
+bool monitorDetectedOn = false;       // Stato reale rilevato dal TEMT6000: true = dispositivo acceso
+bool monitorStateDesired = false;     // Stato desiderato: true = vogliamo dispositivo acceso
+int monitorLightLevel = 0;            // Livello luce rilevato dal TEMT6000 (0-4095)
+bool monitorSyncEnabled = true;       // Sync rele<->TEMT6000 abilitato
 
 // ========== CONFIGURAZIONE WS2812 ==========
 #define WS2812_PIN 27             // GPIO27 per WS2812
@@ -524,20 +525,73 @@ void updateRelay() {
   }
 }
 
-// ========== FUNZIONI SENSORE MONITOR TEMT6000 (DISATTIVATO) ==========
-/*
-void setupMonitorSensor_OLD() {
-  analogSetPinAttenuation(MONITOR_SENSOR_PIN, ADC_0db);
-  analogReadResolution(12);
+// ========== FUNZIONI SENSORE LUMINOSITA TEMT6000 (GPIO35) ==========
+
+// Legge il sensore TEMT6000 con media di N letture (anti-rumore)
+int readTEMT6000() {
+  long sum = 0;
+  for (int i = 0; i < TEMT6000_READINGS_AVG; i++) {
+    sum += analogRead(TEMT6000_PIN);
+    delayMicroseconds(200);
+  }
+  return (int)(sum / TEMT6000_READINGS_AVG);
+}
+
+// Inizializza il sensore TEMT6000
+void setupTEMT6000() {
+  DEBUG_PRINTLN("Inizializzazione sensore TEMT6000 su GPIO35...");
+  pinMode(TEMT6000_PIN, INPUT);
+  analogSetPinAttenuation(TEMT6000_PIN, ADC_11db);  // Range 0-3.3V
+
+  // Letture iniziali per stabilizzare ADC
   for (int i = 0; i < 10; i++) {
-    analogRead(MONITOR_SENSOR_PIN);
+    analogRead(TEMT6000_PIN);
     delay(10);
   }
-  monitorLightLevel = readMonitorSensor();
-  monitorDetectedOn = (monitorLightLevel > MONITOR_THRESHOLD_ON);
+
+  // Prima lettura reale
+  monitorLightLevel = readTEMT6000();
+  temt6000Connected = true;
+
+  // Determina stato iniziale del dispositivo
+  monitorDetectedOn = (monitorLightLevel > TEMT6000_THRESHOLD_ON);
   monitorStateDesired = monitorDetectedOn;
+  // Sincronizza lo stato stimato del rele con la lettura reale
+  relayDeviceOn = monitorDetectedOn;
+  DEBUG_PRINTF("TEMT6000 OK - Luce: %d -> Dispositivo: %s\n",
+    monitorLightLevel, monitorDetectedOn ? "ACCESO" : "SPENTO");
 }
-*/
+
+// Aggiorna lettura TEMT6000 periodicamente (chiamata nel loop)
+void updateTEMT6000() {
+  unsigned long now = millis();
+  if (now - lastTemt6000Read < TEMT6000_UPDATE_MS) return;
+  lastTemt6000Read = now;
+
+  monitorLightLevel = readTEMT6000();
+
+  // Isteresi: soglie diverse per ON e OFF per evitare oscillazioni
+  bool prevState = monitorDetectedOn;
+  if (monitorDetectedOn) {
+    // Era acceso: si spegne solo sotto soglia bassa
+    if (monitorLightLevel < TEMT6000_THRESHOLD_OFF) {
+      monitorDetectedOn = false;
+    }
+  } else {
+    // Era spento: si accende solo sopra soglia alta
+    if (monitorLightLevel > TEMT6000_THRESHOLD_ON) {
+      monitorDetectedOn = true;
+    }
+  }
+
+  // Aggiorna stato stimato rele in base alla lettura reale
+  relayDeviceOn = monitorDetectedOn;
+
+  if (prevState != monitorDetectedOn) {
+    DEBUG_PRINTF("TEMT6000: Dispositivo %s (luce=%d)\n",
+      monitorDetectedOn ? "ACCESO" : "SPENTO", monitorLightLevel);
+  }
+}
 
 // ========== FUNZIONI SENSORE GAS MICS-5524 (LETTURA DIRETTA ADC) ==========
 void setupMonitorSensor() {
@@ -809,15 +863,29 @@ void updateMonitorSensor() {
                gasConcentrationH2, gasConcentrationNH3, gasConcentrationNO2);
 }
 
-// Sincronizza lo stato del monitor - DISABILITATO per sensore gas
+// Sincronizza stato rele con TEMT6000: se lo stato desiderato non corrisponde
+// allo stato reale rilevato dal sensore, invia impulso rele per correggere
 void syncMonitorState() {
-  // Funzione legacy - non più usata con sensore gas
-  // Il sensore gas non controlla lo stato del monitor
+  if (!monitorSyncEnabled) return;
+  if (!temt6000Connected) return;
+  if (!relayEnabled) return;
+
+  // Se lo stato desiderato e' diverso da quello rilevato dal TEMT6000, correggi
+  if (monitorStateDesired != monitorDetectedOn) {
+    // Il TEMT6000 dice che il dispositivo non e' nello stato desiderato
+    // Invia impulso rele per cambiare stato
+    if (startRelayPulse()) {
+      DEBUG_PRINTF("SYNC TEMT6000: Dispositivo %s ma vogliamo %s -> impulso rele\n",
+        monitorDetectedOn ? "ACCESO" : "SPENTO",
+        monitorStateDesired ? "ACCESO" : "SPENTO");
+    }
+  }
 }
 
-// Funzioni legacy per compatibilità
+// Imposta lo stato desiderato del dispositivo
 void setMonitorDesiredState(bool wantOn) {
   monitorStateDesired = wantOn;
+  DEBUG_PRINTF("TEMT6000: Stato desiderato -> %s\n", wantOn ? "ACCESO" : "SPENTO");
 }
 
 void toggleMonitorState() {
@@ -2203,9 +2271,9 @@ void drawMainScreen() {
     prevMonitorDetected = monitorDetectedOn;
   }
 
-  // Livello CO sensore gas (affiancato)
+  // Livello luce TEMT6000 (affiancato)
   char monLevelStr[8];
-  sprintf(monLevelStr, "%.0f", gasConcentrationCO);
+  sprintf(monLevelStr, "%d", monitorLightLevel);
   if (strcmp(monLevelStr, prevMonitorLevelStr) != 0) {
     updateText(78, y + 57, monLevelStr, prevMonitorLevelStr, COLOR_TEXT, COLOR_BG_CARD, &arial6pt7b);
     tft.setFreeFont(NULL);
@@ -3882,6 +3950,10 @@ setInterval(loadDiscoveryStatus,2000);
     json += "\"radarInitialized\":" + String(radarInitialized ? "true" : "false") + ",";
     json += "\"relayEnabled\":" + String(relayEnabled ? "true" : "false") + ",";
     json += "\"relayDeviceOn\":" + String(relayDeviceOn ? "true" : "false") + ",";
+    json += "\"temt6000Light\":" + String(monitorLightLevel) + ",";
+    json += "\"temt6000DeviceOn\":" + String(monitorDetectedOn ? "true" : "false") + ",";
+    json += "\"temt6000Connected\":" + String(temt6000Connected ? "true" : "false") + ",";
+    json += "\"temt6000SyncEnabled\":" + String(monitorSyncEnabled ? "true" : "false") + ",";
     json += "\"previousPresenceState\":" + String(previousPresenceState ? "true" : "false") + ",";
     json += "\"lastPresenceTime\":" + String(lastPresenceTime) + ",";
     json += "\"timeSincePresence\":" + String(millis() - lastPresenceTime) + ",";
@@ -5428,7 +5500,10 @@ void setup() {
   // Inizializza Rele
   setupRelay();
 
-  // Inizializza sensore gas DFRobot MICS (sostituisce TEMT6000)
+  // Inizializza sensore luminosita TEMT6000 (rileva stato dispositivo)
+  setupTEMT6000();
+
+  // Inizializza sensore gas DFRobot MICS
   setupMonitorSensor();
 
   // Inizializza controllo display PWM
@@ -5478,6 +5553,7 @@ void setup() {
   DEBUG_PRINTF("Radar: %s\n", radarOnline ? "ONLINE" : "OFFLINE");
   DEBUG_PRINTF("BME280: %s\n", bme280Initialized ? "OK" : "NON TROVATO");
   DEBUG_PRINTF("Rele: GPIO%d\n", RELAY_PIN);
+  DEBUG_PRINTF("TEMT6000: GPIO%d (rileva stato dispositivo)\n", TEMT6000_PIN);
   DEBUG_PRINTF("Sensore Gas MICS: ADC=GPIO%d (EN saldato a GND)\n", MICS_ADC_PIN);
   DEBUG_PRINTF("WS2812: GPIO%d\n", WS2812_PIN);
   DEBUG_PRINTF("Display PWM: GPIO%d\n", DISPLAY_PWM_PIN);
@@ -5537,7 +5613,10 @@ void loop() {
 
   // Aggiorna sensore gas DFRobot MICS
   updateMonitorSensor();
-  syncMonitorState();  // Legacy - non più utilizzato
+
+  // Aggiorna TEMT6000 e sincronizza rele con stato reale dispositivo
+  updateTEMT6000();
+  syncMonitorState();
 
   // Aggiorna sensore luce
   updateLightSensor();

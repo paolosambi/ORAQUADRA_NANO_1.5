@@ -1010,6 +1010,13 @@ void onDualDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int le
         handlePongRemoteTouch(virtualTouchY);
       }
 #endif
+      // Gestione touch remoto per modalita' BREAKOUT
+#ifdef EFFECT_BREAKOUT
+      if (currentMode == MODE_BREAKOUT) {
+        extern void handleBreakoutRemoteTouch(int vx, int vy);
+        handleBreakoutRemoteTouch(virtualTouchX, virtualTouchY);
+      }
+#endif
       // Gestione touch remoto per modalita' SCROLLTEXT
 #ifdef EFFECT_SCROLLTEXT
       if (currentMode == MODE_SCROLLTEXT) {
@@ -1423,7 +1430,8 @@ void packModeSpecificData(SyncPacket &pkt) {
       extern int16_t pongPaddleLeftY, pongPaddleRightY;
       extern uint8_t pongScoreLeft, pongScoreRight;
       extern bool pongGameOver;
-      if (pkt.dataLen + 15 <= 200) {
+      extern uint8_t pongSpeedLevel;
+      if (pkt.dataLen + 16 <= 200) {
         memcpy(pkt.data + pkt.dataLen, &pongBallX, 2);      pkt.dataLen += 2;
         memcpy(pkt.data + pkt.dataLen, &pongBallY, 2);      pkt.dataLen += 2;
         memcpy(pkt.data + pkt.dataLen, &pongBallVX, 2);     pkt.dataLen += 2;
@@ -1433,6 +1441,33 @@ void packModeSpecificData(SyncPacket &pkt) {
         pkt.data[pkt.dataLen++] = pongScoreLeft;
         pkt.data[pkt.dataLen++] = pongScoreRight;
         pkt.data[pkt.dataLen++] = pongGameOver ? 1 : 0;
+        pkt.data[pkt.dataLen++] = pongSpeedLevel;
+      }
+      break;
+    }
+#endif
+
+#ifdef EFFECT_BREAKOUT
+    case MODE_BREAKOUT: {
+      extern int16_t brkBallX, brkBallY, brkBallVX, brkBallVY;
+      extern int16_t brkPaddleX;
+      extern uint16_t brkScore;
+      extern uint8_t  brkLives;
+      extern bool     brkGameOver, brkWin;
+      extern uint8_t  brkSpeedLevel;
+      extern uint8_t  brkBricks[10];
+      // 20 bytes: ball(8) + paddle(2) + score(2) + lives(1) + flags(1) + speed(1) + bricks(10) = 25
+      if (pkt.dataLen + 25 <= 200) {
+        memcpy(pkt.data + pkt.dataLen, &brkBallX, 2);    pkt.dataLen += 2;
+        memcpy(pkt.data + pkt.dataLen, &brkBallY, 2);    pkt.dataLen += 2;
+        memcpy(pkt.data + pkt.dataLen, &brkBallVX, 2);   pkt.dataLen += 2;
+        memcpy(pkt.data + pkt.dataLen, &brkBallVY, 2);   pkt.dataLen += 2;
+        memcpy(pkt.data + pkt.dataLen, &brkPaddleX, 2);  pkt.dataLen += 2;
+        memcpy(pkt.data + pkt.dataLen, &brkScore, 2);    pkt.dataLen += 2;
+        pkt.data[pkt.dataLen++] = brkLives;
+        pkt.data[pkt.dataLen++] = (brkGameOver ? 1 : 0) | (brkWin ? 2 : 0);
+        pkt.data[pkt.dataLen++] = brkSpeedLevel;
+        memcpy(pkt.data + pkt.dataLen, brkBricks, 10);   pkt.dataLen += 10;
       }
       break;
     }
@@ -1635,6 +1670,10 @@ void resetModeInitFlags() {
   extern bool pongInitialized;
   pongInitialized = false;
 #endif
+#ifdef EFFECT_BREAKOUT
+  extern bool breakoutInitialized;
+  breakoutInitialized = false;
+#endif
 #ifdef EFFECT_SCROLLTEXT
   extern bool scrollTextInitialized;
   scrollTextInitialized = false;
@@ -1713,6 +1752,8 @@ void unpackModeSpecificData(const SyncPacket &pkt) {
       extern int16_t pongPaddleLeftY, pongPaddleRightY;
       extern uint8_t pongScoreLeft, pongScoreRight;
       extern bool pongGameOver;
+      extern uint8_t pongSpeedLevel;
+      extern bool pongSpeedDrawn;
       if (pkt.dataLen >= 15) {
         int off = 0;
         memcpy(&pongBallX, pkt.data + off, 2);      off += 2;
@@ -1723,7 +1764,48 @@ void unpackModeSpecificData(const SyncPacket &pkt) {
         memcpy(&pongPaddleRightY, pkt.data + off, 2); off += 2;
         pongScoreLeft = pkt.data[off++];
         pongScoreRight = pkt.data[off++];
-        pongGameOver = (pkt.data[off] != 0);
+        pongGameOver = (pkt.data[off++] != 0);
+        // Speed level (byte 16, backward compatible)
+        if (pkt.dataLen >= 16) {
+          uint8_t newSpeed = pkt.data[off];
+          if (newSpeed != pongSpeedLevel) {
+            pongSpeedLevel = newSpeed;
+            pongSpeedDrawn = false;
+          }
+        }
+      }
+      break;
+    }
+#endif
+
+#ifdef EFFECT_BREAKOUT
+    case MODE_BREAKOUT: {
+      extern int16_t brkBallX, brkBallY, brkBallVX, brkBallVY;
+      extern int16_t brkPaddleX;
+      extern uint16_t brkScore;
+      extern uint8_t  brkLives;
+      extern bool     brkGameOver, brkWin;
+      extern uint8_t  brkSpeedLevel;
+      extern bool     brkHudDrawn;
+      extern uint8_t  brkBricks[10];
+      if (pkt.dataLen >= 25) {
+        int off = 0;
+        memcpy(&brkBallX, pkt.data + off, 2);    off += 2;
+        memcpy(&brkBallY, pkt.data + off, 2);    off += 2;
+        memcpy(&brkBallVX, pkt.data + off, 2);   off += 2;
+        memcpy(&brkBallVY, pkt.data + off, 2);   off += 2;
+        memcpy(&brkPaddleX, pkt.data + off, 2);  off += 2;
+        memcpy(&brkScore, pkt.data + off, 2);    off += 2;
+        brkLives = pkt.data[off++];
+        uint8_t flags = pkt.data[off++];
+        brkGameOver = (flags & 1) != 0;
+        brkWin = (flags & 2) != 0;
+        uint8_t newSpeed = pkt.data[off++];
+        if (newSpeed != brkSpeedLevel) {
+          brkSpeedLevel = newSpeed;
+          brkHudDrawn = false;
+        }
+        memcpy(brkBricks, pkt.data + off, 10);   off += 10;
       }
       break;
     }

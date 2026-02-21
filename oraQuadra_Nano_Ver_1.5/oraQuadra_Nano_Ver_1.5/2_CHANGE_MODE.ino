@@ -212,6 +212,13 @@ void cleanupPreviousMode(DisplayMode previousMode) {
   }
 #endif
 
+#ifdef EFFECT_BREAKOUT
+  if (previousMode == MODE_BREAKOUT) {
+    breakoutInitialized = false;
+    Serial.println("[CLEANUP] Breakout: reset");
+  }
+#endif
+
 #ifdef EFFECT_SCROLLTEXT
   if (previousMode == MODE_SCROLLTEXT) {
     scrollTextInitialized = false;
@@ -463,6 +470,12 @@ void forceDisplayUpdate() {
     case MODE_PONG:
       pongInitialized = false;
       initPong();
+      break;
+#endif
+#ifdef EFFECT_BREAKOUT
+    case MODE_BREAKOUT:
+      breakoutInitialized = false;
+      initBreakout();
       break;
 #endif
 #ifdef EFFECT_SCROLLTEXT
@@ -982,6 +995,12 @@ void handleModeChange() {
     case MODE_PONG:
       modeName = "PONG";
       modeColor = WHITE;
+      break;
+#endif
+#ifdef EFFECT_BREAKOUT
+    case MODE_BREAKOUT:
+      modeName = "BREAKOUT";
+      modeColor = CYAN;
       break;
 #endif
 #ifdef EFFECT_SCROLLTEXT

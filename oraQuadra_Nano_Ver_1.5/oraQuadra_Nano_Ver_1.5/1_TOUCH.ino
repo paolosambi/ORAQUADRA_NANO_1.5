@@ -59,6 +59,15 @@ void checkButtons() {
   static bool newsSwipeScrolled = false;
   #endif
 
+  // ======= VARIABILI PER TRACKING CONTINUO PONG =======
+  #ifdef EFFECT_PONG
+  static bool pongTrackingActive = false;
+  #endif
+  // ======= VARIABILI PER TRACKING CONTINUO BREAKOUT =======
+  #ifdef EFFECT_BREAKOUT
+  static bool breakoutTrackingActive = false;
+  #endif
+
   // ======= VARIABILI PER LONG PRESS BTTF ALARM SETUP =======
   static bool bttfLongPressActive = false;      // True se stiamo monitorando un long press centrale in BTTF
   static uint32_t bttfCenterTouchStart = 0;     // Timestamp inizio tocco centrale
@@ -188,6 +197,50 @@ void checkButtons() {
       newsSwipeStartY = sy;
       newsSwipeScrolled = true;
     }
+    return;
+  }
+  #endif
+
+  // ====================== TRACKING CONTINUO PONG (racchetta segue dito) ======================
+  #ifdef EFFECT_PONG
+  // Reset tracking quando il dito viene sollevato
+  if (pongTrackingActive && !touchDetected) {
+    pongTrackingActive = false;
+  }
+  // Tracking continuo: aggiorna posizione racchetta ad ogni frame
+  if (pongTrackingActive && touchDetected && currentMode == MODE_PONG) {
+    int px = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+    int py = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+    #ifdef EFFECT_DUAL_DISPLAY
+    if (isDualSlave()) {
+      forwardTouchToMaster(px, py, 0);
+    } else {
+      handlePongTouch(px, py);
+    }
+    #else
+    handlePongTouch(px, py);
+    #endif
+    return;
+  }
+  #endif
+
+  // ====================== TRACKING CONTINUO BREAKOUT (paddle segue dito) ======================
+  #ifdef EFFECT_BREAKOUT
+  if (breakoutTrackingActive && !touchDetected) {
+    breakoutTrackingActive = false;
+  }
+  if (breakoutTrackingActive && touchDetected && currentMode == MODE_BREAKOUT) {
+    int px = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+    int py = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+    #ifdef EFFECT_DUAL_DISPLAY
+    if (isDualSlave()) {
+      forwardTouchToMaster(px, py, 0);
+    } else {
+      handleBreakoutTouch(px, py);
+    }
+    #else
+    handleBreakoutTouch(px, py);
+    #endif
     return;
   }
   #endif
@@ -570,10 +623,10 @@ if (modeSelectorActive) {
 
     #ifdef EFFECT_DUAL_DISPLAY
     if (isDualSlave()) {
-      // Slave: inoltra touch al master per racchetta destra
+      // Slave: tracking continuo per racchetta destra
       forwardTouchToMaster(x, y, 0);
-      waitingForRelease = true;
-      return;
+      pongTrackingActive = true;
+      return;  // NO waitingForRelease - tracking continuo
     }
     #endif
 
@@ -585,9 +638,54 @@ if (modeSelectorActive) {
       return;
     }
 
-    // Master: controlla racchetta sinistra
+    // Master: tocco zona top (Y<50, fuori da angolo exit) = cambio velocita'
+    if (y < 50 && x >= 80) {
+      playTouchSound();
+      handlePongSpeedChange();
+      waitingForRelease = true;
+      return;
+    }
+
+    // Master: tracking continuo racchetta sinistra
     handlePongTouch(x, y);
-    waitingForRelease = true;
+    pongTrackingActive = true;
+    return;  // NO waitingForRelease - tracking continuo
+  }
+  #endif
+
+  // ====================== GESTIONE TOUCH BREAKOUT ======================
+  #ifdef EFFECT_BREAKOUT
+  if (currentMode == MODE_BREAKOUT && touchDetected && !waitingForRelease) {
+    int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+    int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+
+    #ifdef EFFECT_DUAL_DISPLAY
+    if (isDualSlave()) {
+      forwardTouchToMaster(x, y, 0);
+      breakoutTrackingActive = true;
+      return;
+    }
+    #endif
+
+    // Master: angolo alto-sinistra = cambio modo
+    if (x < 80 && y < 80) {
+      playTouchSound();
+      handleModeChange();
+      waitingForRelease = true;
+      return;
+    }
+
+    // Master: tocco zona top (Y<50, fuori da angolo exit) = cambio velocita'
+    if (y < 50 && x >= 80) {
+      playTouchSound();
+      handleBreakoutSpeedChange();
+      waitingForRelease = true;
+      return;
+    }
+
+    // Master: tracking continuo paddle orizzontale
+    handleBreakoutTouch(x, y);
+    breakoutTrackingActive = true;
     return;
   }
   #endif

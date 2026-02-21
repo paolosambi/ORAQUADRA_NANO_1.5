@@ -103,6 +103,7 @@
 #define EFFECT_NEWS           // News Feed da newsapi.org per categorie
 #define EFFECT_DUAL_DISPLAY   // Multi-Display ESP-NOW (fino a 4 pannelli 2x2)
 #define EFFECT_PONG           // Gioco PONG per Dual Display (2 pannelli 2x1)
+#define EFFECT_BREAKOUT       // Gioco BREAKOUT per Dual Display (2 pannelli 2x1)
 #define EFFECT_SCROLLTEXT     // Testo scorrevole animato con 10 messaggi configurabili
 
 // ================== INCLUSIONE LIBRERIE ==================
@@ -475,10 +476,13 @@ enum DisplayMode {
 #ifdef EFFECT_PONG
   MODE_PONG = 28,           // Gioco PONG Dual Display
 #endif
+#ifdef EFFECT_BREAKOUT
+  MODE_BREAKOUT = 30,       // Gioco BREAKOUT Dual Display
+#endif
 #ifdef EFFECT_SCROLLTEXT
   MODE_SCROLLTEXT = 29,     // Testo scorrevole animato
 #endif
-  NUM_MODES = 30    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
+  NUM_MODES = 31    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
 };
 
 // ================== STRUTTURE DATI ==================
@@ -765,13 +769,37 @@ void initPong();
 void updatePong();
 void handlePongTouch(int x, int y);
 void handlePongRemoteTouch(int vy);
+void handlePongSpeedChange();
 extern bool pongInitialized;
 extern int16_t pongBallX, pongBallY, pongBallVX, pongBallVY;
 extern int16_t pongPaddleLeftY, pongPaddleRightY;
 extern uint8_t pongScoreLeft, pongScoreRight;
 extern bool pongGameOver;
 extern int16_t pongRemotePaddleY;
+extern uint8_t pongSpeedLevel;
+extern bool pongSpeedDrawn;
 void setup_pong_webserver(AsyncWebServer* server);
+#endif
+
+// Funzioni definite in 46_BREAKOUT.ino
+#ifdef EFFECT_BREAKOUT
+void initBreakout();
+void updateBreakout();
+void handleBreakoutTouch(int x, int y);
+void handleBreakoutRemoteTouch(int vx, int vy);
+void handleBreakoutSpeedChange();
+extern bool breakoutInitialized;
+extern int16_t brkBallX, brkBallY, brkBallVX, brkBallVY;
+extern int16_t brkPaddleX;
+extern uint16_t brkScore;
+extern uint8_t  brkLives;
+extern bool     brkGameOver;
+extern bool     brkWin;
+extern int16_t  brkRemotePaddleX;
+extern uint8_t  brkSpeedLevel;
+extern bool     brkHudDrawn;
+extern uint8_t  brkBricks[10];
+extern uint8_t  brkPrevBricks[10];
 #endif
 
 // Funzioni definite in 44_DUAL_DISPLAY.ino e 45_WEBSERVER_DUAL_DISPLAY.ino
@@ -3685,6 +3713,12 @@ if (currentIsNight != lastWasNightTime) {
 #ifdef EFFECT_PONG
         case MODE_PONG:
           updatePong();  // Gioco PONG Dual Display
+          break;
+#endif
+
+#ifdef EFFECT_BREAKOUT
+        case MODE_BREAKOUT:
+          updateBreakout();  // Gioco BREAKOUT Dual Display
           break;
 #endif
 

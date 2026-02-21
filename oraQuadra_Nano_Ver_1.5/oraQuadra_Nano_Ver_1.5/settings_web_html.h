@@ -1413,6 +1413,7 @@ const MODES = [
   { id: 27, name: 'NEWS', icon: '📰', desc: 'News RSS' },
   { id: 28, name: 'PONG', icon: '🏓', desc: 'Pong Dual Display' },
   { id: 29, name: 'SCROLL TEXT', icon: '💬', desc: 'Testo Scorrevole' },
+  { id: 30, name: 'BREAKOUT', icon: '🧱', desc: 'Breakout Dual Display' },
 ];
 
 let currentMode = 2;
@@ -2128,8 +2129,8 @@ const MODE_DEFAULT_COLORS = {
 const TEXT_MODES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 17];
 
 // Modalità che NON supportano preset colori (grafiche/speciali)
-const NO_COLOR_MODES = [10, 11, 12, 13, 14, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29];  // 24 rimosso (WebTV disabilitato)
-// 10=ANALOG, 11=FLIP, 12=BTTF, 13=LED RING, 14=WEATHER, 19=ESP-CAM, 20=FLUX, 21=MP3 PLAYER, 22=WEB RADIO, 23=RADIO ALARM, 24=WEB TV, 25=CALENDAR, 26=YOUTUBE, 27=NEWS, 28=PONG, 29=SCROLL TEXT
+const NO_COLOR_MODES = [10, 11, 12, 13, 14, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30];  // 24 rimosso (WebTV disabilitato)
+// 10=ANALOG, 11=FLIP, 12=BTTF, 13=LED RING, 14=WEATHER, 19=ESP-CAM, 20=FLUX, 21=MP3 PLAYER, 22=WEB RADIO, 23=RADIO ALARM, 24=WEB TV, 25=CALENDAR, 26=YOUTUBE, 27=NEWS, 28=PONG, 29=SCROLL TEXT, 30=BREAKOUT
 
 // Verifica se la modalità corrente supporta il colore personalizzato
 function isTextMode(modeId) {
@@ -2386,7 +2387,7 @@ const MODE_NAMES = {
   10: 'ANALOG', 11: 'FLIP', 12: 'BTTF', 13: 'LED RING', 14: 'WEATHER',
   15: 'CLOCK', 17: 'GALAGA2', 19: 'ESP-CAM', 20: 'FLUX',
   21: 'MP3 PLAYER', 22: 'WEB RADIO', 23: 'RADIO ALARM',
-  24: 'WEB TV', 25: 'CALENDAR', 26: 'YOUTUBE', 27: 'NEWS', 28: 'PONG', 29: 'SCROLL TEXT'
+  24: 'WEB TV', 25: 'CALENDAR', 26: 'YOUTUBE', 27: 'NEWS', 28: 'PONG', 29: 'SCROLL TEXT', 30: 'BREAKOUT'
 };
 
 // Nomi preset per il riassunto
