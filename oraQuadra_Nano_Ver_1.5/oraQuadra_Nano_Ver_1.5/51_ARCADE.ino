@@ -124,6 +124,19 @@ extern "C" {
 #define TOUCH_BOTTOM_Y   432  // Bottom control bar start
 // Bottom bar: 0-159=BACK, 160-319=START, 320-479=FIRE
 
+// ===== Menu Grid Layout (4x3, all 12 games visible) =====
+#define AM_HEADER_H   48
+#define AM_GRID_TOP   52
+#define AM_CELL_W    113
+#define AM_CELL_H    128
+#define AM_GAP         6
+#define AM_MARGIN      5
+#define AM_COLS        4
+#define AM_ROWS        3
+#define AM_COL_STEP  119   // 113+6
+#define AM_ROW_STEP  134   // 128+6
+#define AM_CARD_BG   0x10A2  // grigio scuro (come mode selector)
+
 // ===== Game List =====
 #define ARCADE_MAX_GAMES 12
 
@@ -165,10 +178,6 @@ unsigned long arcadeFrameCount = 0;
 uint8_t arcadeCoinState = 0;       // 0=idle, 1=coin_press, 2=coin_release, 3=start_press, 4=start_release
 unsigned long arcadeCoinTimer = 0;
 
-// Menu scroll
-int8_t arcadeMenuScroll = 0;
-int8_t arcadeMenuCursor = 0;
-
 // ===== Forward Declarations =====
 void arcadeStartGame(int8_t index);
 void arcadeStopGame();
@@ -177,6 +186,9 @@ void arcadeUpscaleRow(unsigned short* src, unsigned short* dst, int dstOffsetY);
 void arcadeDrawMenu();
 void arcadeDrawControlOverlay();
 void arcadeBuildGameList();
+uint16_t arcadeGetGameColor(uint8_t machineType);
+void arcadeDrawGameIcon(int cx, int cy, uint8_t machineType);
+void arcadeDrawGameCard(int col, int row, int gameIndex);
 void arcadeAllocateBuffers();
 void arcadeFreeBuffers();
 void arcadeUpdateCoinStateMachine();
@@ -216,8 +228,6 @@ void initArcade() {
   // Start in menu
   arcadeInMenu = true;
   arcadeSelectedGame = -1;
-  arcadeMenuCursor = 0;
-  arcadeMenuScroll = 0;
 
   // Clear screen and draw menu
   gfx->fillScreen(BLACK);
@@ -640,75 +650,310 @@ void arcadeTriggerCoinStart() {
   }
 }
 
-// ===== Draw Game Selection Menu =====
+// ===== Game Theme Colors =====
+uint16_t arcadeGetGameColor(uint8_t machineType) {
+  switch (machineType) {
+    case MCH_PACMAN:   return 0xFFE0;  // giallo
+    case MCH_GALAGA:   return 0x07FF;  // ciano
+    case MCH_DKONG:    return 0xF800;  // rosso
+    case MCH_FROGGER:  return 0x07E0;  // verde
+    case MCH_DIGDUG:   return 0x4C7F;  // azzurro cielo
+    case MCH_1942:     return 0x05BF;  // blu chiaro
+    case MCH_EYES:     return 0xF81F;  // magenta
+    case MCH_MRTNT:    return 0xFB20;  // arancione
+    case MCH_LIZWIZ:   return 0x780F;  // viola
+    case MCH_THEGLOB:  return 0x47E0;  // verde lime
+    case MCH_CRUSH:    return 0x07FF;  // ciano
+    case MCH_ANTEATER: return 0xC380;  // marrone
+    default:           return 0xFFFF;
+  }
+}
+
+// ===== Pixel Art Game Icons (~48x48) =====
+void arcadeDrawGameIcon(int cx, int cy, uint8_t machineType) {
+  switch (machineType) {
+
+    case MCH_PACMAN: {
+      // Pac-Man: cerchio giallo con bocca + puntini + ciliegia
+      gfx->fillCircle(cx - 4, cy - 4, 16, 0xFFE0);
+      // Bocca (triangolo nero)
+      gfx->fillTriangle(cx - 4, cy - 4, cx + 16, cy - 14, cx + 16, cy + 6, BLACK);
+      // Occhio
+      gfx->fillCircle(cx - 2, cy - 14, 3, BLACK);
+      // 3 puntini
+      gfx->fillCircle(cx + 18, cy - 4, 2, 0xFFFF);
+      // Ciliegia in basso
+      gfx->fillCircle(cx - 6, cy + 16, 5, 0xF800);
+      gfx->fillCircle(cx + 2, cy + 14, 4, 0xF800);
+      gfx->drawLine(cx - 4, cy + 11, cx + 2, cy + 6, 0x07E0); // gambo
+      break;
+    }
+
+    case MCH_GALAGA: {
+      // Nave spaziale triangolare sotto
+      gfx->fillTriangle(cx, cy + 4, cx - 14, cy + 20, cx + 14, cy + 20, 0x07FF);
+      gfx->fillRect(cx - 2, cy + 6, 4, 10, 0xFFFF); // corpo centrale
+      gfx->fillRect(cx - 18, cy + 16, 8, 4, 0x07FF); // ala sx
+      gfx->fillRect(cx + 10, cy + 16, 8, 4, 0x07FF); // ala dx
+      // Bug alien sopra
+      gfx->fillRect(cx - 8, cy - 16, 16, 10, 0xF800);
+      gfx->fillRect(cx - 12, cy - 10, 4, 6, 0xF800); // antennina sx
+      gfx->fillRect(cx + 8, cy - 10, 4, 6, 0xF800);  // antennina dx
+      gfx->fillCircle(cx - 4, cy - 12, 2, 0xFFFF); // occhio sx
+      gfx->fillCircle(cx + 4, cy - 12, 2, 0xFFFF); // occhio dx
+      break;
+    }
+
+    case MCH_DKONG: {
+      // Barile marrone
+      uint16_t barrel = 0xCA40; // marrone chiaro
+      gfx->fillRoundRect(cx - 12, cy - 10, 24, 20, 4, barrel);
+      gfx->drawRoundRect(cx - 12, cy - 10, 24, 20, 4, 0x8200); // bordo scuro
+      gfx->drawLine(cx - 10, cy, cx + 10, cy, 0x8200); // fascia centro
+      // "DK" sul barile
+      gfx->setFont((const GFXfont *)NULL);
+      gfx->setTextSize(1);
+      gfx->setTextColor(0xFFFF);
+      gfx->setCursor(cx - 6, cy - 6);
+      gfx->print("DK");
+      // Piattaforma rossa sotto
+      gfx->fillRect(cx - 18, cy + 14, 36, 4, 0xF800);
+      gfx->fillRect(cx - 16, cy + 18, 32, 2, 0xA000); // ombra
+      break;
+    }
+
+    case MCH_FROGGER: {
+      // Rana verde vista dall'alto
+      gfx->fillCircle(cx, cy - 2, 10, 0x07E0);       // corpo
+      gfx->fillCircle(cx - 8, cy - 10, 5, 0x07E0);   // occhio sx
+      gfx->fillCircle(cx + 8, cy - 10, 5, 0x07E0);   // occhio dx
+      gfx->fillCircle(cx - 8, cy - 10, 2, BLACK);     // pupilla sx
+      gfx->fillCircle(cx + 8, cy - 10, 2, BLACK);     // pupilla dx
+      // Zampe
+      gfx->fillRect(cx - 16, cy + 2, 6, 3, 0x07E0);  // zampa sx
+      gfx->fillRect(cx + 10, cy + 2, 6, 3, 0x07E0);  // zampa dx
+      // Strisce blu (acqua) sotto
+      gfx->fillRect(cx - 20, cy + 14, 40, 3, 0x001F);
+      gfx->fillRect(cx - 16, cy + 19, 32, 2, 0x035F);
+      break;
+    }
+
+    case MCH_DIGDUG: {
+      // Terreno marrone con tunnel
+      gfx->fillRect(cx - 20, cy - 8, 40, 28, 0x8200); // terra
+      // Tunnel (scavato)
+      gfx->fillRect(cx - 16, cy - 2, 20, 8, BLACK);   // tunnel orizz
+      gfx->fillRect(cx - 4, cy - 8, 8, 18, BLACK);    // tunnel vert
+      // Personaggio (bianco + blu)
+      gfx->fillRect(cx - 2, cy - 6, 4, 6, 0xFFFF);   // corpo
+      gfx->fillRect(cx - 3, cy - 8, 6, 3, 0x001F);   // casco blu
+      // Pompa (linea verso destra)
+      gfx->drawLine(cx + 2, cy - 3, cx + 12, cy - 3, 0xFFFF);
+      gfx->drawLine(cx + 2, cy - 2, cx + 12, cy - 2, 0xFFFF);
+      // Pooka (nemico rosso a destra)
+      gfx->fillCircle(cx + 16, cy - 3, 4, 0xF800);
+      gfx->fillCircle(cx + 14, cy - 4, 1, 0xFFFF);   // occhio
+      break;
+    }
+
+    case MCH_1942: {
+      // Aereo WWII visto dall'alto
+      gfx->fillRect(cx - 2, cy - 16, 4, 24, 0x4208);  // fusoliera
+      gfx->fillRect(cx - 16, cy - 4, 32, 6, 0x4208);  // ali
+      gfx->fillRect(cx - 6, cy + 6, 12, 4, 0x4208);   // coda
+      // Dettagli
+      gfx->fillCircle(cx, cy - 14, 3, 0x8410);        // muso
+      gfx->fillRect(cx - 1, cy - 20, 2, 6, 0xFFE0);   // elica gialla
+      // Stelle sulle ali (semplificato)
+      gfx->fillCircle(cx - 10, cy - 1, 2, 0xF800);
+      gfx->fillCircle(cx + 10, cy - 1, 2, 0xF800);
+      // Nuvole
+      gfx->fillCircle(cx - 14, cy + 16, 4, 0x6B4D);
+      gfx->fillCircle(cx + 16, cy + 12, 3, 0x6B4D);
+      break;
+    }
+
+    case MCH_EYES: {
+      // Due grandi occhi con pupille
+      // Occhio sinistro
+      gfx->fillCircle(cx - 12, cy - 2, 12, 0xFFFF);           // bianco
+      gfx->drawCircle(cx - 12, cy - 2, 12, 0xC618);           // contorno
+      gfx->fillCircle(cx - 10, cy - 2, 6, 0x001F);            // iride blu
+      gfx->fillCircle(cx - 9, cy - 2, 3, BLACK);              // pupilla
+      gfx->fillCircle(cx - 7, cy - 5, 2, 0xFFFF);             // riflesso
+      // Occhio destro
+      gfx->fillCircle(cx + 12, cy - 2, 12, 0xFFFF);
+      gfx->drawCircle(cx + 12, cy - 2, 12, 0xC618);
+      gfx->fillCircle(cx + 14, cy - 2, 6, 0x001F);
+      gfx->fillCircle(cx + 15, cy - 2, 3, BLACK);
+      gfx->fillCircle(cx + 17, cy - 5, 2, 0xFFFF);
+      // Sopracciglia
+      gfx->drawLine(cx - 22, cy - 16, cx - 4, cy - 14, 0xF81F);
+      gfx->drawLine(cx + 4, cy - 14, cx + 22, cy - 16, 0xF81F);
+      break;
+    }
+
+    case MCH_MRTNT: {
+      // Candelotto dinamite rosso
+      gfx->fillRoundRect(cx - 6, cy - 6, 12, 22, 3, 0xF800); // corpo rosso
+      gfx->fillRect(cx - 4, cy - 2, 8, 2, 0xFFE0);           // fascia gialla
+      gfx->fillRect(cx - 4, cy + 6, 8, 2, 0xFFE0);           // fascia gialla
+      // "TNT" sul corpo
+      gfx->setFont((const GFXfont *)NULL);
+      gfx->setTextSize(1);
+      gfx->setTextColor(0xFFFF);
+      gfx->setCursor(cx - 8, cy + 2);
+      gfx->print("TNT");
+      // Miccia
+      gfx->drawLine(cx, cy - 6, cx + 4, cy - 14, 0x8410);    // filo
+      gfx->drawLine(cx + 1, cy - 6, cx + 5, cy - 14, 0x8410);
+      // Scintilla
+      gfx->fillCircle(cx + 5, cy - 16, 3, 0xFFE0);           // gialla
+      gfx->fillCircle(cx + 5, cy - 16, 1, 0xFFFF);           // centro bianco
+      // Raggi scintilla
+      gfx->drawLine(cx + 5, cy - 20, cx + 5, cy - 22, 0xFB20);
+      gfx->drawLine(cx + 1, cy - 18, cx - 1, cy - 20, 0xFB20);
+      gfx->drawLine(cx + 9, cy - 18, cx + 11, cy - 20, 0xFB20);
+      break;
+    }
+
+    case MCH_LIZWIZ: {
+      // Cappello wizard viola
+      gfx->fillTriangle(cx, cy - 20, cx - 14, cy + 2, cx + 14, cy + 2, 0x780F);
+      gfx->fillRect(cx - 18, cy + 2, 36, 5, 0x780F);         // tesa
+      gfx->fillRect(cx - 16, cy + 2, 32, 2, 0xA01F);         // bordo chiaro
+      // Stella sul cappello
+      gfx->fillCircle(cx + 2, cy - 8, 3, 0xFFE0);
+      // Bacchetta a destra
+      gfx->drawLine(cx + 16, cy - 6, cx + 10, cy + 16, 0xCA40);
+      gfx->drawLine(cx + 17, cy - 6, cx + 11, cy + 16, 0xCA40);
+      // Stella in punta
+      gfx->fillCircle(cx + 17, cy - 8, 3, 0xFFE0);
+      gfx->fillCircle(cx + 17, cy - 8, 1, 0xFFFF);
+      break;
+    }
+
+    case MCH_THEGLOB: {
+      // Blob verde amorfo
+      gfx->fillCircle(cx, cy, 14, 0x47E0);            // corpo principale
+      gfx->fillCircle(cx - 8, cy + 6, 8, 0x47E0);    // pseudopodo sx
+      gfx->fillCircle(cx + 10, cy + 4, 7, 0x47E0);   // pseudopodo dx
+      gfx->fillCircle(cx + 4, cy - 8, 6, 0x47E0);    // protuberanza
+      // Occhi
+      gfx->fillCircle(cx - 6, cy - 4, 4, 0xFFFF);    // occhio sx
+      gfx->fillCircle(cx + 6, cy - 4, 4, 0xFFFF);    // occhio dx
+      gfx->fillCircle(cx - 5, cy - 4, 2, BLACK);      // pupilla sx
+      gfx->fillCircle(cx + 7, cy - 4, 2, BLACK);      // pupilla dx
+      // Bocca
+      gfx->drawLine(cx - 4, cy + 4, cx + 4, cy + 6, 0x2400);
+      break;
+    }
+
+    case MCH_CRUSH: {
+      // Rullo schiacciasassi
+      gfx->fillCircle(cx - 2, cy - 4, 10, 0x8410);   // rullo (grigio)
+      gfx->drawCircle(cx - 2, cy - 4, 10, 0xC618);   // contorno
+      gfx->drawCircle(cx - 2, cy - 4, 8, 0x4208);    // cerchio interno
+      // Manico
+      gfx->fillRect(cx - 4, cy + 6, 4, 12, 0xCA40);  // manico
+      // Traccia di vernice colorata
+      gfx->fillRect(cx - 18, cy + 12, 36, 4, 0x07FF); // striscia ciano
+      gfx->fillRect(cx - 14, cy + 16, 28, 2, 0x03BF); // piu' scura
+      // Pennello (dettaglio)
+      gfx->fillRect(cx + 8, cy + 8, 6, 6, 0xF81F);   // pennellata magenta
+      break;
+    }
+
+    case MCH_ANTEATER: {
+      // Formicaio (montagnola marrone)
+      gfx->fillTriangle(cx + 8, cy - 10, cx - 8, cy + 14, cx + 24, cy + 14, 0x8200);
+      gfx->fillCircle(cx + 8, cy + 10, 6, 0x8200);   // base
+      // Buco nel formicaio
+      gfx->fillCircle(cx + 8, cy + 4, 3, BLACK);
+      // Formichiere (a sinistra)
+      gfx->fillCircle(cx - 12, cy + 4, 8, 0xC380);    // corpo
+      // Muso lungo
+      gfx->fillRect(cx - 20, cy + 2, 12, 4, 0xC380);
+      gfx->fillRect(cx - 24, cy + 3, 6, 2, 0xA280);   // punta muso
+      // Occhio
+      gfx->fillCircle(cx - 10, cy + 1, 2, BLACK);
+      // Orecchio
+      gfx->fillCircle(cx - 8, cy - 4, 3, 0xA280);
+      // Formichine
+      gfx->fillRect(cx + 2, cy + 10, 2, 2, BLACK);
+      gfx->fillRect(cx + 6, cy + 8, 2, 2, BLACK);
+      gfx->fillRect(cx + 14, cy + 6, 2, 2, BLACK);
+      break;
+    }
+
+    default: {
+      // Fallback: punto interrogativo
+      gfx->drawCircle(cx, cy, 16, 0xFFFF);
+      gfx->setFont(u8g2_font_helvB14_tr);
+      gfx->setTextColor(0xFFFF);
+      gfx->setCursor(cx - 5, cy + 6);
+      gfx->print("?");
+      break;
+    }
+  }
+}
+
+// ===== Draw Single Game Card =====
+void arcadeDrawGameCard(int col, int row, int gameIndex) {
+  int x = AM_MARGIN + col * AM_COL_STEP;
+  int y = AM_GRID_TOP + row * AM_ROW_STEP;
+  uint16_t color = arcadeGetGameColor(arcadeGames[gameIndex].machineType);
+
+  // Background card
+  gfx->fillRoundRect(x, y, AM_CELL_W, AM_CELL_H, 8, AM_CARD_BG);
+
+  // Accent bar top
+  gfx->fillRect(x + 2, y, AM_CELL_W - 4, 3, color);
+
+  // Icon centered
+  arcadeDrawGameIcon(x + AM_CELL_W / 2, y + 50, arcadeGames[gameIndex].machineType);
+
+  // Name centered at bottom
+  gfx->setFont(u8g2_font_helvB10_tr);
+  int nameW = strlen(arcadeGames[gameIndex].name) * 7;
+  int nameX = x + (AM_CELL_W - nameW) / 2;
+  if (nameX < x + 2) nameX = x + 2;
+  gfx->setTextColor(0xC618);
+  gfx->setCursor(nameX, y + AM_CELL_H - 10);
+  gfx->print(arcadeGames[gameIndex].name);
+}
+
+// ===== Draw Game Selection Menu (4x3 Grid) =====
 void arcadeDrawMenu() {
   // Reset font to built-in default (previous modes may set U8g2 fonts)
   gfx->setFont((const GFXfont *)NULL);
   gfx->setTextWrap(false);
   gfx->fillScreen(BLACK);
 
-  // Title
-  gfx->setTextColor(0xFFE0);  // Yellow
-  gfx->setTextSize(3);
-  gfx->setCursor(100, 20);
-  gfx->print("ARCADE");
-
-  gfx->setTextSize(2);
-  gfx->setTextColor(0xF800);  // Red
-  gfx->setCursor(100, 55);
-  gfx->print("SELECT GAME");
-
-  // Draw game list
-  int maxVisible = 8;
-  int startIdx = arcadeMenuScroll;
-  int endIdx = min((int)arcadeMachineCount, startIdx + maxVisible);
-
-  for (int i = startIdx; i < endIdx; i++) {
-    int y = 100 + (i - startIdx) * 42;
-    bool selected = (i == arcadeMenuCursor);
-
-    if (selected) {
-      // Highlight selected game
-      gfx->fillRoundRect(30, y - 4, 420, 38, 6, 0x001F);  // Blue background
-      gfx->setTextColor(0xFFFF);  // White text
-    } else {
-      gfx->setTextColor(0xC618);  // Light gray
-    }
-
-    gfx->setTextSize(2);
-    gfx->setCursor(50, y + 6);
-
-    // Game number
-    gfx->print(String(i + 1) + ". ");
-    gfx->print(arcadeGames[i].name);
-  }
-
-  // Scroll indicators
-  if (startIdx > 0) {
-    gfx->setTextColor(0x07E0);  // Green
-    gfx->setTextSize(2);
-    gfx->setCursor(220, 85);
-    gfx->print("^");
-  }
-  if (endIdx < arcadeMachineCount) {
-    gfx->setTextColor(0x07E0);
-    gfx->setTextSize(2);
-    gfx->setCursor(220, 100 + maxVisible * 42);
-    gfx->print("v");
-  }
-
-  // Instructions
-  gfx->setTextColor(0x7BEF);  // Gray
-  gfx->setTextSize(1);
-  gfx->setCursor(80, 450);
-  gfx->print("TAP to select  |  TOP-LEFT to exit mode");
-
-  // Exit button indicator
+  // Exit button (top-left)
   gfx->fillRoundRect(5, 5, 70, 30, 4, 0xF800);
   gfx->setTextColor(0xFFFF);
   gfx->setTextSize(1);
   gfx->setCursor(12, 14);
   gfx->print("< EXIT");
+
+  // Title "ARCADE"
+  gfx->setFont(u8g2_font_helvB14_tr);
+  gfx->setTextColor(0xFFE0);  // Yellow
+  gfx->setCursor(200, 30);
+  gfx->print("ARCADE");
+
+  // Draw game cards in 4x3 grid
+  for (int i = 0; i < arcadeMachineCount; i++) {
+    arcadeDrawGameCard(i % AM_COLS, i / AM_COLS, i);
+  }
+
+  // Instructions at bottom
+  gfx->setFont((const GFXfont *)NULL);
+  gfx->setTextColor(0x7BEF);  // Gray
+  gfx->setTextSize(1);
+  gfx->setCursor(80, 462);
+  gfx->print("TAP to select  |  TOP-LEFT to exit mode");
 }
 
 // ===== Draw Control Overlay (semi-transparent touch zones) =====
@@ -755,30 +1000,23 @@ void handleArcadeTouch(int x, int y) {
   }
 
   if (arcadeInMenu) {
-    // Menu touch handling
-    int maxVisible = 8;
-    int startIdx = arcadeMenuScroll;
-
-    // Check if touch is on a game entry
-    for (int i = startIdx; i < min((int)arcadeMachineCount, startIdx + maxVisible); i++) {
-      int y_top = 96 + (i - startIdx) * 42;
-      int y_bot = y_top + 38;
-      if (x > 30 && x < 450 && y >= y_top && y <= y_bot) {
-        arcadeMenuCursor = i;
-        arcadeDrawMenu();
-        delay(200);  // Brief visual feedback
-        arcadeStartGame(i);
-        return;
+    // Grid hit test
+    if (y >= AM_GRID_TOP && y < AM_GRID_TOP + AM_ROWS * AM_ROW_STEP) {
+      int col = (x - AM_MARGIN) / AM_COL_STEP;
+      int row = (y - AM_GRID_TOP) / AM_ROW_STEP;
+      if (col >= 0 && col < AM_COLS && row >= 0 && row < AM_ROWS) {
+        int idx = row * AM_COLS + col;
+        if (idx < arcadeMachineCount) {
+          // Visual feedback: highlight card
+          int cx = AM_MARGIN + col * AM_COL_STEP;
+          int cy = AM_GRID_TOP + row * AM_ROW_STEP;
+          uint16_t color = arcadeGetGameColor(arcadeGames[idx].machineType);
+          gfx->drawRoundRect(cx, cy, AM_CELL_W, AM_CELL_H, 8, color);
+          gfx->drawRoundRect(cx + 1, cy + 1, AM_CELL_W - 2, AM_CELL_H - 2, 7, color);
+          delay(200);
+          arcadeStartGame(idx);
+        }
       }
-    }
-
-    // Scroll up/down
-    if (y > 400 && arcadeMenuScroll + maxVisible < arcadeMachineCount) {
-      arcadeMenuScroll++;
-      arcadeDrawMenu();
-    } else if (y < 90 && y > TOUCH_EXIT_Y && arcadeMenuScroll > 0) {
-      arcadeMenuScroll--;
-      arcadeDrawMenu();
     }
     return;
   }
