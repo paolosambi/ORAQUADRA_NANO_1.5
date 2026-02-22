@@ -302,6 +302,18 @@ void getLedColorForMode(DisplayMode mode, uint8_t &r, uint8_t &g, uint8_t &b) {
       break;
 #endif
 
+#ifdef EFFECT_BATTLESHIP
+    case MODE_BATTLESHIP:
+      r = 0; g = 80; b = 200;  // Blu marina Battleship
+      break;
+#endif
+
+#ifdef EFFECT_ARCADE
+    case MODE_ARCADE:
+      r = 255; g = 200; b = 0;  // Giallo arcade
+      break;
+#endif
+
     default:
       // Fallback: bianco caldo
       r = 255; g = 200; b = 100;

@@ -105,6 +105,8 @@
 #define EFFECT_PONG           // Gioco PONG per Dual Display (2 pannelli 2x1)
 #define EFFECT_BREAKOUT       // Gioco BREAKOUT per Dual Display (2 pannelli 2x1)
 #define EFFECT_SCROLLTEXT     // Testo scorrevole animato con 10 messaggi configurabili
+#define EFFECT_BATTLESHIP     // Gioco Battaglia Navale per Dual Display (2 pannelli)
+#define EFFECT_ARCADE         // Emulatore Arcade Z80 (Pac-Man, Galaga, DK, etc.)
 
 // ================== INCLUSIONE LIBRERIE ==================
 #include <Arduino.h>             // Libreria base per la programmazione di schede Arduino (ESP32).
@@ -482,7 +484,13 @@ enum DisplayMode {
 #ifdef EFFECT_SCROLLTEXT
   MODE_SCROLLTEXT = 29,     // Testo scorrevole animato
 #endif
-  NUM_MODES = 31    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
+#ifdef EFFECT_BATTLESHIP
+  MODE_BATTLESHIP = 31,     // Battaglia Navale Dual Display
+#endif
+#ifdef EFFECT_ARCADE
+  MODE_ARCADE = 32,         // Emulatore Arcade Z80 (Pac-Man, Galaga, etc.)
+#endif
+  NUM_MODES = 33    // Costante che indica il numero totale di modalità di visualizzazione definite nell'enum.
 };
 
 // ================== STRUTTURE DATI ==================
@@ -800,6 +808,42 @@ extern uint8_t  brkSpeedLevel;
 extern bool     brkHudDrawn;
 extern uint8_t  brkBricks[10];
 extern uint8_t  brkPrevBricks[10];
+#endif
+
+// Funzioni definite in 50_BATTLESHIP.ino
+#ifdef EFFECT_BATTLESHIP
+void initBattleship();
+void updateBattleship();
+void handleBattleshipTouch(int x, int y);
+void handleBattleshipRemoteTouch(int x, int y);
+extern bool battleshipInitialized;
+extern uint8_t bnPhase;
+extern uint8_t bnP2Grid[10][10];
+extern uint8_t bnP1ShotsOnP2[10][10];
+extern uint8_t bnP2ShotsOnP1[10][10];
+extern uint8_t bnPlaceShipIdx, bnPlaceRotation;
+extern int8_t  bnCursorR, bnCursorC;
+extern uint8_t bnP1ShipsSunkMask, bnP2ShipsSunkMask;
+extern uint8_t bnWinner, bnAnimFrame;
+extern uint8_t bnLastShotR, bnLastShotC, bnLastShotResult;
+extern bool    bnNeedsRedraw, bnShotAnimActive;
+extern uint8_t bnPendingPhase;
+int  bnPackSyncData(uint8_t* data, int maxLen);
+void bnUnpackSyncData(const uint8_t* data, int dataLen);
+#endif
+
+// Funzioni definite in 51_ARCADE.ino e 52_WEBSERVER_ARCADE.ino
+#ifdef EFFECT_ARCADE
+void initArcade();
+void updateArcade();
+void cleanupArcade();
+void handleArcadeTouch(int x, int y);
+void arcadeUpdateTouchInput(int x, int y);
+void arcadeClearTouchInput();
+void setup_arcade_webserver(AsyncWebServer* server);
+extern bool arcadeInitialized;
+extern int8_t arcadeSelectedGame;
+extern bool arcadeInMenu;
 #endif
 
 // Funzioni definite in 44_DUAL_DISPLAY.ino e 45_WEBSERVER_DUAL_DISPLAY.ino
@@ -2386,6 +2430,12 @@ Serial.println("LittleFS inizializzato correttamente.");
     Serial.println("[WEBSERVER] Testo Scorrevole disponibile su /scrolltext");
     #endif
 
+    // Arcade Emulator
+    #ifdef EFFECT_ARCADE
+    setup_arcade_webserver(clockWebServer);
+    Serial.println("[WEBSERVER] Arcade Emulator disponibile su /arcade");
+    #endif
+
     // OTA Update via browser (sempre disponibile, non dipende da #define)
     setup_ota_webserver(clockWebServer);
 
@@ -3725,6 +3775,18 @@ if (currentIsNight != lastWasNightTime) {
 #ifdef EFFECT_SCROLLTEXT
         case MODE_SCROLLTEXT:
           updateScrollText();  // Testo scorrevole animato
+          break;
+#endif
+
+#ifdef EFFECT_BATTLESHIP
+        case MODE_BATTLESHIP:
+          updateBattleship();  // Battaglia Navale Dual Display
+          break;
+#endif
+
+#ifdef EFFECT_ARCADE
+        case MODE_ARCADE:
+          updateArcade();  // Emulatore Arcade Z80
           break;
 #endif
 

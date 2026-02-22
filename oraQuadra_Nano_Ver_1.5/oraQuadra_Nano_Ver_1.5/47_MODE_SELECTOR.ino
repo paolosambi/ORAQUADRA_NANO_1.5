@@ -8,7 +8,7 @@ bool modeSelectorActive = false;
 uint32_t modeSelectorLastActivity = 0;
 int modeSelectorScroll = 0;         // prima riga visibile (0-based)
 int modeSelectorTotalModes = 0;     // quanti modi validi+abilitati
-uint8_t modeSelectorModeList[32];   // indici dei modi visibili
+uint8_t modeSelectorModeList[34];   // indici dei modi visibili
 
 // ====================== COSTANTI LAYOUT ======================
 #define MS_HEADER_H     44
@@ -76,6 +76,8 @@ uint16_t getModeSelectorColor(uint8_t mode) {
     case 28: return 0xFFFF;  // MODE_PONG - WHITE
     case 29: return 0x67EA;  // MODE_SCROLLTEXT - verde lime
     case 30: return 0x07FF;  // MODE_BREAKOUT - ciano arcade
+    case 31: return 0x0290;  // MODE_BATTLESHIP - blu marina
+    case 32: return 0xFFE0;  // MODE_ARCADE - giallo
     default: return 0xFFFF;
   }
 }
@@ -114,6 +116,8 @@ const char* getModeSelectorName(uint8_t mode) {
     case 28: return "Pong";
     case 29: return "Scroll";
     case 30: return "Breakout";
+    case 31: return "Battleship";
+    case 32: return "Arcade";
     default: return "???";
   }
 }
@@ -347,6 +351,35 @@ void drawModeIcon(int cx, int cy, uint8_t mode) {
       gfx->fillCircle(cx, cy + 4, 3, 0xFFFF);
       // Paddle
       gfx->fillRoundRect(cx - 8, y0 + 28, 16, 4, 2, col);
+      break;
+
+    case 31: // BATTLESHIP - griglia + nave
+      // Griglia 5x5
+      for (int r = 0; r < 5; r++) {
+        gfx->drawLine(x0 + 2, y0 + 2 + r * 6, x0 + 26, y0 + 2 + r * 6, col);
+      }
+      for (int c = 0; c < 5; c++) {
+        gfx->drawLine(x0 + 2 + c * 6, y0 + 2, x0 + 2 + c * 6, y0 + 26, col);
+      }
+      // Colpo (X rossa)
+      gfx->drawLine(x0 + 9, y0 + 9, x0 + 13, y0 + 13, 0xF800);
+      gfx->drawLine(x0 + 13, y0 + 9, x0 + 9, y0 + 13, 0xF800);
+      // Nave orizzontale (3 celle)
+      gfx->fillRect(x0 + 3, y0 + 21, 17, 4, 0xC618);
+      break;
+
+    case 32: // ARCADE - pac-man
+      // Pac-Man (cerchio giallo con bocca)
+      gfx->fillCircle(cx - 2, cy, 10, 0xFFE0);
+      gfx->fillTriangle(cx - 2, cy, cx + 12, cy - 7, cx + 12, cy + 7, MS_BG_COLOR); // bocca
+      // Dot
+      gfx->fillCircle(cx + 12, cy, 2, 0xFFFF);
+      // Ghost sotto (rosso)
+      gfx->fillCircle(cx - 2, cy + 18, 5, 0xF800);
+      gfx->fillRect(cx - 7, cy + 18, 10, 6, 0xF800);
+      // Occhi fantasma
+      gfx->fillCircle(cx - 4, cy + 16, 1, 0xFFFF);
+      gfx->fillCircle(cx, cy + 16, 1, 0xFFFF);
       break;
 
     default: // fallback - punto interrogativo

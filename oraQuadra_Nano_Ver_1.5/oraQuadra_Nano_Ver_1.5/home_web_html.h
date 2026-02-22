@@ -330,6 +330,16 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
           <h3>Testo Scorrevole</h3>
           <p>Messaggi animati sul display</p>
         </a>
+        <a href="/dualdisplay" class="nav-card primary" id="card-battleship" style="display:none;--accent:#0050C8;--accent-rgb:0,80,200">
+          <span class="icon">&#9875;</span>
+          <h3>Battaglia Navale</h3>
+          <p>Battleship Dual Display</p>
+        </a>
+        <a href="/arcade" class="nav-card primary" id="card-arcade" style="display:none;--accent:#FFD700;--accent-rgb:255,215,0">
+          <span class="icon">&#127918;</span>
+          <h3>Arcade</h3>
+          <p>Emulatore Arcade Z80</p>
+        </a>
         <a href="/update" class="nav-card primary" style="--accent:#ff9500;--accent-rgb:255,149,0">
           <span class="icon">&#128259;</span>
           <h3>Aggiornamento OTA</h3>
@@ -412,7 +422,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     const MODES = ['Fade','Slow','Fast','Matrix','Matrix2','Snake','Water','Mario',
                    'Tron','Galaga','Flux','FlipClock','BTTF','LED Ring','Weather','Radar',
                    'Gemini','Galaga2','MJPEG','ESP32CAM','FluxCap',
-                   'MP3 Player','Web Radio','Radio Alarm','Web TV','Calendario','YouTube','News','Pong','ScrollText','Breakout'];
+                   'MP3 Player','Web Radio','Radio Alarm','Web TV','Calendario','YouTube','News','Pong','ScrollText','Breakout','Battleship','Arcade'];
 
     let currentMode = 0;
     let currentColor = '#00ff00';
@@ -637,6 +647,7 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
       else if(currentMode === 27) showSpecial('📰', 'News', 'ANSA / BBC / Repubblica');
       else if(currentMode === 28) showSpecial('🏓', 'Pong', 'Dual Display Arcade Game');
       else if(currentMode === 30) showSpecial('🧱', 'Breakout', 'Dual Display Arcade Game');
+      else if(currentMode === 31) showSpecial('⚓', 'Battaglia Navale', 'Dual Display Battleship');
       else showSpecial('⏰', MODES[currentMode]||'Mode '+currentMode, '');
     }
 
@@ -652,13 +663,13 @@ const char HOME_HTML[] PROGMEM = R"rawliteral(
     }
 
     async function checkPages(){
-      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player','webradio','radioalarm','webtv','cal','ledrgb','youtube','news','pong','dualdisplay','scrolltext'];
+      const pages = ['clock','bttf','ledring','fluxcap','espcam','mjpeg','btaudio','mp3player','webradio','radioalarm','webtv','cal','ledrgb','youtube','news','pong','dualdisplay','scrolltext','arcade'];
       for(const p of pages){
         try{
           const r = await fetch('/'+p,{method:'HEAD'});
           if(r.ok) {
             document.getElementById('card-'+(p==='fluxcap'?'flux':p==='cal'?'calendar':p)).style.display = 'block';
-            if(p==='dualdisplay') { const bc=document.getElementById('card-breakout'); if(bc) bc.style.display='block'; }
+            if(p==='dualdisplay') { const bc=document.getElementById('card-breakout'); if(bc) bc.style.display='block'; const bs=document.getElementById('card-battleship'); if(bs) bs.style.display='block'; }
           }
         }catch(e){}
       }

@@ -1024,6 +1024,14 @@ void onDualDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int le
         handleScrollTextTouch(virtualTouchX, virtualTouchY);
       }
 #endif
+      // Gestione touch remoto per modalita' BATTLESHIP
+      // BATTLESHIP usa display 480x480 indipendenti, serve coordinate LOCALI dello slave
+#ifdef EFFECT_BATTLESHIP
+      if (currentMode == MODE_BATTLESHIP) {
+        extern void handleBattleshipRemoteTouch(int x, int y);
+        handleBattleshipRemoteTouch(tp.touchX, tp.touchY);
+      }
+#endif
       break;
     }
 
@@ -1482,6 +1490,15 @@ void packModeSpecificData(SyncPacket &pkt) {
     }
 #endif
 
+#ifdef EFFECT_BATTLESHIP
+    case MODE_BATTLESHIP: {
+      extern int bnPackSyncData(uint8_t* data, int maxLen);
+      int written = bnPackSyncData(pkt.data + pkt.dataLen, 200 - pkt.dataLen);
+      pkt.dataLen += written;
+      break;
+    }
+#endif
+
     default:
       // Nessun dato aggiuntivo necessario
       break;
@@ -1678,6 +1695,10 @@ void resetModeInitFlags() {
   extern bool scrollTextInitialized;
   scrollTextInitialized = false;
 #endif
+#ifdef EFFECT_BATTLESHIP
+  extern bool battleshipInitialized;
+  battleshipInitialized = false;
+#endif
 
   // --- Pattern "InitNeeded = true" ---
 #ifdef EFFECT_CLOCK
@@ -1815,6 +1836,15 @@ void unpackModeSpecificData(const SyncPacket &pkt) {
     case MODE_SCROLLTEXT: {
       extern void scrollUnpackSyncData(const uint8_t* data, int dataLen);
       scrollUnpackSyncData(pkt.data, pkt.dataLen);
+      break;
+    }
+#endif
+
+#ifdef EFFECT_BATTLESHIP
+    case MODE_BATTLESHIP: {
+      extern void bnUnpackSyncData(const uint8_t* data, int dataLen);
+      bnUnpackSyncData(pkt.data, pkt.dataLen);
+      // bnNeedsRedraw gestito dentro bnUnpackSyncData() solo quando dati cambiano
       break;
     }
 #endif

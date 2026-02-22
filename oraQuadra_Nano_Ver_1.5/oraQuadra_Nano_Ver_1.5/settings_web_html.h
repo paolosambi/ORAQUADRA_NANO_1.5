@@ -1414,6 +1414,8 @@ const MODES = [
   { id: 28, name: 'PONG', icon: '🏓', desc: 'Pong Dual Display' },
   { id: 29, name: 'SCROLL TEXT', icon: '💬', desc: 'Testo Scorrevole' },
   { id: 30, name: 'BREAKOUT', icon: '🧱', desc: 'Breakout Dual Display' },
+  { id: 31, name: 'BATTLESHIP', icon: '⚓', desc: 'Battaglia Navale Dual Display' },
+  { id: 32, name: 'ARCADE', icon: '🕹️', desc: 'Emulatore Arcade Z80' },
 ];
 
 let currentMode = 2;

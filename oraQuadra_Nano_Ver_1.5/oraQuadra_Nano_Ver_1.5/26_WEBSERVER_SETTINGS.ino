@@ -616,8 +616,17 @@ void loadEnabledModes() {
 
   // Ricostruisci mask 40-bit: lower (bits 0-31) + ext (bits 32-39)
   enabledModesMask = (uint64_t)lower | ((uint64_t)ext << 32);
+
+  // Auto-abilita modi nuovi che non esistevano quando la mask è stata salvata
+#ifdef EFFECT_BATTLESHIP
+  enabledModesMask |= (1ULL << MODE_BATTLESHIP);
+#endif
+#ifdef EFFECT_ARCADE
+  enabledModesMask |= (1ULL << MODE_ARCADE);
+#endif
+
   Serial.printf("[SETTINGS] Modalità abilitate caricate: 0x%02X%08lX\n",
-                ext, lower);
+                ext, (uint32_t)(enabledModesMask & 0xFFFFFFFF));
 }
 
 // Salva modalità abilitate in EEPROM (5 bytes: 700-703 + 705)

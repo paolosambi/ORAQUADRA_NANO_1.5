@@ -68,6 +68,10 @@ void checkButtons() {
   #ifdef EFFECT_BREAKOUT
   static bool breakoutTrackingActive = false;
   #endif
+  // ======= VARIABILI PER TRACKING CONTINUO ARCADE =======
+  #ifdef EFFECT_ARCADE
+  static bool arcadeTrackingActive = false;
+  #endif
 
   // ======= VARIABILI PER LONG PRESS BTTF ALARM SETUP =======
   static bool bttfLongPressActive = false;      // True se stiamo monitorando un long press centrale in BTTF
@@ -242,6 +246,20 @@ void checkButtons() {
     #else
     handleBreakoutTouch(px, py);
     #endif
+    return;
+  }
+  #endif
+
+  // ====================== TRACKING CONTINUO ARCADE (D-pad segue dito) ======================
+  #ifdef EFFECT_ARCADE
+  if (arcadeTrackingActive && !touchDetected) {
+    arcadeTrackingActive = false;
+    arcadeClearTouchInput();
+  }
+  if (arcadeTrackingActive && touchDetected && currentMode == MODE_ARCADE) {
+    int px = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+    int py = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+    arcadeUpdateTouchInput(px, py);
     return;
   }
   #endif
@@ -689,6 +707,59 @@ if (modeSelectorActive) {
     handleBreakoutTouch(x, y);
     breakoutTrackingActive = true;
     return;
+  }
+  #endif
+
+  // ====================== GESTIONE TOUCH BATTLESHIP ======================
+  // Ogni display e' 480x480 indipendente. Slave inoltra touch al master via ESP-NOW.
+  #ifdef EFFECT_BATTLESHIP
+  if (currentMode == MODE_BATTLESHIP && touchDetected && !waitingForRelease) {
+    int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+    int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+    playTouchSound();
+    #ifdef EFFECT_DUAL_DISPLAY
+    if (isDualSlave()) {
+      forwardTouchToMaster(x, y, 1);  // 1 = tap event
+      waitingForRelease = true;
+      return;
+    }
+    #endif
+    handleBattleshipTouch(x, y);
+    waitingForRelease = true;
+    return;
+  }
+  #endif
+
+  // ====================== GESTIONE TOUCH ARCADE ======================
+  // D-pad e bottoni: tracking continuo per movimenti, tap per COIN/START/EXIT
+  #ifdef EFFECT_ARCADE
+  if (currentMode == MODE_ARCADE && touchDetected) {
+    int x = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
+    int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
+
+    if (!arcadeInMenu) {
+      // In-game: tracking continuo per D-pad (no waitingForRelease)
+      arcadeUpdateTouchInput(x, y);
+      arcadeTrackingActive = true;
+
+      // TAP-only actions: EXIT (top-left), COIN (top-right), START (bottom-center)
+      if (!waitingForRelease) {
+        if ((x < 80 && y < 48) || (x > 400 && y < 48) || (y >= 432 && x >= 160 && x < 320)) {
+          playTouchSound();
+          handleArcadeTouch(x, y);
+          waitingForRelease = true;
+        }
+      }
+      return;
+    } else {
+      // In menu: tap-based selection
+      if (!waitingForRelease) {
+        playTouchSound();
+        handleArcadeTouch(x, y);
+        waitingForRelease = true;
+      }
+      return;
+    }
   }
   #endif
 

@@ -227,6 +227,21 @@ void cleanupPreviousMode(DisplayMode previousMode) {
   }
 #endif
 
+#ifdef EFFECT_BATTLESHIP
+  if (previousMode == MODE_BATTLESHIP) {
+    battleshipInitialized = false;
+    Serial.println("[CLEANUP] Battleship: reset");
+  }
+#endif
+
+#ifdef EFFECT_ARCADE
+  if (previousMode == MODE_ARCADE) {
+    cleanupArcade();
+    arcadeInitialized = false;
+    Serial.println("[CLEANUP] Arcade: reset + cleanup");
+  }
+#endif
+
 #ifdef EFFECT_GEMINI_AI
   if (previousMode == MODE_GEMINI_AI) {
     geminiInitialized = false;
@@ -482,6 +497,18 @@ void forceDisplayUpdate() {
     case MODE_SCROLLTEXT:
       scrollTextInitialized = false;
       initScrollText();
+      break;
+#endif
+#ifdef EFFECT_BATTLESHIP
+    case MODE_BATTLESHIP:
+      battleshipInitialized = false;
+      initBattleship();
+      break;
+#endif
+#ifdef EFFECT_ARCADE
+    case MODE_ARCADE:
+      arcadeInitialized = false;
+      initArcade();
       break;
 #endif
   }
@@ -740,6 +767,12 @@ bool isValidMode(DisplayMode mode) {
 #endif
 #ifdef EFFECT_BREAKOUT
     case MODE_BREAKOUT:
+#endif
+#ifdef EFFECT_BATTLESHIP
+    case MODE_BATTLESHIP:
+#endif
+#ifdef EFFECT_ARCADE
+    case MODE_ARCADE:
 #endif
       return true;
     default:
@@ -1010,6 +1043,18 @@ void handleModeChange() {
     case MODE_SCROLLTEXT:
       modeName = "SCROLL TEXT";
       modeColor = GREEN;
+      break;
+#endif
+#ifdef EFFECT_BATTLESHIP
+    case MODE_BATTLESHIP:
+      modeName = "BATTLESHIP";
+      modeColor = CYAN;
+      break;
+#endif
+#ifdef EFFECT_ARCADE
+    case MODE_ARCADE:
+      modeName = "ARCADE";
+      modeColor = YELLOW;
       break;
 #endif
     default:
