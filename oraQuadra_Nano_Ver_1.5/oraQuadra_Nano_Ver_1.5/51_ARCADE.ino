@@ -114,17 +114,15 @@ extern "C" {
 #define ARC_SCALE_PIXELS (ARC_OUT_W * ARC_BATCH_OUT_H)
 
 // ===== Touch Zone Definitions =====
-// Game area: 72-407 X, 24-455 Y (336x432 centered)
-// Control zones on full 480x480 touch area
-#define TOUCH_EXIT_X    80   // Exit zone: top-left corner (0-79, 0-47)
+#define TOUCH_EXIT_X    80   // Exit zone: top-left corner
 #define TOUCH_EXIT_Y    48
-#define TOUCH_COIN_X    340  // Coin zone: top-right corner (341-479, 0-47)
+#define TOUCH_COIN_X    400  // Coin zone: top-right corner
 #define TOUCH_COIN_Y    48
 #define TOUCH_DPAD_LEFT  140  // D-pad left boundary
 #define TOUCH_DPAD_RIGHT 340  // D-pad right boundary
 #define TOUCH_DPAD_MID_Y 240  // Split between UP and DOWN zones
 #define TOUCH_BOTTOM_Y   432  // Bottom control bar start
-// Bottom bar: 0-159=BACK, 160-319=COIN+START, 320-479=FIRE
+// Bottom bar: 0-159=BACK, 160-319=START, 320-479=FIRE
 
 // ===== Menu Grid Layout (4x3, all 12 games visible) =====
 #define AM_HEADER_H   48
@@ -169,6 +167,12 @@ unsigned short* arcadeScaleBuffer = nullptr;   // 336*12 pixels for scaled outpu
 ArcadeInput arcadeInput;
 volatile uint8_t arcadeButtonState = 0;
 
+// Virtual button press state machines (COIN e START indipendenti)
+uint8_t arcadeCoinState = 0;       // 0=idle, 1=pressed, 2=released
+unsigned long arcadeCoinTimer = 0;
+uint8_t arcadeStartState = 0;     // 0=idle, 1=pressed, 2=released
+unsigned long arcadeStartTimer = 0;
+
 // Emulation task
 TaskHandle_t arcadeEmulationTaskHandle = nullptr;
 
@@ -176,10 +180,6 @@ TaskHandle_t arcadeEmulationTaskHandle = nullptr;
 unsigned long arcadeLastFrameTime = 0;
 unsigned long arcadeFrameCount = 0;
 unsigned long arcadeBootStartMs = 0;   // Tracks boot duration (reset per game)
-
-// Virtual coin state machine (for touch coin insertion)
-uint8_t arcadeCoinState = 0;       // 0=idle, 1=coin_press, 2=coin_release, 3=start_press, 4=start_release
-unsigned long arcadeCoinTimer = 0;
 
 // ===== Forward Declarations =====
 void arcadeStartGame(int8_t index);
@@ -194,8 +194,12 @@ void arcadeDrawGameIcon(int cx, int cy, uint8_t machineType);
 void arcadeDrawGameCard(int col, int row, int gameIndex);
 void arcadeAllocateBuffers();
 void arcadeFreeBuffers();
-void arcadeUpdateCoinStateMachine();
-void arcadeTriggerCoinStart();
+void arcadeUpdateButtonStateMachines();
+void arcadeTriggerCoin();
+void arcadeTriggerStart();
+void handleArcadeGameTouch(int x, int y);
+void arcadeUpdateTouchInput(int x, int y);
+void arcadeClearTouchInput();
 
 // ===== Initialization =====
 void initArcade() {
@@ -258,10 +262,8 @@ void initArcade() {
   arcadeBubbleActive = true;
   Serial.println("[ARCADE] Bubble attivata - servizi congelati");
 
-  // Avvia BLE gamepad scanner (runs in background FreeRTOS task)
-  t0 = millis();
-  bleGamepadInit();
-  Serial.printf("[ARCADE] bleGamepadInit() took %lu ms\n", millis() - t0);
+  // BLE gamepad disabilitato - input solo via touch
+  // bleGamepadInit();
 
   arcadeInitialized = true;
   Serial.println("[ARCADE] Initialized OK, games available: " + String(arcadeMachineCount));
@@ -271,8 +273,8 @@ void initArcade() {
 void cleanupArcade() {
   if (!arcadeInitialized) return;
 
-  // Ferma BLE gamepad
-  bleGamepadCleanup();
+  // BLE gamepad disabilitato
+  // bleGamepadCleanup();
 
   // Disattiva bubble arcade: ripristina tutti i servizi
   arcadeBubbleActive = false;
@@ -454,7 +456,7 @@ void arcadeStartGame(int8_t index) {
   // Start arcade audio synthesis for this game
   if (arcadeAudio) arcadeAudio->start(arcadeCurrentMachine);
 
-  // Draw borders and touch zone overlay (persists in non-game areas)
+  // Draw borders and control overlay
   gfx->fillRect(0, 0, ARC_OFFSET_X, 480, 0x0000);               // Left border
   gfx->fillRect(ARC_OFFSET_X + ARC_OUT_W, 0, 480 - ARC_OFFSET_X - ARC_OUT_W, 480, 0x0000); // Right border
   arcadeDrawControlOverlay();
@@ -464,6 +466,7 @@ void arcadeStartGame(int8_t index) {
   arcadeButtonState = 0;
   arcadeInput.setButtons(0);
   arcadeCoinState = 0;
+  arcadeStartState = 0;
   arcadeFrameCount = 0;
   arcadeBootStartMs = millis();   // Start boot timer
   arcadeLastFrameTime = millis();
@@ -518,6 +521,7 @@ void arcadeStopGame() {
   arcadeButtonState = 0;
   arcadeInput.setButtons(0);
   arcadeCoinState = 0;
+  arcadeStartState = 0;
 
   // Return to menu
   arcadeInMenu = true;
@@ -605,8 +609,7 @@ void updateArcade() {
 
   // If in menu, nothing to render continuously
   if (arcadeInMenu) {
-    // Handle virtual coin state machine
-    arcadeUpdateCoinStateMachine();
+    arcadeUpdateButtonStateMachines();
     delay(16);  // Save CPU
     return;
   }
@@ -614,10 +617,9 @@ void updateArcade() {
   // Game is running - render frame
   if (!arcadeCurrentMachine) return;
 
-  // ALWAYS update input (even during Z80 boot) - like galag does
-  bleGamepadUpdate();
-  arcadeInput.setButtons(arcadeButtonState | bleGamepadGetButtons());
-  arcadeUpdateCoinStateMachine();
+  // ALWAYS update input (even during Z80 boot)
+  arcadeInput.setButtons(arcadeButtonState);
+  arcadeUpdateButtonStateMachines();
 
   // FAST BOOT: skip rendering during Z80 boot, show progress on screen
   if (!arcadeCurrentMachine->game_started) {
@@ -666,52 +668,6 @@ void updateArcade() {
   gfx->endWrite();
 
   arcadeFrameCount++;
-}
-
-// ===== Virtual Coin State Machine =====
-// Simulates coin insertion: COIN press -> release -> START press -> release
-void arcadeUpdateCoinStateMachine() {
-  if (arcadeCoinState == 0) return;
-
-  unsigned long now = millis();
-  switch (arcadeCoinState) {
-    case 1: // Coin pressed
-      arcadeButtonState |= BUTTON_COIN;
-      if (now - arcadeCoinTimer > 100) {
-        arcadeCoinState = 2;
-        arcadeCoinTimer = now;
-      }
-      break;
-
-    case 2: // Coin released, pause
-      arcadeButtonState &= ~BUTTON_COIN;
-      if (now - arcadeCoinTimer > 200) {
-        arcadeCoinState = 3;
-        arcadeCoinTimer = now;
-      }
-      break;
-
-    case 3: // Start pressed
-      arcadeButtonState |= BUTTON_START;
-      if (now - arcadeCoinTimer > 100) {
-        arcadeCoinState = 4;
-        arcadeCoinTimer = now;
-      }
-      break;
-
-    case 4: // Start released, done
-      arcadeButtonState &= ~BUTTON_START;
-      arcadeCoinState = 0;
-      break;
-  }
-}
-
-// ===== Trigger Coin Insert =====
-void arcadeTriggerCoinStart() {
-  if (arcadeCoinState == 0) {
-    arcadeCoinState = 1;
-    arcadeCoinTimer = millis();
-  }
 }
 
 // ===== Game Theme Colors =====
@@ -1020,206 +976,217 @@ void arcadeDrawMenu() {
   gfx->print("TAP to select  |  TOP-LEFT to exit mode");
 }
 
-// ===== Draw Control Overlay (visible touch zone HUD) =====
-// Border areas (0-71 left, 408-479 right, 0-23 top, 456-479 bottom)
-// are NEVER overwritten by the game renderer, so labels persist.
-// Game area outlines (UP/DOWN) visible briefly on black screen during Z80 boot.
+// ===== Draw Control Overlay (touch zone rectangles on game screen) =====
 void arcadeDrawControlOverlay() {
   gfx->setFont((const GFXfont *)NULL);
   gfx->setTextSize(1);
 
-  // ===== TOP BAR (y 0-23, persists in border) =====
-  // EXIT zone: x 0-79, y 0-47 (but only draw in border y 0-23)
-  gfx->fillRect(0, 0, 80, 24, 0xC000);  // Dark red background
+  // ===== TOP BAR =====
+  // EXIT zone (0 - TOUCH_EXIT_X, 0 - TOUCH_EXIT_Y)
+  gfx->fillRect(0, 0, TOUCH_EXIT_X, TOUCH_EXIT_Y, 0xC000);
   gfx->setTextColor(0xFFFF);
-  gfx->setCursor(8, 8);
+  gfx->setCursor(14, 18);
   gfx->print("< EXIT");
 
-  // COIN zone: x 341-479, y 0-47 (but only draw in border y 0-23)
-  gfx->fillRect(341, 0, 139, 24, 0x7B00);  // Dark orange background
-  gfx->setTextColor(0xFFE0);  // Yellow text
-  gfx->setCursor(380, 8);
-  gfx->print("COIN INSERT");
+  // COIN zone (TOUCH_COIN_X - 479, 0 - TOUCH_COIN_Y)
+  gfx->fillRect(TOUCH_COIN_X, 0, 480 - TOUCH_COIN_X, TOUCH_COIN_Y, 0x7B00);
+  gfx->setTextColor(0xFFE0);
+  gfx->setCursor(TOUCH_COIN_X + 6, 18);
+  gfx->print("+ COIN");
 
-  // ===== LEFT BORDER (x 0-71, y 24-431) =====
-  gfx->fillRect(0, 24, 72, 408, 0x0010);  // Very dark blue
-  gfx->setTextColor(0x2965);  // Dim cyan
-  gfx->setTextSize(3);
-  gfx->setCursor(22, 200);
+  // ===== LEFT BORDER (0 - TOUCH_DPAD_LEFT, TOUCH_EXIT_Y - TOUCH_BOTTOM_Y) =====
+  gfx->drawRect(0, TOUCH_EXIT_Y, TOUCH_DPAD_LEFT, TOUCH_BOTTOM_Y - TOUCH_EXIT_Y, 0x2965);
+  gfx->setTextColor(0x2965);
+  gfx->setTextSize(2);
+  gfx->setCursor(50, 230);
   gfx->print("<");
   gfx->setTextSize(1);
-  gfx->setCursor(16, 235);
-  gfx->print("LEFT");
 
-  // ===== RIGHT BORDER (x 408-479, y 24-431) =====
-  gfx->fillRect(408, 24, 72, 408, 0x0010);
+  // ===== RIGHT BORDER (TOUCH_DPAD_RIGHT - 479, TOUCH_EXIT_Y - TOUCH_BOTTOM_Y) =====
+  gfx->drawRect(TOUCH_DPAD_RIGHT, TOUCH_EXIT_Y, 480 - TOUCH_DPAD_RIGHT, TOUCH_BOTTOM_Y - TOUCH_EXIT_Y, 0x2965);
   gfx->setTextColor(0x2965);
-  gfx->setTextSize(3);
-  gfx->setCursor(432, 200);
+  gfx->setTextSize(2);
+  gfx->setCursor(420, 230);
   gfx->print(">");
   gfx->setTextSize(1);
-  gfx->setCursor(420, 235);
-  gfx->print("RIGHT");
 
-  // ===== BOTTOM BAR (y 456-479, persists in border) =====
-  // BACK: x 0-159
-  gfx->fillRect(0, 456, 159, 24, 0x4208);  // Dark gray
-  gfx->setTextColor(0xFFFF);
-  gfx->setTextSize(1);
-  gfx->setCursor(40, 464);
-  gfx->print("<< BACK");
-
-  // COIN+START: x 160-319
-  gfx->fillRect(160, 456, 159, 24, 0x0320);  // Dark green
-  gfx->setTextColor(0x07E0);  // Green text
-  gfx->setCursor(185, 464);
-  gfx->print("COIN+START");
-
-  // FIRE: x 320-479
-  gfx->fillRect(320, 456, 160, 24, 0x8000);  // Dark red
-  gfx->setTextColor(0xF800);  // Red text
-  gfx->setCursor(370, 464);
-  gfx->print("FIRE >>");
-
-  // Separator lines for bottom bar
-  gfx->drawFastVLine(159, 456, 24, 0x7BEF);
-  gfx->drawFastVLine(319, 456, 24, 0x7BEF);
-
-  // ===== IN-GAME zone outlines (visible during Z80 boot, overwritten by game) =====
-  // UP zone (x 140-340, y 48-240)
+  // ===== UP zone (TOUCH_DPAD_LEFT - TOUCH_DPAD_RIGHT, TOUCH_EXIT_Y - TOUCH_DPAD_MID_Y) =====
   gfx->drawRect(TOUCH_DPAD_LEFT, TOUCH_EXIT_Y, TOUCH_DPAD_RIGHT - TOUCH_DPAD_LEFT, TOUCH_DPAD_MID_Y - TOUCH_EXIT_Y, 0x001F);
   gfx->setTextColor(0x001F);
   gfx->setTextSize(2);
-  gfx->setCursor(215, 130);
+  gfx->setCursor(220, 135);
   gfx->print("UP");
+  gfx->setTextSize(1);
 
-  // DOWN zone (x 140-340, y 240-432)
+  // ===== DOWN zone (TOUCH_DPAD_LEFT - TOUCH_DPAD_RIGHT, TOUCH_DPAD_MID_Y - TOUCH_BOTTOM_Y) =====
   gfx->drawRect(TOUCH_DPAD_LEFT, TOUCH_DPAD_MID_Y, TOUCH_DPAD_RIGHT - TOUCH_DPAD_LEFT, TOUCH_BOTTOM_Y - TOUCH_DPAD_MID_Y, 0x001F);
-  gfx->setCursor(195, 325);
+  gfx->setTextColor(0x001F);
+  gfx->setTextSize(2);
+  gfx->setCursor(200, 330);
   gfx->print("DOWN");
+  gfx->setTextSize(1);
 
-  // LEFT zone outline
-  gfx->drawRect(0, TOUCH_EXIT_Y, TOUCH_DPAD_LEFT, TOUCH_BOTTOM_Y - TOUCH_EXIT_Y, 0x2965);
+  // ===== BOTTOM BAR (y >= TOUCH_BOTTOM_Y) =====
+  // BACK: 0-159
+  gfx->fillRect(0, TOUCH_BOTTOM_Y, 159, 480 - TOUCH_BOTTOM_Y, 0x4208);
+  gfx->setTextColor(0xFFFF);
+  gfx->setCursor(40, TOUCH_BOTTOM_Y + 18);
+  gfx->print("<< BACK");
 
-  // RIGHT zone outline
-  gfx->drawRect(TOUCH_DPAD_RIGHT, TOUCH_EXIT_Y, 480 - TOUCH_DPAD_RIGHT, TOUCH_BOTTOM_Y - TOUCH_EXIT_Y, 0x2965);
+  // START: 160-319
+  gfx->fillRect(160, TOUCH_BOTTOM_Y, 159, 480 - TOUCH_BOTTOM_Y, 0x0320);
+  gfx->setTextColor(0x07E0);
+  gfx->setCursor(200, TOUCH_BOTTOM_Y + 18);
+  gfx->print("START");
 
-  // Separator between top bar and game area
+  // FIRE: 320-479
+  gfx->fillRect(320, TOUCH_BOTTOM_Y, 160, 480 - TOUCH_BOTTOM_Y, 0x8000);
+  gfx->setTextColor(0xF800);
+  gfx->setCursor(370, TOUCH_BOTTOM_Y + 18);
+  gfx->print("FIRE >>");
+
+  // Separator lines
+  gfx->drawFastVLine(159, TOUCH_BOTTOM_Y, 480 - TOUCH_BOTTOM_Y, 0x7BEF);
+  gfx->drawFastVLine(319, TOUCH_BOTTOM_Y, 480 - TOUCH_BOTTOM_Y, 0x7BEF);
   gfx->drawFastHLine(0, TOUCH_EXIT_Y, 480, 0x2965);
 }
 
-// ===== Touch Handlers =====
+// ===== Virtual Button State Machines (COIN e START indipendenti) =====
+void arcadeUpdateButtonStateMachines() {
+  unsigned long now = millis();
 
-// Called on TAP (from 1_TOUCH.ino - waitingForRelease pattern)
-void handleArcadeTouch(int x, int y) {
-  if (!arcadeInitialized) return;
+  // COIN: press 120ms -> release
+  if (arcadeCoinState == 1) {
+    arcadeButtonState |= BUTTON_COIN;
+    if (now - arcadeCoinTimer > 120) { arcadeCoinState = 2; arcadeCoinTimer = now; }
+  } else if (arcadeCoinState == 2) {
+    arcadeButtonState &= ~BUTTON_COIN;
+    arcadeCoinState = 0;
+  }
 
-  // EXIT: top-left corner (always active) - exits arcade mode entirely
+  // START: press 120ms -> release
+  if (arcadeStartState == 1) {
+    arcadeButtonState |= BUTTON_START;
+    if (now - arcadeStartTimer > 120) { arcadeStartState = 2; arcadeStartTimer = now; }
+  } else if (arcadeStartState == 2) {
+    arcadeButtonState &= ~BUTTON_START;
+    arcadeStartState = 0;
+  }
+}
+
+// Inserisce moneta (solo COIN, non avvia il gioco)
+void arcadeTriggerCoin() {
+  if (arcadeCoinState == 0) { arcadeCoinState = 1; arcadeCoinTimer = millis(); }
+}
+
+// Preme START (avvia il gioco coi crediti inseriti)
+void arcadeTriggerStart() {
+  if (arcadeStartState == 0) { arcadeStartState = 1; arcadeStartTimer = millis(); }
+}
+
+// ===== In-Game Touch: TAP actions (EXIT, COIN, BACK, START, FIRE) =====
+void handleArcadeGameTouch(int x, int y) {
+  if (!arcadeInitialized || arcadeInMenu) return;
+
+  // EXIT: top-left
   if (x < TOUCH_EXIT_X && y < TOUCH_EXIT_Y) {
-    if (!arcadeInMenu) {
-      arcadeStopGame();  // Stop emulation first
-    }
-    handleModeChange();  // Always exit arcade mode
+    arcadeStopGame();
+    handleModeChange();
     return;
   }
 
-  if (arcadeInMenu) {
-    // Grid hit test
-    if (y >= AM_GRID_TOP && y < AM_GRID_TOP + AM_ROWS * AM_ROW_STEP) {
-      int col = (x - AM_MARGIN) / AM_COL_STEP;
-      int row = (y - AM_GRID_TOP) / AM_ROW_STEP;
-      if (col >= 0 && col < AM_COLS && row >= 0 && row < AM_ROWS) {
-        int idx = row * AM_COLS + col;
-        if (idx < arcadeMachineCount) {
-          // Visual feedback: highlight card
-          int cx = AM_MARGIN + col * AM_COL_STEP;
-          int cy = AM_GRID_TOP + row * AM_ROW_STEP;
-          uint16_t color = arcadeGetGameColor(arcadeGames[idx].machineType);
-          gfx->drawRoundRect(cx, cy, AM_CELL_W, AM_CELL_H, 8, color);
-          gfx->drawRoundRect(cx + 1, cy + 1, AM_CELL_W - 2, AM_CELL_H - 2, 7, color);
-          delay(200);
-          arcadeStartGame(idx);
-        }
-      }
-    }
+  // COIN: top-right (inserisce credito)
+  if (x >= TOUCH_COIN_X && y < TOUCH_COIN_Y) {
+    arcadeTriggerCoin();
     return;
   }
 
-  // In-game tap handling
-
-  // COIN: top-right corner
-  if (x > TOUCH_COIN_X && y < TOUCH_COIN_Y) {
-    arcadeTriggerCoinStart();
-    return;
-  }
-
-  // Bottom bar: BACK / START / FIRE (single tap actions)
+  // Bottom bar
   if (y >= TOUCH_BOTTOM_Y) {
     if (x < 160) {
-      // BACK = stop game, return to menu
-      arcadeStopGame();
+      arcadeStopGame();           // BACK
     } else if (x < 320) {
-      // START button
-      arcadeTriggerCoinStart();
+      arcadeTriggerStart();       // START (avvia con crediti)
     } else {
-      // FIRE button (momentary via tap)
-      arcadeButtonState |= BUTTON_FIRE;
+      arcadeButtonState |= BUTTON_FIRE;  // FIRE
     }
     return;
   }
 }
 
-// Called continuously while touch is held (from 1_TOUCH.ino tracking)
+// ===== In-Game Touch: Continuous D-pad tracking =====
 void arcadeUpdateTouchInput(int x, int y) {
   if (!arcadeInitialized || arcadeInMenu) return;
 
   uint8_t buttons = 0;
 
-  // Preserve coin/start state machine buttons
-  if (arcadeCoinState > 0) {
+  // Preserve coin/start state machines
+  if (arcadeCoinState > 0 || arcadeStartState > 0) {
     buttons = arcadeButtonState & (BUTTON_COIN | BUTTON_START);
   }
 
-  // D-pad: LEFT zone (left side of screen)
-  if (x < TOUCH_DPAD_LEFT && y >= TOUCH_EXIT_Y && y < TOUCH_BOTTOM_Y) {
+  // LEFT
+  if (x < TOUCH_DPAD_LEFT && y >= TOUCH_EXIT_Y && y < TOUCH_BOTTOM_Y)
     buttons |= BUTTON_LEFT;
-  }
 
-  // D-pad: RIGHT zone (right side of screen)
-  if (x > TOUCH_DPAD_RIGHT && y >= TOUCH_COIN_Y && y < TOUCH_BOTTOM_Y) {
+  // RIGHT
+  if (x > TOUCH_DPAD_RIGHT && y >= TOUCH_EXIT_Y && y < TOUCH_BOTTOM_Y)
     buttons |= BUTTON_RIGHT;
-  }
 
-  // D-pad: UP zone (center-top area)
+  // UP
   if (x >= TOUCH_DPAD_LEFT && x <= TOUCH_DPAD_RIGHT &&
-      y >= TOUCH_EXIT_Y && y < TOUCH_DPAD_MID_Y) {
+      y >= TOUCH_EXIT_Y && y < TOUCH_DPAD_MID_Y)
     buttons |= BUTTON_UP;
-  }
 
-  // D-pad: DOWN zone (center-bottom area)
+  // DOWN
   if (x >= TOUCH_DPAD_LEFT && x <= TOUCH_DPAD_RIGHT &&
-      y >= TOUCH_DPAD_MID_Y && y < TOUCH_BOTTOM_Y) {
+      y >= TOUCH_DPAD_MID_Y && y < TOUCH_BOTTOM_Y)
     buttons |= BUTTON_DOWN;
-  }
 
-  // FIRE: bottom-right held
-  if (y >= TOUCH_BOTTOM_Y && x >= 320) {
+  // FIRE held
+  if (y >= TOUCH_BOTTOM_Y && x >= 320)
     buttons |= BUTTON_FIRE;
-  }
 
   arcadeButtonState = buttons;
 }
 
-// Called when touch is released
+// ===== Touch released =====
 void arcadeClearTouchInput() {
   if (!arcadeInitialized || arcadeInMenu) return;
-
-  // Clear directional + fire buttons, preserve coin state machine
   uint8_t preserve = 0;
-  if (arcadeCoinState > 0) {
+  if (arcadeCoinState > 0 || arcadeStartState > 0)
     preserve = arcadeButtonState & (BUTTON_COIN | BUTTON_START);
-  }
   arcadeButtonState = preserve;
+}
+
+// ===== Touch Handler (menu only) =====
+void handleArcadeMenuTouch(int x, int y) {
+  if (!arcadeInitialized || !arcadeInMenu) return;
+
+  // EXIT: top-left corner (pulsante rosso < EXIT)
+  if (x < 80 && y < 40) {
+    handleModeChange();
+    return;
+  }
+
+  // Grid hit test: seleziona gioco
+  if (y >= AM_GRID_TOP && y < AM_GRID_TOP + AM_ROWS * AM_ROW_STEP) {
+    int col = (x - AM_MARGIN) / AM_COL_STEP;
+    int row = (y - AM_GRID_TOP) / AM_ROW_STEP;
+    if (col >= 0 && col < AM_COLS && row >= 0 && row < AM_ROWS) {
+      int idx = row * AM_COLS + col;
+      if (idx < arcadeMachineCount) {
+        // Visual feedback: highlight card
+        int cx = AM_MARGIN + col * AM_COL_STEP;
+        int cy = AM_GRID_TOP + row * AM_ROW_STEP;
+        uint16_t color = arcadeGetGameColor(arcadeGames[idx].machineType);
+        gfx->drawRoundRect(cx, cy, AM_CELL_W, AM_CELL_H, 8, color);
+        gfx->drawRoundRect(cx + 1, cy + 1, AM_CELL_W - 2, AM_CELL_H - 2, 7, color);
+        delay(200);
+        arcadeStartGame(idx);
+      }
+    }
+  }
 }
 
 #endif // EFFECT_ARCADE
