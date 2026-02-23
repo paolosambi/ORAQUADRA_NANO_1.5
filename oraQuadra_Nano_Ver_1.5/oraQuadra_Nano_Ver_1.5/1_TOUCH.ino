@@ -260,7 +260,7 @@ void checkButtons() {
     int px = map(ts.points[0].x, TOUCH_MAP_X1, TOUCH_MAP_X2, 0, 479);
     int py = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
     arcadeUpdateTouchInput(px, py);
-    return;
+    return;  // D-pad tracking: continuous, no tap actions
   }
   #endif
 
@@ -738,18 +738,23 @@ if (modeSelectorActive) {
     int y = map(ts.points[0].y, TOUCH_MAP_Y1, TOUCH_MAP_Y2, 0, 479);
 
     if (!arcadeInMenu) {
-      // In-game: tracking continuo per D-pad (no waitingForRelease)
-      arcadeUpdateTouchInput(x, y);
-      arcadeTrackingActive = true;
-
-      // TAP-only actions: EXIT (top-left), COIN (top-right), START (bottom-center)
+      // In-game: check TAP zones FIRST (EXIT, COIN, bottom bar)
+      // These must be checked before starting D-pad tracking
       if (!waitingForRelease) {
-        if ((x < 80 && y < 48) || (x > 400 && y < 48) || (y >= 432 && x >= 160 && x < 320)) {
+        // EXIT: top-left (x<80, y<48)
+        // COIN: top-right (x>340, y<48)
+        // Bottom bar: BACK/START/FIRE (y>=432)
+        if ((x < 80 && y < 48) || (x > 340 && y < 48) || (y >= 432)) {
           playTouchSound();
           handleArcadeTouch(x, y);
           waitingForRelease = true;
+          return;
         }
       }
+
+      // D-pad zone: start continuous tracking
+      arcadeUpdateTouchInput(x, y);
+      arcadeTrackingActive = true;
       return;
     } else {
       // In menu: tap-based selection

@@ -731,6 +731,9 @@ extern uint8_t ledRgbOverrideB;
 extern uint8_t ledAudioReactive;
 #endif
 
+// Arcade Bubble: quando attivo, il loop principale salta tutti i servizi non essenziali
+volatile bool arcadeBubbleActive = false;
+
 // Funzioni definite in 39_YOUTUBE.ino e 40_WEBSERVER_YOUTUBE.ino
 #ifdef EFFECT_YOUTUBE
 void initYoutubeStation();
@@ -844,6 +847,12 @@ void setup_arcade_webserver(AsyncWebServer* server);
 extern bool arcadeInitialized;
 extern int8_t arcadeSelectedGame;
 extern bool arcadeInMenu;
+// BLE Gamepad (53_BLE_GAMEPAD.ino)
+void bleGamepadInit();
+void bleGamepadCleanup();
+void bleGamepadUpdate();
+uint8_t bleGamepadGetButtons();
+bool bleGamepadIsConnected();
 #endif
 
 // Funzioni definite in 44_DUAL_DISPLAY.ino e 45_WEBSERVER_DUAL_DISPLAY.ino
@@ -2922,6 +2931,41 @@ void loop() {
 
   uint32_t currentMillis = millis();  // Ottiene il tempo attuale in millisecondi dall'avvio.
 
+  // ========== ARCADE BUBBLE: FAST PATH ==========
+  // Quando l'arcade e' attivo, salta TUTTO tranne touch + render.
+  // Spostato QUI in cima al loop per massima velocita' (niente OTA/Alexa/radar overhead).
+  #ifdef EFFECT_ARCADE
+  if (arcadeBubbleActive) {
+    // Touch: 16ms interval (60fps)
+    static uint32_t lastButtonCheck_arc = 0;
+    if (currentMillis - lastButtonCheck_arc > 16) {
+      checkButtons();
+      lastButtonCheck_arc = currentMillis;
+    }
+    // checkButtons() puo' chiamare handleModeChange() → cleanupArcade() → arcadeBubbleActive=false
+    // Se cio' e' avvenuto, NON chiamare updateArcade() (che ri-inizializzerebbe l'arcade)
+    if (!arcadeBubbleActive) goto arcade_exited;
+    // Orologio base (per status bar, 1 volta/sec)
+    static uint32_t lastUpdate_arc = 0;
+    if (currentMillis - lastUpdate_arc > 1000) {
+      if (WiFi.status() == WL_CONNECTED) {
+        currentHour = myTZ.hour();
+        currentMinute = myTZ.minute();
+        currentSecond = myTZ.second();
+      } else {
+        currentSecond++;
+        if (currentSecond >= 60) { currentSecond = 0; currentMinute++; }
+        if (currentMinute >= 60) { currentMinute = 0; currentHour = (currentHour + 1) % 24; }
+      }
+      lastUpdate_arc = currentMillis;
+    }
+    updateArcade();
+    yield();
+    arcade_exited:
+    return;
+  }
+  #endif
+
   // ========== VERIFICA PROTEZIONE DISTRIBUITA ==========
   // Controllo periodico anti-tampering (ogni ~30 secondi)
   static uint32_t lastProtCheck = 0;
@@ -2993,9 +3037,9 @@ void loop() {
     }
   }
 
-  // Check dei tocchi ogni 50ms
+  // Check dei tocchi (50ms normalmente, arcade gia' gestito sopra)
   if (currentMillis - lastButtonCheck > 50) {
-    checkButtons(); // Funzione per leggere e gestire gli eventi del touch screen.
+    checkButtons();
     lastButtonCheck = currentMillis;
   }
 

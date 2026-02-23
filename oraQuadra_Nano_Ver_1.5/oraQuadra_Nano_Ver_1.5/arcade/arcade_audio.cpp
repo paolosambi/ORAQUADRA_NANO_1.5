@@ -81,6 +81,8 @@ void ArcadeAudio::transmit() {
   if (!currentMachine || !active) return;
 
   // Try to transmit as much audio data as possible.
+  // Safety limit prevents blocking on partial DMA writes.
+  // At 60fps: 10 × 64 × 60 = 38400 samples/sec capacity (24kHz needed).
   size_t bytesOut = 0;
   int safety = 0;
   do {
@@ -103,8 +105,7 @@ void ArcadeAudio::transmit() {
         ay_render_buffer();
       }
     }
-
-    if (++safety > 8) break;
+    if (++safety > 10) break;
   } while (bytesOut);
 }
 

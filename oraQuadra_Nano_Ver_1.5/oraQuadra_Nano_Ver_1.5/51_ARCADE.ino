@@ -11,6 +11,8 @@
 
 #ifdef EFFECT_ARCADE
 
+extern volatile bool arcadeBubbleActive;
+
 #include "arcade/arcade_config.h"
 #include "arcade/arcade_bridge.h"
 #include "arcade/machines/machineBase.h"
@@ -105,24 +107,24 @@ extern "C" {
 // ===== Display Constants =====
 // Row buffer: one tile row = 224 pixels * 8 lines * 2 bytes = 3584 bytes
 #define ARC_ROW_PIXELS  (ARC_GAME_W * 8)
-// Batched rendering: 4 tile rows per draw call = 9 draw calls instead of 36
-#define ARC_BATCH_ROWS  4
-#define ARC_BATCH_OUT_H (12 * ARC_BATCH_ROWS)  // 48 output lines per batch
-// Scale buffer: 336 pixels * 48 lines * 2 bytes = 32256 bytes (PSRAM)
+// Batched rendering: 12 tile rows per draw call = 3 draw calls instead of 36
+#define ARC_BATCH_ROWS  12
+#define ARC_BATCH_OUT_H (12 * ARC_BATCH_ROWS)  // 144 output lines per batch
+// Scale buffer: 336 pixels * 144 lines * 2 bytes = 96768 bytes (PSRAM)
 #define ARC_SCALE_PIXELS (ARC_OUT_W * ARC_BATCH_OUT_H)
 
 // ===== Touch Zone Definitions =====
 // Game area: 72-407 X, 24-455 Y (336x432 centered)
 // Control zones on full 480x480 touch area
-#define TOUCH_EXIT_X    80   // Exit zone: top-left corner
+#define TOUCH_EXIT_X    80   // Exit zone: top-left corner (0-79, 0-47)
 #define TOUCH_EXIT_Y    48
-#define TOUCH_COIN_X    400  // Coin zone: top-right corner
+#define TOUCH_COIN_X    340  // Coin zone: top-right corner (341-479, 0-47)
 #define TOUCH_COIN_Y    48
 #define TOUCH_DPAD_LEFT  140  // D-pad left boundary
 #define TOUCH_DPAD_RIGHT 340  // D-pad right boundary
 #define TOUCH_DPAD_MID_Y 240  // Split between UP and DOWN zones
 #define TOUCH_BOTTOM_Y   432  // Bottom control bar start
-// Bottom bar: 0-159=BACK, 160-319=START, 320-479=FIRE
+// Bottom bar: 0-159=BACK, 160-319=COIN+START, 320-479=FIRE
 
 // ===== Menu Grid Layout (4x3, all 12 games visible) =====
 #define AM_HEADER_H   48
@@ -173,6 +175,7 @@ TaskHandle_t arcadeEmulationTaskHandle = nullptr;
 // Frame timing
 unsigned long arcadeLastFrameTime = 0;
 unsigned long arcadeFrameCount = 0;
+unsigned long arcadeBootStartMs = 0;   // Tracks boot duration (reset per game)
 
 // Virtual coin state machine (for touch coin insertion)
 uint8_t arcadeCoinState = 0;       // 0=idle, 1=coin_press, 2=coin_release, 3=start_press, 4=start_release
@@ -182,7 +185,7 @@ unsigned long arcadeCoinTimer = 0;
 void arcadeStartGame(int8_t index);
 void arcadeStopGame();
 void arcadeEmulationTask(void* param);
-void arcadeUpscaleRow(unsigned short* src, unsigned short* dst, int dstOffsetY);
+IRAM_ATTR void arcadeUpscaleRow(unsigned short* src, unsigned short* dst, int dstOffsetY);
 void arcadeDrawMenu();
 void arcadeDrawControlOverlay();
 void arcadeBuildGameList();
@@ -200,8 +203,26 @@ void initArcade() {
 
   Serial.println("[ARCADE] Initializing Arcade Emulator");
 
+  // ★ Show loading screen IMMEDIATELY (before any blocking ops)
+  // audio.stopSong() can block 10-30s if web radio TCP connection is timing out
+  gfx->fillScreen(BLACK);
+  gfx->setFont(u8g2_font_helvB14_tr);
+  gfx->setTextColor(0xFFE0);  // Yellow
+  gfx->setCursor(150, 210);
+  gfx->print("ARCADE");
+  gfx->setFont((const GFXfont *)NULL);
+  gfx->setTextSize(1);
+  gfx->setTextColor(0x7BEF);  // Gray
+  gfx->setCursor(168, 250);
+  gfx->print("Initializing...");
+
   // Stop music playback to free I2S for arcade audio synthesis
+  // This can block if an HTTP stream (web radio) is active and the
+  // TCP connection takes time to close (lwIP timeout up to 20-30s).
+  unsigned long t0 = millis();
   audio.stopSong();
+  unsigned long dt = millis() - t0;
+  Serial.printf("[ARCADE] audio.stopSong() took %lu ms\n", dt);
   delay(50);  // Let audioTask finish current loop iteration
 
   // Arcade audio: sets I2S to 24kHz, uses Audio library's existing driver
@@ -233,6 +254,15 @@ void initArcade() {
   gfx->fillScreen(BLACK);
   arcadeDrawMenu();
 
+  // Attiva bubble arcade: congela tutti i servizi del loop principale
+  arcadeBubbleActive = true;
+  Serial.println("[ARCADE] Bubble attivata - servizi congelati");
+
+  // Avvia BLE gamepad scanner (runs in background FreeRTOS task)
+  t0 = millis();
+  bleGamepadInit();
+  Serial.printf("[ARCADE] bleGamepadInit() took %lu ms\n", millis() - t0);
+
   arcadeInitialized = true;
   Serial.println("[ARCADE] Initialized OK, games available: " + String(arcadeMachineCount));
 }
@@ -240,6 +270,13 @@ void initArcade() {
 // ===== Cleanup =====
 void cleanupArcade() {
   if (!arcadeInitialized) return;
+
+  // Ferma BLE gamepad
+  bleGamepadCleanup();
+
+  // Disattiva bubble arcade: ripristina tutti i servizi
+  arcadeBubbleActive = false;
+  Serial.println("[ARCADE] Bubble disattivata - servizi ripristinati");
 
   Serial.println("[ARCADE] Cleanup");
 
@@ -384,28 +421,43 @@ machineBase* arcadeCreateMachine(uint8_t type) {
 void arcadeStartGame(int8_t index) {
   if (index < 0 || index >= arcadeMachineCount) return;
 
+  unsigned long tStart = millis();
   Serial.printf("[ARCADE] Starting game: %s\n", arcadeGames[index].name);
 
+  // Show loading screen BEFORE any potentially slow operations
+  gfx->fillScreen(BLACK);
+  gfx->setFont((const GFXfont *)NULL);
+  gfx->setTextColor(0xFFE0);  // Yellow
+  gfx->setTextSize(3);
+  gfx->setCursor(110, 200);
+  gfx->print("LOADING");
+  gfx->setTextSize(2);
+  gfx->setTextColor(0x7BEF);
+  gfx->setCursor(100, 260);
+  gfx->printf("%s...", arcadeGames[index].name);
+
   // Create machine instance
+  unsigned long t0 = millis();
   arcadeCurrentMachine = arcadeCreateMachine(arcadeGames[index].machineType);
   if (!arcadeCurrentMachine) {
     Serial.println("[ARCADE] Failed to create machine!");
     return;
   }
+  Serial.printf("[ARCADE] createMachine took %lu ms\n", millis() - t0);
 
-  // Initialize machine with buffers
+  // Initialize machine with buffers (PROGMEM ROMs - should be instant)
+  t0 = millis();
   arcadeCurrentMachine->init(&arcadeInput, arcadeFrameBuffer, arcadeSpriteBuffer, arcadeMemory);
   arcadeCurrentMachine->reset();
+  Serial.printf("[ARCADE] init+reset took %lu ms\n", millis() - t0);
 
   // Start arcade audio synthesis for this game
   if (arcadeAudio) arcadeAudio->start(arcadeCurrentMachine);
 
-  // Clear screen with black, draw border
-  gfx->fillScreen(BLACK);
-
-  // Draw side borders (decorative)
+  // Draw borders and touch zone overlay (persists in non-game areas)
   gfx->fillRect(0, 0, ARC_OFFSET_X, 480, 0x0000);               // Left border
   gfx->fillRect(ARC_OFFSET_X + ARC_OUT_W, 0, 480 - ARC_OFFSET_X - ARC_OUT_W, 480, 0x0000); // Right border
+  arcadeDrawControlOverlay();
 
   arcadeInMenu = false;
   arcadeSelectedGame = index;
@@ -413,20 +465,35 @@ void arcadeStartGame(int8_t index) {
   arcadeInput.setButtons(0);
   arcadeCoinState = 0;
   arcadeFrameCount = 0;
+  arcadeBootStartMs = millis();   // Start boot timer
   arcadeLastFrameTime = millis();
 
   // Create emulation task on Core 0
-  xTaskCreatePinnedToCore(
+  BaseType_t taskResult = xTaskCreatePinnedToCore(
     arcadeEmulationTask,
     "arcadeZ80",
-    4096,
+    8192,                 // 8KB stack (Z80 callbacks use several nested virtual calls)
     nullptr,
     2,                    // Priority 2 (higher than idle)
     &arcadeEmulationTaskHandle,
     ARCADE_EMULATION_CORE
   );
 
-  Serial.println("[ARCADE] Game started, emulation task created on Core 0");
+  if (taskResult != pdPASS) {
+    Serial.printf("[ARCADE] ERROR: Failed to create emulation task! (err=%d, free heap=%d)\n",
+                  taskResult, ESP.getFreeHeap());
+    // Show error on screen
+    gfx->fillRect(80, 300, 320, 30, BLACK);
+    gfx->setTextColor(0xF800);
+    gfx->setTextSize(1);
+    gfx->setCursor(80, 304);
+    gfx->print("ERROR: Cannot start emulation task!");
+    arcadeInMenu = true;
+    return;
+  }
+
+  Serial.printf("[ARCADE] Game started in %lu ms, emulation on Core 0 (heap=%d)\n",
+                millis() - tStart, ESP.getFreeHeap());
 }
 
 // ===== Stop Game =====
@@ -463,21 +530,33 @@ void arcadeStopGame() {
 
 // ===== Emulation Task (Core 0) =====
 void arcadeEmulationTask(void* param) {
+  Serial.println("[ARCADE-EMU] Task started on Core 0");
+  unsigned long emuStart = millis();
+  int bootFrames = 0;
+
+  TickType_t lastWake = xTaskGetTickCount();
   while (true) {
     if (arcadeCurrentMachine) {
       if (!arcadeCurrentMachine->game_started) {
         // FAST BOOT: run 20 emulation frames per tick (~20x faster boot)
         // Pac-Man boot does RAM test + init, takes ~180 frames normally
-        // With this optimization: ~200ms instead of ~3 seconds
         for (int i = 0; i < 20; i++) {
           arcadeCurrentMachine->run_frame();
-          if (arcadeCurrentMachine->game_started) break;
+          bootFrames++;
+          if (arcadeCurrentMachine->game_started) {
+            Serial.printf("[ARCADE-EMU] Boot done in %d frames, %lu ms\n",
+                          bootFrames, millis() - emuStart);
+            break;
+          }
         }
         vTaskDelay(1);  // Feed watchdog
       } else {
-        // Normal gameplay: one frame, then wait for vsync from renderer
+        // Self-timed at 60fps, decoupled from render
         arcadeCurrentMachine->run_frame();
-        ulTaskNotifyTake(1, portMAX_DELAY);
+        // Audio: transmit on same core as emulation (no soundregs race).
+        // Fills DMA buffer with as many samples as available space allows.
+        if (arcadeAudio) arcadeAudio->transmit();
+        vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(16));
       }
     } else {
       vTaskDelay(10);
@@ -488,7 +567,7 @@ void arcadeEmulationTask(void* param) {
 // ===== Upscale Row: 224x8 -> 336x12 (1.5x nearest-neighbor) =====
 // 3:2 scaling: every 2 source pixels become 3 destination pixels
 // dstOffsetY = vertical offset in destination buffer (for row batching)
-void arcadeUpscaleRow(unsigned short* src, unsigned short* dst, int dstOffsetY) {
+IRAM_ATTR void arcadeUpscaleRow(unsigned short* src, unsigned short* dst, int dstOffsetY) {
   // Source line mapping: 0,0,1, 2,2,3, 4,4,5, 6,6,7 (3:2 pattern)
   // Lines 0,3,6,9 are duplicates of previous line -> use memcpy
   static const uint8_t srcLineMap[12] = {0,0,1, 2,2,3, 4,4,5, 6,6,7};
@@ -506,8 +585,8 @@ void arcadeUpscaleRow(unsigned short* src, unsigned short* dst, int dstOffsetY) 
       unsigned short* srcLine = src + srcLineMap[outY] * ARC_GAME_W;
       int dstX = 0;
       for (int srcX = 0; srcX < ARC_GAME_W; srcX += 2) {
-        unsigned short p0 = (srcLine[srcX] >> 8) | (srcLine[srcX] << 8);
-        unsigned short p1 = (srcLine[srcX + 1] >> 8) | (srcLine[srcX + 1] << 8);
+        unsigned short p0 = __builtin_bswap16(srcLine[srcX]);
+        unsigned short p1 = __builtin_bswap16(srcLine[srcX + 1]);
         dstLine[dstX]     = p0;
         dstLine[dstX + 1] = p0;
         dstLine[dstX + 2] = p1;
@@ -535,44 +614,44 @@ void updateArcade() {
   // Game is running - render frame
   if (!arcadeCurrentMachine) return;
 
-  // FAST BOOT: skip rendering during Z80 boot, show loading text
+  // ALWAYS update input (even during Z80 boot) - like galag does
+  bleGamepadUpdate();
+  arcadeInput.setButtons(arcadeButtonState | bleGamepadGetButtons());
+  arcadeUpdateCoinStateMachine();
+
+  // FAST BOOT: skip rendering during Z80 boot, show progress on screen
   if (!arcadeCurrentMachine->game_started) {
-    static bool loadingShown = false;
-    if (!loadingShown) {
-      gfx->fillScreen(BLACK);
-      gfx->setFont((const GFXfont *)NULL);
-      gfx->setTextColor(0xFFE0);  // Yellow
-      gfx->setTextSize(3);
-      gfx->setCursor(110, 210);
-      gfx->print("LOADING...");
-      gfx->setTextSize(1);
-      gfx->setTextColor(0x7BEF);
-      gfx->setCursor(140, 260);
-      gfx->print("Z80 boot in corso");
-      loadingShown = true;
-    }
-    delay(50);  // Don't busy-wait, let emulation run on Core 0
+    unsigned long elapsed = millis() - arcadeBootStartMs;
+
+    // Show animated boot progress so user knows system is NOT frozen
+    gfx->fillRect(100, 280, 280, 20, BLACK);
+    gfx->setFont((const GFXfont *)NULL);
+    gfx->setTextSize(1);
+    gfx->setTextColor(0x7BEF);
+    gfx->setCursor(110, 284);
+    gfx->printf("Booting Z80... %lu.%lus", elapsed / 1000, (elapsed / 100) % 10);
+
+    Serial.printf("[ARCADE] Boot wait: %lu ms, game_started=%d\n", elapsed, arcadeCurrentMachine->game_started);
+
+    delay(100);  // Don't busy-wait, let emulation run on Core 0
     return;
   }
 
-  unsigned long frameStart = millis();
-
-  // Update input from touch state
-  arcadeInput.setButtons(arcadeButtonState);
-
-  // Handle virtual coin state machine
-  arcadeUpdateCoinStateMachine();
+  // Boot completed - log once
+  if (arcadeFrameCount == 0) {
+    unsigned long bootTime = millis() - arcadeBootStartMs;
+    Serial.printf("[ARCADE] Z80 boot completed in %lu ms, rendering first frame\n", bootTime);
+  }
 
   // Prepare frame (extract sprites from Z80 RAM)
   arcadeCurrentMachine->prepare_frame();
 
-  // Render in batches of 4 tile rows per draw call (9 calls instead of 36)
-  // startWrite/endWrite keeps SPI transaction open for entire frame
+  // Render in batches of 12 tile rows per draw call (3 calls instead of 36)
   gfx->startWrite();
-  for (int batch = 0; batch < 9; batch++) {
+  for (int batch = 0; batch < 3; batch++) {
     int rowStart = batch * ARC_BATCH_ROWS;
 
-    // Render and upscale 4 tile rows into the batch buffer
+    // Render and upscale 12 tile rows into the batch buffer
     for (int r = 0; r < ARC_BATCH_ROWS; r++) {
       int row = rowStart + r;
       memset(arcadeFrameBuffer, 0, ARC_ROW_PIXELS * sizeof(unsigned short));
@@ -580,26 +659,11 @@ void updateArcade() {
       arcadeUpscaleRow(arcadeFrameBuffer, arcadeScaleBuffer, r * 12);
     }
 
-    // Single blit for the entire batch (336 x 48 pixels)
+    // Single blit for the entire batch (336 x 144 pixels)
     gfx->draw16bitRGBBitmap(ARC_OFFSET_X, ARC_OFFSET_Y + batch * ARC_BATCH_OUT_H,
                              arcadeScaleBuffer, ARC_OUT_W, ARC_BATCH_OUT_H);
-
-    // Transmit arcade audio every 3 batches (3 calls/frame, evenly spaced ~5.6ms)
-    // Not every batch (9x = too much overhead) or once (1x = DMA starvation)
-    if (arcadeAudio && (batch % 3 == 2)) arcadeAudio->transmit();
   }
   gfx->endWrite();
-
-  // Frame timing
-  unsigned long frameTime = millis() - frameStart;
-  if (frameTime < ARC_FRAME_MS) {
-    delay(ARC_FRAME_MS - frameTime);
-  }
-
-  // Notify emulation task that frame is rendered (vsync)
-  if (arcadeEmulationTaskHandle) {
-    xTaskNotifyGive(arcadeEmulationTaskHandle);
-  }
 
   arcadeFrameCount++;
 }
@@ -956,29 +1020,92 @@ void arcadeDrawMenu() {
   gfx->print("TAP to select  |  TOP-LEFT to exit mode");
 }
 
-// ===== Draw Control Overlay (semi-transparent touch zones) =====
+// ===== Draw Control Overlay (visible touch zone HUD) =====
+// Border areas (0-71 left, 408-479 right, 0-23 top, 456-479 bottom)
+// are NEVER overwritten by the game renderer, so labels persist.
+// Game area outlines (UP/DOWN) visible briefly on black screen during Z80 boot.
 void arcadeDrawControlOverlay() {
-  // Draw faint control zone indicators on the sides and bottom
-  // Left arrow
-  gfx->drawRect(0, 48, TOUCH_DPAD_LEFT, 384, 0x2104);
-  gfx->setTextColor(0x4208);
-  gfx->setTextSize(2);
-  gfx->setCursor(50, 230);
-  gfx->print("<");
-
-  // Right arrow
-  gfx->drawRect(TOUCH_DPAD_RIGHT, 48, 480 - TOUCH_DPAD_RIGHT, 384, 0x2104);
-  gfx->setCursor(400, 230);
-  gfx->print(">");
-
-  // Bottom bar labels
+  gfx->setFont((const GFXfont *)NULL);
   gfx->setTextSize(1);
-  gfx->setCursor(55, 455);
-  gfx->print("BACK");
-  gfx->setCursor(215, 455);
-  gfx->print("START");
-  gfx->setCursor(380, 455);
-  gfx->print("FIRE");
+
+  // ===== TOP BAR (y 0-23, persists in border) =====
+  // EXIT zone: x 0-79, y 0-47 (but only draw in border y 0-23)
+  gfx->fillRect(0, 0, 80, 24, 0xC000);  // Dark red background
+  gfx->setTextColor(0xFFFF);
+  gfx->setCursor(8, 8);
+  gfx->print("< EXIT");
+
+  // COIN zone: x 341-479, y 0-47 (but only draw in border y 0-23)
+  gfx->fillRect(341, 0, 139, 24, 0x7B00);  // Dark orange background
+  gfx->setTextColor(0xFFE0);  // Yellow text
+  gfx->setCursor(380, 8);
+  gfx->print("COIN INSERT");
+
+  // ===== LEFT BORDER (x 0-71, y 24-431) =====
+  gfx->fillRect(0, 24, 72, 408, 0x0010);  // Very dark blue
+  gfx->setTextColor(0x2965);  // Dim cyan
+  gfx->setTextSize(3);
+  gfx->setCursor(22, 200);
+  gfx->print("<");
+  gfx->setTextSize(1);
+  gfx->setCursor(16, 235);
+  gfx->print("LEFT");
+
+  // ===== RIGHT BORDER (x 408-479, y 24-431) =====
+  gfx->fillRect(408, 24, 72, 408, 0x0010);
+  gfx->setTextColor(0x2965);
+  gfx->setTextSize(3);
+  gfx->setCursor(432, 200);
+  gfx->print(">");
+  gfx->setTextSize(1);
+  gfx->setCursor(420, 235);
+  gfx->print("RIGHT");
+
+  // ===== BOTTOM BAR (y 456-479, persists in border) =====
+  // BACK: x 0-159
+  gfx->fillRect(0, 456, 159, 24, 0x4208);  // Dark gray
+  gfx->setTextColor(0xFFFF);
+  gfx->setTextSize(1);
+  gfx->setCursor(40, 464);
+  gfx->print("<< BACK");
+
+  // COIN+START: x 160-319
+  gfx->fillRect(160, 456, 159, 24, 0x0320);  // Dark green
+  gfx->setTextColor(0x07E0);  // Green text
+  gfx->setCursor(185, 464);
+  gfx->print("COIN+START");
+
+  // FIRE: x 320-479
+  gfx->fillRect(320, 456, 160, 24, 0x8000);  // Dark red
+  gfx->setTextColor(0xF800);  // Red text
+  gfx->setCursor(370, 464);
+  gfx->print("FIRE >>");
+
+  // Separator lines for bottom bar
+  gfx->drawFastVLine(159, 456, 24, 0x7BEF);
+  gfx->drawFastVLine(319, 456, 24, 0x7BEF);
+
+  // ===== IN-GAME zone outlines (visible during Z80 boot, overwritten by game) =====
+  // UP zone (x 140-340, y 48-240)
+  gfx->drawRect(TOUCH_DPAD_LEFT, TOUCH_EXIT_Y, TOUCH_DPAD_RIGHT - TOUCH_DPAD_LEFT, TOUCH_DPAD_MID_Y - TOUCH_EXIT_Y, 0x001F);
+  gfx->setTextColor(0x001F);
+  gfx->setTextSize(2);
+  gfx->setCursor(215, 130);
+  gfx->print("UP");
+
+  // DOWN zone (x 140-340, y 240-432)
+  gfx->drawRect(TOUCH_DPAD_LEFT, TOUCH_DPAD_MID_Y, TOUCH_DPAD_RIGHT - TOUCH_DPAD_LEFT, TOUCH_BOTTOM_Y - TOUCH_DPAD_MID_Y, 0x001F);
+  gfx->setCursor(195, 325);
+  gfx->print("DOWN");
+
+  // LEFT zone outline
+  gfx->drawRect(0, TOUCH_EXIT_Y, TOUCH_DPAD_LEFT, TOUCH_BOTTOM_Y - TOUCH_EXIT_Y, 0x2965);
+
+  // RIGHT zone outline
+  gfx->drawRect(TOUCH_DPAD_RIGHT, TOUCH_EXIT_Y, 480 - TOUCH_DPAD_RIGHT, TOUCH_BOTTOM_Y - TOUCH_EXIT_Y, 0x2965);
+
+  // Separator between top bar and game area
+  gfx->drawFastHLine(0, TOUCH_EXIT_Y, 480, 0x2965);
 }
 
 // ===== Touch Handlers =====
@@ -987,15 +1114,12 @@ void arcadeDrawControlOverlay() {
 void handleArcadeTouch(int x, int y) {
   if (!arcadeInitialized) return;
 
-  // EXIT: top-left corner (always active)
+  // EXIT: top-left corner (always active) - exits arcade mode entirely
   if (x < TOUCH_EXIT_X && y < TOUCH_EXIT_Y) {
-    if (arcadeInMenu) {
-      // Exit arcade mode entirely
-      handleModeChange();
-    } else {
-      // Exit current game, return to menu
-      arcadeStopGame();
+    if (!arcadeInMenu) {
+      arcadeStopGame();  // Stop emulation first
     }
+    handleModeChange();  // Always exit arcade mode
     return;
   }
 
@@ -1032,7 +1156,7 @@ void handleArcadeTouch(int x, int y) {
   // Bottom bar: BACK / START / FIRE (single tap actions)
   if (y >= TOUCH_BOTTOM_Y) {
     if (x < 160) {
-      // BACK = same as EXIT for games
+      // BACK = stop game, return to menu
       arcadeStopGame();
     } else if (x < 320) {
       // START button
@@ -1040,7 +1164,6 @@ void handleArcadeTouch(int x, int y) {
     } else {
       // FIRE button (momentary via tap)
       arcadeButtonState |= BUTTON_FIRE;
-      // Will be cleared by arcadeClearTouchInput on release
     }
     return;
   }
