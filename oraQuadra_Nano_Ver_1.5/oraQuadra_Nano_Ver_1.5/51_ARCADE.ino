@@ -114,15 +114,24 @@ extern "C" {
 #define ARC_SCALE_PIXELS (ARC_OUT_W * ARC_BATCH_OUT_H)
 
 // ===== Touch Zone Definitions =====
-#define TOUCH_EXIT_X    80   // Exit zone: top-left corner
-#define TOUCH_EXIT_Y    48
-#define TOUCH_COIN_X    400  // Coin zone: top-right corner
-#define TOUCH_COIN_Y    48
-#define TOUCH_DPAD_LEFT  140  // D-pad left boundary
-#define TOUCH_DPAD_RIGHT 340  // D-pad right boundary
-#define TOUCH_DPAD_MID_Y 240  // Split between UP and DOWN zones
-#define TOUCH_BOTTOM_Y   432  // Bottom control bar start
-// Bottom bar: 0-159=BACK, 160-319=START, 320-479=FIRE
+// Side panels (action buttons): Left X 0-71, Right X 408-479
+#define ARC_LB  72    // Left border width (= ARC_OFFSET_X)
+#define ARC_RB  408   // Right border start (= ARC_OFFSET_X + ARC_OUT_W)
+#define ARC_BM  3     // Button draw margin
+// Left panel action buttons
+#define ARC_EXIT_Y2     75
+#define ARC_BACK_Y1    404
+// Right panel action buttons
+#define ARC_COIN_Y2     75
+#define ARC_FIRE_Y1    164
+#define ARC_FIRE_Y2    315
+#define ARC_START_Y1   322
+// D-pad zones (full screen, same as original)
+#define ARC_DPAD_LEFT   140
+#define ARC_DPAD_RIGHT  340
+#define ARC_DPAD_MID_Y  240
+#define ARC_DPAD_TOP     48
+#define ARC_DPAD_BOTTOM 432
 
 // ===== Menu Grid Layout (4x3, all 12 games visible) =====
 #define AM_HEADER_H   48
@@ -976,79 +985,75 @@ void arcadeDrawMenu() {
   gfx->print("TAP to select  |  TOP-LEFT to exit mode");
 }
 
-// ===== Draw Control Overlay (touch zone rectangles on game screen) =====
+// ===== Draw Control Overlay (action buttons on side panels) =====
 void arcadeDrawControlOverlay() {
-  gfx->setFont((const GFXfont *)NULL);
-  gfx->setTextSize(1);
+  int bw = ARC_LB - ARC_BM * 2;   // button width = 66
+  int rX = ARC_RB + ARC_BM;       // right panel button X = 411
 
-  // ===== TOP BAR =====
-  // EXIT zone (0 - TOUCH_EXIT_X, 0 - TOUCH_EXIT_Y)
-  gfx->fillRect(0, 0, TOUCH_EXIT_X, TOUCH_EXIT_Y, 0xC000);
+  gfx->setFont((const GFXfont *)NULL);
+  gfx->setTextWrap(false);
+
+  // ==================== LEFT PANEL (x 0-71) ====================
+
+  // --- EXIT (rosso) ---
+  int eh = ARC_EXIT_Y2 - ARC_BM;
+  gfx->fillRoundRect(ARC_BM, ARC_BM, bw, eh, 6, 0xC000);
+  gfx->drawRoundRect(ARC_BM, ARC_BM, bw, eh, 6, 0xF800);
   gfx->setTextColor(0xFFFF);
-  gfx->setCursor(14, 18);
+  gfx->setTextSize(1);
+  gfx->setCursor(8, ARC_BM + eh / 2 - 10);
   gfx->print("< EXIT");
 
-  // COIN zone (TOUCH_COIN_X - 479, 0 - TOUCH_COIN_Y)
-  gfx->fillRect(TOUCH_COIN_X, 0, 480 - TOUCH_COIN_X, TOUCH_COIN_Y, 0x7B00);
+  // --- BACK (grigio) ---
+  int bh = 479 - ARC_BACK_Y1;
+  gfx->fillRoundRect(ARC_BM, ARC_BACK_Y1, bw, bh, 6, 0x2104);
+  gfx->drawRoundRect(ARC_BM, ARC_BACK_Y1, bw, bh, 6, 0x4208);
+  gfx->setTextColor(0x9CF3);
+  gfx->setCursor(8, ARC_BACK_Y1 + bh / 2 - 10);
+  gfx->print("< BACK");
+
+  // ==================== RIGHT PANEL (x 408-479) ====================
+
+  // --- COIN (arancio/oro) ---
+  int ch = ARC_COIN_Y2 - ARC_BM;
+  gfx->fillRoundRect(rX, ARC_BM, bw, ch, 6, 0x7B00);
+  gfx->drawRoundRect(rX, ARC_BM, bw, ch, 6, 0xFBE0);
+  // Coin circle icon
+  int cCx = ARC_RB + ARC_LB / 2, cCy = ARC_BM + ch / 2 - 8;
+  gfx->fillCircle(cCx, cCy, 14, 0xFBE0);
+  gfx->drawCircle(cCx, cCy, 14, 0xFFE0);
+  gfx->drawCircle(cCx, cCy, 10, 0xC560);
+  gfx->setTextColor(0x7B00);
+  gfx->setTextSize(2);
+  gfx->setCursor(cCx - 5, cCy - 7);
+  gfx->print("C");
+  gfx->setTextSize(1);
   gfx->setTextColor(0xFFE0);
-  gfx->setCursor(TOUCH_COIN_X + 6, 18);
-  gfx->print("+ COIN");
+  gfx->setCursor(rX + 10, ARC_COIN_Y2 - 16);
+  gfx->print("COIN");
 
-  // ===== LEFT BORDER (0 - TOUCH_DPAD_LEFT, TOUCH_EXIT_Y - TOUCH_BOTTOM_Y) =====
-  gfx->drawRect(0, TOUCH_EXIT_Y, TOUCH_DPAD_LEFT, TOUCH_BOTTOM_Y - TOUCH_EXIT_Y, 0x2965);
-  gfx->setTextColor(0x2965);
-  gfx->setTextSize(2);
-  gfx->setCursor(50, 230);
-  gfx->print("<");
-  gfx->setTextSize(1);
-
-  // ===== RIGHT BORDER (TOUCH_DPAD_RIGHT - 479, TOUCH_EXIT_Y - TOUCH_BOTTOM_Y) =====
-  gfx->drawRect(TOUCH_DPAD_RIGHT, TOUCH_EXIT_Y, 480 - TOUCH_DPAD_RIGHT, TOUCH_BOTTOM_Y - TOUCH_EXIT_Y, 0x2965);
-  gfx->setTextColor(0x2965);
-  gfx->setTextSize(2);
-  gfx->setCursor(420, 230);
-  gfx->print(">");
-  gfx->setTextSize(1);
-
-  // ===== UP zone (TOUCH_DPAD_LEFT - TOUCH_DPAD_RIGHT, TOUCH_EXIT_Y - TOUCH_DPAD_MID_Y) =====
-  gfx->drawRect(TOUCH_DPAD_LEFT, TOUCH_EXIT_Y, TOUCH_DPAD_RIGHT - TOUCH_DPAD_LEFT, TOUCH_DPAD_MID_Y - TOUCH_EXIT_Y, 0x001F);
-  gfx->setTextColor(0x001F);
-  gfx->setTextSize(2);
-  gfx->setCursor(220, 135);
-  gfx->print("UP");
-  gfx->setTextSize(1);
-
-  // ===== DOWN zone (TOUCH_DPAD_LEFT - TOUCH_DPAD_RIGHT, TOUCH_DPAD_MID_Y - TOUCH_BOTTOM_Y) =====
-  gfx->drawRect(TOUCH_DPAD_LEFT, TOUCH_DPAD_MID_Y, TOUCH_DPAD_RIGHT - TOUCH_DPAD_LEFT, TOUCH_BOTTOM_Y - TOUCH_DPAD_MID_Y, 0x001F);
-  gfx->setTextColor(0x001F);
-  gfx->setTextSize(2);
-  gfx->setCursor(200, 330);
-  gfx->print("DOWN");
-  gfx->setTextSize(1);
-
-  // ===== BOTTOM BAR (y >= TOUCH_BOTTOM_Y) =====
-  // BACK: 0-159
-  gfx->fillRect(0, TOUCH_BOTTOM_Y, 159, 480 - TOUCH_BOTTOM_Y, 0x4208);
+  // --- FIRE (rosso) ---
+  int fh = ARC_FIRE_Y2 - ARC_FIRE_Y1;
+  gfx->fillRoundRect(rX, ARC_FIRE_Y1, bw, fh, 6, 0x6000);
+  gfx->drawRoundRect(rX, ARC_FIRE_Y1, bw, fh, 6, 0xF800);
+  int fCx = ARC_RB + ARC_LB / 2, fCy = ARC_FIRE_Y1 + fh / 2 - 6;
+  gfx->fillCircle(fCx, fCy, 20, 0xA000);
+  gfx->drawCircle(fCx, fCy, 20, 0xF800);
+  gfx->fillCircle(fCx, fCy, 14, 0xF800);
   gfx->setTextColor(0xFFFF);
-  gfx->setCursor(40, TOUCH_BOTTOM_Y + 18);
-  gfx->print("<< BACK");
+  gfx->setTextSize(1);
+  gfx->setCursor(rX + 12, ARC_FIRE_Y2 - 16);
+  gfx->print("FIRE");
 
-  // START: 160-319
-  gfx->fillRect(160, TOUCH_BOTTOM_Y, 159, 480 - TOUCH_BOTTOM_Y, 0x0320);
+  // --- START (verde) ---
+  int sh = 479 - ARC_START_Y1;
+  gfx->fillRoundRect(rX, ARC_START_Y1, bw, sh, 6, 0x0320);
+  gfx->drawRoundRect(rX, ARC_START_Y1, bw, sh, 6, 0x07E0);
+  int sCx = ARC_RB + ARC_LB / 2, sCy = ARC_START_Y1 + sh / 2 - 8;
+  gfx->fillTriangle(sCx - 10, sCy - 14, sCx - 10, sCy + 14, sCx + 14, sCy, 0x07E0);
   gfx->setTextColor(0x07E0);
-  gfx->setCursor(200, TOUCH_BOTTOM_Y + 18);
+  gfx->setCursor(rX + 4, ARC_START_Y1 + sh - 16);
   gfx->print("START");
-
-  // FIRE: 320-479
-  gfx->fillRect(320, TOUCH_BOTTOM_Y, 160, 480 - TOUCH_BOTTOM_Y, 0x8000);
-  gfx->setTextColor(0xF800);
-  gfx->setCursor(370, TOUCH_BOTTOM_Y + 18);
-  gfx->print("FIRE >>");
-
-  // Separator lines
-  gfx->drawFastVLine(159, TOUCH_BOTTOM_Y, 480 - TOUCH_BOTTOM_Y, 0x7BEF);
-  gfx->drawFastVLine(319, TOUCH_BOTTOM_Y, 480 - TOUCH_BOTTOM_Y, 0x7BEF);
-  gfx->drawFastHLine(0, TOUCH_EXIT_Y, 480, 0x2965);
 }
 
 // ===== Virtual Button State Machines (COIN e START indipendenti) =====
@@ -1084,67 +1089,54 @@ void arcadeTriggerStart() {
   if (arcadeStartState == 0) { arcadeStartState = 1; arcadeStartTimer = millis(); }
 }
 
-// ===== In-Game Touch: TAP actions (EXIT, COIN, BACK, START, FIRE) =====
+// ===== In-Game Touch: TAP actions (EXIT, COIN, BACK, START) =====
 void handleArcadeGameTouch(int x, int y) {
   if (!arcadeInitialized || arcadeInMenu) return;
 
-  // EXIT: top-left
-  if (x < TOUCH_EXIT_X && y < TOUCH_EXIT_Y) {
-    arcadeStopGame();
-    handleModeChange();
-    return;
+  // LEFT PANEL taps
+  if (x < ARC_LB) {
+    if (y <= ARC_EXIT_Y2) { arcadeStopGame(); handleModeChange(); return; }  // EXIT
+    if (y >= ARC_BACK_Y1)  { arcadeStopGame(); return; }                     // BACK
   }
 
-  // COIN: top-right (inserisce credito)
-  if (x >= TOUCH_COIN_X && y < TOUCH_COIN_Y) {
-    arcadeTriggerCoin();
-    return;
-  }
-
-  // Bottom bar
-  if (y >= TOUCH_BOTTOM_Y) {
-    if (x < 160) {
-      arcadeStopGame();           // BACK
-    } else if (x < 320) {
-      arcadeTriggerStart();       // START (avvia con crediti)
-    } else {
-      arcadeButtonState |= BUTTON_FIRE;  // FIRE
-    }
-    return;
+  // RIGHT PANEL taps
+  if (x >= ARC_RB) {
+    if (y <= ARC_COIN_Y2)  { arcadeTriggerCoin(); return; }                  // COIN
+    if (y >= ARC_START_Y1) { arcadeTriggerStart(); return; }                 // START
   }
 }
 
-// ===== In-Game Touch: Continuous D-pad tracking =====
+// ===== In-Game Touch: Continuous D-pad + FIRE tracking (full screen) =====
 void arcadeUpdateTouchInput(int x, int y) {
   if (!arcadeInitialized || arcadeInMenu) return;
 
   uint8_t buttons = 0;
 
   // Preserve coin/start state machines
-  if (arcadeCoinState > 0 || arcadeStartState > 0) {
+  if (arcadeCoinState > 0 || arcadeStartState > 0)
     buttons = arcadeButtonState & (BUTTON_COIN | BUTTON_START);
-  }
 
-  // LEFT
-  if (x < TOUCH_DPAD_LEFT && y >= TOUCH_EXIT_Y && y < TOUCH_BOTTOM_Y)
+  // D-pad: zone a tutto schermo (come originale)
+  // LEFT: fascia sinistra (x < 140)
+  if (x < ARC_DPAD_LEFT && y >= ARC_DPAD_TOP && y < ARC_DPAD_BOTTOM)
     buttons |= BUTTON_LEFT;
 
-  // RIGHT
-  if (x > TOUCH_DPAD_RIGHT && y >= TOUCH_EXIT_Y && y < TOUCH_BOTTOM_Y)
+  // RIGHT: fascia destra (x > 340)
+  if (x > ARC_DPAD_RIGHT && y >= ARC_DPAD_TOP && y < ARC_DPAD_BOTTOM)
     buttons |= BUTTON_RIGHT;
 
-  // UP
-  if (x >= TOUCH_DPAD_LEFT && x <= TOUCH_DPAD_RIGHT &&
-      y >= TOUCH_EXIT_Y && y < TOUCH_DPAD_MID_Y)
+  // UP: zona centrale alta (140-340, y < 240)
+  if (x >= ARC_DPAD_LEFT && x <= ARC_DPAD_RIGHT &&
+      y >= ARC_DPAD_TOP && y < ARC_DPAD_MID_Y)
     buttons |= BUTTON_UP;
 
-  // DOWN
-  if (x >= TOUCH_DPAD_LEFT && x <= TOUCH_DPAD_RIGHT &&
-      y >= TOUCH_DPAD_MID_Y && y < TOUCH_BOTTOM_Y)
+  // DOWN: zona centrale bassa (140-340, y >= 240)
+  if (x >= ARC_DPAD_LEFT && x <= ARC_DPAD_RIGHT &&
+      y >= ARC_DPAD_MID_Y && y < ARC_DPAD_BOTTOM)
     buttons |= BUTTON_DOWN;
 
-  // FIRE held
-  if (y >= TOUCH_BOTTOM_Y && x >= 320)
+  // FIRE: pannello destro zona FIRE
+  if (x >= ARC_RB && y >= ARC_FIRE_Y1 && y <= ARC_FIRE_Y2)
     buttons |= BUTTON_FIRE;
 
   arcadeButtonState = buttons;

@@ -747,17 +747,19 @@ if (modeSelectorActive) {
       return;
     }
 
-    // In-game: tap zones (EXIT, COIN, bottom bar) poi D-pad tracking
+    // In-game: tap buttons sui pannelli laterali
     if (!waitingForRelease) {
-      if ((x < 80 && y < 48) || (x >= 400 && y < 48) || (y >= 432)) {
-        // NO playTouchSound() - I2S usato da arcadeAudio
+      bool isTap = false;
+      if (x < 72 && (y <= 75 || y >= 404)) isTap = true;    // EXIT o BACK
+      if (x >= 408 && (y <= 75 || y >= 322)) isTap = true;   // COIN o START
+      if (isTap) {
         handleArcadeGameTouch(x, y);
         waitingForRelease = true;
         return;
       }
     }
 
-    // D-pad zone: tracking continuo
+    // D-pad (tutto schermo) + FIRE (pannello dx): tracking continuo
     arcadeUpdateTouchInput(x, y);
     arcadeTrackingActive = true;
     return;
