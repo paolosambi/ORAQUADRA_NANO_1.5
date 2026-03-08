@@ -25,8 +25,20 @@
 class galaga : public machineBase
 {
 public:
-	galaga() { }
+	galaga() {
+		// Initialize ROM pointers to PROGMEM stubs (overridden after external ROM load)
+		pRom1 = galaga_rom_cpu1;
+		pRom2 = galaga_rom_cpu2;
+		pRom3 = galaga_rom_cpu3;
+	}
 	~galaga() { }
+
+	// Called after externalRom[] are loaded - switch to direct PSRAM pointers
+	void applyExternalRoms() override {
+		if (externalRom[0]) pRom1 = externalRom[0];
+		if (externalRom[1]) pRom2 = externalRom[1];
+		if (externalRom[2]) pRom3 = externalRom[2];
+	}
 
 	signed char machineType() override { return MCH_GALAGA; }
 
@@ -53,6 +65,11 @@ protected:
 private:
 	void render_stars_set(short row, const struct galaga_star *set);
 	void trigger_sound_explosion(void);
+
+	// Direct ROM pointers (PSRAM or PROGMEM) - same approach as galag original
+	const unsigned char *pRom1;
+	const unsigned char *pRom2;
+	const unsigned char *pRom3;
 
 	unsigned char stars_scroll_y = 0;
 	unsigned char credit = 0;

@@ -22,8 +22,18 @@
 class digdug : public machineBase
 {
 public:
-	digdug() { }
+	digdug() {
+		pRom1 = digdug_rom_cpu1;
+		pRom2 = digdug_rom_cpu2;
+		pRom3 = digdug_rom_cpu3;
+	}
 	~digdug() { }
+
+	void applyExternalRoms() override {
+		if (externalRom[0]) pRom1 = externalRom[0];
+		if (externalRom[1]) pRom2 = externalRom[1];
+		if (externalRom[2]) pRom3 = externalRom[2];
+	}
 
 	void reset() override;
 	signed char machineType() override { return MCH_DIGDUG; }
@@ -51,6 +61,10 @@ private:
 	unsigned char namco_mode = 0;
 	unsigned char namco_nmi_counter = 0;
 	unsigned char namco_credit = 0x00;
+	const unsigned char *pRom1;
+	const unsigned char *pRom2;
+	const unsigned char *pRom3;
+
 	unsigned char digdug_video_latch;
 	char sub_cpu_reset = 1;
 };

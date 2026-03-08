@@ -14,7 +14,7 @@
 class crush : public pacman
 {
 public:
-	crush() { }
+	crush() { pRom1 = crush_rom; }
 	~crush() { }
 
 	signed char machineType() override { return MCH_CRUSH; }

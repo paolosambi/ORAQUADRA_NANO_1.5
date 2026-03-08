@@ -55,20 +55,21 @@ unsigned char dkong::rdI8048_port(struct i8048_state_S *state, unsigned char por
 unsigned char dkong::rdI8048_xdm(struct i8048_state_S *state, unsigned char addr) {
   if(state->p2_state & 0x40)
     return dkong_sfx_index ^ 0x0f;
-  return ROM_CPU2_ARR[2048 + addr + 256 * (state->p2_state & 7)];
+  return pRom2[2048 + addr + 256 * (state->p2_state & 7)];
 }
 
 unsigned char dkong::rdI8048_rom(struct i8048_state_S *state, unsigned short addr) {
-  return ROM_CPU2_ARR[addr];
+  return pRom2[addr];
 }
 
 unsigned char dkong::opZ80(unsigned short Addr) {
-  return ROM_CPU1_ARR[Addr];
+  return (Addr < 16384) ? pRom1[Addr] : 0xFF;
 }
 
 unsigned char dkong::rdZ80(unsigned short Addr) {
-  if(Addr < 16384)
-    return ROM_CPU1_ARR[Addr];
+  if(Addr < 16384) {
+    return pRom1[Addr];
+  }
   if(((Addr & 0xf000) == 0x6000) || ((Addr & 0xf800) == 0x7000))
     return memory[Addr - 0x6000];
   if((Addr & 0xfff0) == 0x7c00) {

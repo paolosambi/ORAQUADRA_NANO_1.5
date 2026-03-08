@@ -14,7 +14,7 @@
 class eyes : public pacman
 {
 public:
-	eyes() { }
+	eyes() { pRom1 = eyes_rom; }
 	~eyes() { }
 
 	signed char machineType() override { return MCH_EYES; }

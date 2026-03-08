@@ -14,7 +14,10 @@
 class anteater : public frogger
 {
 public:
-	anteater() { }
+	anteater() {
+		pRom1 = anteater_rom_cpu1;
+		pRom2 = anteater_rom_cpu2;
+	}
 	~anteater() { }
 
 	void reset() override;

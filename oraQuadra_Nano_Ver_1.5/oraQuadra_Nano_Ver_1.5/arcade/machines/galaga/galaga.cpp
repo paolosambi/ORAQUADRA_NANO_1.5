@@ -17,23 +17,18 @@
 #define STARSEED_ARR      galaga_star_set
 #define LOGO_ARR          galaga_logo
 
+// Direct pointer access - NO bounds check (matches versione funzionante)
 unsigned char galaga::opZ80(unsigned short Addr) {
-  if (current_cpu == 0)
-    return ROM_CPU1_ARR[Addr];
-  else if (current_cpu == 1)
-    return ROM_CPU2_ARR[Addr];
-  else
-    return ROM_CPU3_ARR[Addr];
+  if (current_cpu == 0) return pRom1[Addr];
+  else if (current_cpu == 1) return pRom2[Addr];
+  else return pRom3[Addr];
 }
 
 unsigned char galaga::rdZ80(unsigned short Addr) {
   if(Addr < 16384) {
-    if (current_cpu == 0)
-      return ROM_CPU1_ARR[Addr];
-    else if (current_cpu == 1)
-      return ROM_CPU2_ARR[Addr];
-    else
-      return ROM_CPU3_ARR[Addr];
+    if (current_cpu == 0) return pRom1[Addr];
+    else if (current_cpu == 1) return pRom2[Addr];
+    else return pRom3[Addr];
   }
 
   /* video/sprite ram */

@@ -60,6 +60,8 @@
 #define PKT_DISCOVERY_RESP   5  // Risposta discovery dal master
 #define PKT_CONFIG_PUSH      6  // Il master invia configurazione allo slave
 #define PKT_MODE_CONFIG      7  // Sync config mode-specific (chunked, master->slave)
+#define PKT_JOYSTICK         8  // Input da joystick controller ESP-NOW
+#define ROLE_JOYSTICK        3  // Ruolo joystick nel discovery
 
 // ===== Config ID per PKT_MODE_CONFIG =====
 #define MODE_CFG_SCROLLTEXT  0x01
@@ -129,6 +131,14 @@ struct DiscoveryPacket {
   uint8_t  enabled;     // 1=dual display attivo, 0=disattivato (per CONFIG_PUSH)
 };
 
+// ===== Struttura pacchetto joystick (9 bytes) =====
+struct JoystickPacket {
+  uint8_t  magic;         // 0xDC
+  uint8_t  packetType;    // PKT_JOYSTICK = 8
+  uint8_t  buttons;       // Bitmask identica a arcadeButtonState
+  uint8_t  mac[6];        // MAC del joystick (per identificazione)
+};
+
 // ===== Struttura stato peer =====
 struct PeerState {
   uint8_t  mac[6];              // MAC address del peer
@@ -164,6 +174,14 @@ volatile bool dualTestSyncRequested = false; // Flag per test sync (thread-safe)
 uint64_t dualModesMask = 0xFFFFFFFFFFULL;
 unsigned long discoveryStart = 0;    // Timestamp inizio discovery
 unsigned long lastDiscoveryBroadcast = 0; // Ultimo broadcast discovery inviato
+
+// ===== Stato joystick ESP-NOW =====
+volatile uint8_t espNowJoystickButtons = 0;    // Ultimo stato pulsanti ricevuto (volatile: scritto da callback WiFi)
+volatile bool espNowJoystickConnected = false;  // Joystick attualmente connesso
+unsigned long joystickLastPacketTime = 0;       // Timestamp ultimo pacchetto joystick
+uint8_t joystickMAC[6] = {0};                   // MAC del joystick connesso
+uint8_t joystickPrevButtons = 0;                // Per edge-detection COIN/START
+#define JOYSTICK_TIMEOUT 3000                    // Timeout disconnessione joystick (ms)
 
 // Ultimo pacchetto di sincronizzazione ricevuto (per lo slave)
 SyncPacket lastReceivedSync;
@@ -1037,12 +1055,47 @@ void onDualDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int le
 
     // --- Richiesta discovery (broadcast) ---
     case PKT_DISCOVERY_REQ: {
-      if (panelRole != 1) return; // Solo il master risponde al discovery
-
       DiscoveryPacket req;
+      memset(&req, 0, sizeof(req));
       if ((size_t)len >= sizeof(DiscoveryPacket)) {
         memcpy(&req, incomingData, sizeof(DiscoveryPacket));
       }
+
+      // Joystick (role=3): qualsiasi ruolo puo' rispondere (anche standalone)
+      // Pannelli normali: solo il master (role=1) risponde
+      if (req.role == ROLE_JOYSTICK) {
+        Serial.printf("[DUAL] Joystick discovery da: %s\n", macToString(mac_addr).c_str());
+
+        // Auto-registra il joystick come peer ESP-NOW per poter rispondere
+        if (!esp_now_is_peer_exist(mac_addr)) {
+          esp_now_peer_info_t pi;
+          memset(&pi, 0, sizeof(pi));
+          memcpy(pi.peer_addr, mac_addr, 6);
+          pi.channel = 0; pi.encrypt = false;
+          esp_now_add_peer(&pi);
+        }
+
+        // Rispondi con il nostro MAC cosi' il joystick ci registra come peer
+        DiscoveryPacket jResp;
+        memset(&jResp, 0, sizeof(jResp));
+        jResp.magic      = DUAL_MAGIC;
+        jResp.packetType = PKT_DISCOVERY_RESP;
+        jResp.role       = panelRole;
+        jResp.gridW      = gridW;
+        jResp.gridH      = gridH;
+        WiFi.macAddress(jResp.mac);
+        esp_now_send(mac_addr, (uint8_t*)&jResp, sizeof(jResp));
+
+        // Salva MAC del joystick
+        memcpy(joystickMAC, mac_addr, 6);
+        espNowJoystickConnected = true;
+        joystickLastPacketTime = millis();
+        Serial.println("[DUAL] Joystick registrato e risposta inviata");
+        break;
+      }
+
+      // Pannelli: solo il master risponde al discovery
+      if (panelRole != 1) return;
 
       Serial.printf("[DUAL] Discovery request ricevuta da: %s\n", macToString(mac_addr).c_str());
 
@@ -1167,6 +1220,43 @@ void onDualDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int le
         scrollReceiveConfigChunk(incomingData, len);
       }
 #endif
+      break;
+    }
+
+    // --- Pacchetto joystick (input da controller ESP32-C3) ---
+    case PKT_JOYSTICK: {
+      if ((size_t)len < sizeof(JoystickPacket)) return;
+
+      JoystickPacket jpkt;
+      memcpy(&jpkt, incomingData, sizeof(JoystickPacket));
+
+      // Auto-registra il MAC del joystick come peer se non presente
+      if (!esp_now_is_peer_exist(mac_addr)) {
+        esp_now_peer_info_t pi;
+        memset(&pi, 0, sizeof(pi));
+        memcpy(pi.peer_addr, mac_addr, 6);
+        pi.channel = 0; pi.encrypt = false;
+        esp_now_add_peer(&pi);
+      }
+
+      // Edge-detect rising COIN e START (trigger state machine in arcade)
+      uint8_t rising = jpkt.buttons & ~joystickPrevButtons;
+#ifdef EFFECT_ARCADE
+      if (rising & 0x40) { // BUTTON_COIN = 0x40
+        extern void arcadeTriggerCoin();
+        arcadeTriggerCoin();
+      }
+      if (rising & 0x20) { // BUTTON_START = 0x20
+        extern void arcadeTriggerStart();
+        arcadeTriggerStart();
+      }
+#endif
+
+      joystickPrevButtons = jpkt.buttons;
+      espNowJoystickButtons = jpkt.buttons;
+      espNowJoystickConnected = true;
+      joystickLastPacketTime = millis();
+      memcpy(joystickMAC, jpkt.mac, 6);
       break;
     }
 
@@ -2048,10 +2138,10 @@ void initDualDisplay() {
     dualDisplayInitialized = false;
     initDualGfxProxy(); // Ripristina gfx = realGfx
 
-    // SLAVE: anche se disabilitato, tiene ESP-NOW attivo per ricevere
-    // config push dal master (che puo' ri-abilitarlo da remoto)
-    if (panelRole == 2 && !espNowInitialized) {
-      Serial.println("[DUAL] Slave disabilitato: avvio ESP-NOW in ascolto per comandi master");
+    // ESP-NOW sempre attivo in ascolto passivo: serve per ricevere
+    // joystick ESP-NOW (qualsiasi ruolo) e config push dal master (slave)
+    if (!espNowInitialized) {
+      Serial.println("[DUAL] Dual disabilitato: avvio ESP-NOW in ascolto passivo (joystick + slave config)");
       esp_err_t result = esp_now_init();
       if (result == ESP_OK) {
         espNowInitialized = true;
@@ -2066,7 +2156,7 @@ void initDualDisplay() {
           peerInfo.encrypt = false;
           if (esp_now_add_peer(&peerInfo) == ESP_OK) broadcastPeerAdded = true;
         }
-        // Registra peer salvati (master)
+        // Registra peer salvati
         for (int i = 0; i < (int)peerCount; i++) {
           esp_now_peer_info_t pi;
           memset(&pi, 0, sizeof(pi));
@@ -2076,7 +2166,7 @@ void initDualDisplay() {
         }
       }
     } else {
-      Serial.println("[DUAL] Dual Display disabilitato, skip inizializzazione ESP-NOW");
+      Serial.println("[DUAL] Dual Display disabilitato, ESP-NOW gia' attivo");
     }
     return;
   }
@@ -2169,43 +2259,33 @@ void reinitDualDisplayEspNow() {
     dualDisplayInitialized = false;
     Serial.println("[DUAL] Dual Display disabilitato");
 
-    // SLAVE: NON deinizializzare ESP-NOW, resta in ascolto per comandi master
-    if (panelRole == 2) {
-      Serial.println("[DUAL] Slave: ESP-NOW resta attivo per ricevere comandi master");
-      // Inizializza ESP-NOW se non era attivo
-      if (!espNowInitialized) {
-        esp_err_t result = esp_now_init();
-        if (result == ESP_OK) {
-          espNowInitialized = true;
-          esp_now_register_send_cb(onDualDataSent);
-          esp_now_register_recv_cb(onDualDataRecv);
-        }
+    // ESP-NOW resta SEMPRE attivo per ricevere joystick e comandi master
+    Serial.println("[DUAL] ESP-NOW resta attivo (ascolto passivo: joystick + slave config)");
+    if (!espNowInitialized) {
+      esp_err_t result = esp_now_init();
+      if (result == ESP_OK) {
+        espNowInitialized = true;
+        esp_now_register_send_cb(onDualDataSent);
+        esp_now_register_recv_cb(onDualDataRecv);
       }
-      // Registra broadcast peer se necessario
-      if (espNowInitialized && !broadcastPeerAdded) {
-        esp_now_peer_info_t peerInfo;
-        memset(&peerInfo, 0, sizeof(peerInfo));
-        memcpy(peerInfo.peer_addr, broadcastMAC, 6);
-        peerInfo.channel = 0; peerInfo.encrypt = false;
-        esp_err_t res = esp_now_add_peer(&peerInfo);
-        if (res == ESP_OK || res == ESP_ERR_ESPNOW_EXIST) broadcastPeerAdded = true;
-      }
-      // Registra peer salvati
-      if (espNowInitialized) {
-        for (int i = 0; i < (int)peerCount; i++) {
-          esp_now_peer_info_t pi;
-          memset(&pi, 0, sizeof(pi));
-          memcpy(pi.peer_addr, peerMACs[i], 6);
-          pi.channel = 0; pi.encrypt = false;
-          esp_now_add_peer(&pi); // OK se gia' esiste
-        }
-      }
-    } else {
-      // MASTER/STANDALONE: deinizializza ESP-NOW se era attivo
-      if (espNowInitialized) {
-        esp_now_deinit();
-        espNowInitialized = false;
-        broadcastPeerAdded = false;
+    }
+    // Registra broadcast peer se necessario
+    if (espNowInitialized && !broadcastPeerAdded) {
+      esp_now_peer_info_t peerInfo;
+      memset(&peerInfo, 0, sizeof(peerInfo));
+      memcpy(peerInfo.peer_addr, broadcastMAC, 6);
+      peerInfo.channel = 0; peerInfo.encrypt = false;
+      esp_err_t res = esp_now_add_peer(&peerInfo);
+      if (res == ESP_OK || res == ESP_ERR_ESPNOW_EXIST) broadcastPeerAdded = true;
+    }
+    // Registra peer salvati
+    if (espNowInitialized) {
+      for (int i = 0; i < (int)peerCount; i++) {
+        esp_now_peer_info_t pi;
+        memset(&pi, 0, sizeof(pi));
+        memcpy(pi.peer_addr, peerMACs[i], 6);
+        pi.channel = 0; pi.encrypt = false;
+        esp_now_add_peer(&pi); // OK se gia' esiste
       }
     }
 

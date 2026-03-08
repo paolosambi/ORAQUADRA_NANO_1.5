@@ -37,7 +37,8 @@ void theglob::reset() {
 
 void theglob::epos_decrypt_rom(uint8_t *ROM, uint8_t invert, int offset, int *bs) {
   for (int mem = 0; mem < 0x4000; mem++ ) {
-    ROM[mem + offset] = bitswap<8>(ROM_ARR[mem] ^ invert, bs[0], bs[1], bs[2], bs[3], bs[4], bs[5], bs[6], bs[7]);
+    unsigned char srcByte = pRom1[mem];
+    ROM[mem + offset] = bitswap<8>(srcByte ^ invert, bs[0], bs[1], bs[2], bs[3], bs[4], bs[5], bs[6], bs[7]);
   }
 }
 

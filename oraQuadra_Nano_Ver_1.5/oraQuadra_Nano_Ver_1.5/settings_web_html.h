@@ -475,6 +475,7 @@ input[type="number"] {
     <a href="/news" class="nav-link" id="newsConfigLink" style="display:none;">📰 News</a>
     <a href="/dualdisplay" class="nav-link" id="dualConfigLink" style="display:none;">🖥 Multi-Display</a>
     <a href="/scrolltext" class="nav-link" id="scrolltextConfigLink" style="display:none;">💬 Testo Scorrevole</a>
+    <a href="/arcade" class="nav-link" id="arcadeConfigLink" style="display:none;">🕹️ Arcade</a>
     <!-- WebTV disabilitato - troppo lag per ESP32 -->
   </div>
 
@@ -1500,6 +1501,7 @@ function toggleMode(modeId, enabled) {
   updateNewsLink();
   updateDualLink();
   updateScrollTextLink();
+  updateArcadeLink();
   // updateWebTVLink();  // WebTV disabilitato
 }
 
@@ -1619,6 +1621,13 @@ function updateScrollTextLink() {
   } else {
     link.style.display = 'none';
   }
+}
+
+// Aggiorna visibilità link Arcade (richiede SD con /ARCADE)
+function updateArcadeLink() {
+  var link = document.getElementById('arcadeConfigLink');
+  if (!link) return;
+  fetch('/arcade/status').then(r => r.ok ? link.style.display = 'inline-block' : null).catch(() => {});
 }
 
 // WebTV disabilitato - funzione commentata
@@ -3318,6 +3327,7 @@ function loadSettings() {
       updateNewsLink();
       updateDualLink();
       updateScrollTextLink();
+      updateArcadeLink();
       // updateWebTVLink();  // WebTV disabilitato
 
       // Lingua

@@ -22,8 +22,16 @@
 class dkong : public machineBase
 {
 public:
-	dkong() { }
+	dkong() {
+		pRom1 = dkong_rom_cpu1;
+		pRom2 = dkong_rom_cpu2;
+	}
 	~dkong() { }
+
+	void applyExternalRoms() override {
+		if (externalRom[0]) pRom1 = externalRom[0];
+		if (externalRom[1]) pRom2 = externalRom[1];
+	}
 
 	void reset() override;
 	signed char machineType() override { return MCH_DKONG; }
@@ -52,6 +60,8 @@ protected:
 	void blit_sprite(short row, unsigned char s) override;
 
 private:
+	const unsigned char *pRom1;
+	const unsigned char *pRom2;
 	void trigger_sound(char snd);
 	i8048_state_S cpu_8048;
 	unsigned char colortable_select = 0;

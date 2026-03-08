@@ -34,14 +34,21 @@
 #define ENABLE_THEGLOB
 #define ENABLE_CRUSH
 #define ENABLE_ANTEATER
+#define ENABLE_LADYBUG
+#define ENABLE_XEVIOUS
+#define ENABLE_BOMBJACK
+#define ENABLE_GYRUSS
 
 // ============================================================================
 // MEMORY CONFIGURATION
 // ============================================================================
 
 // RAM size depends on which games are enabled
-// 1942 needs extra RAM (9344 bytes), others need 8192
-#ifdef ENABLE_1942
+// Xevious needs 16384 (8K video + 2K shared + 2K work + 4K B000/C000 overlay)
+// 1942 needs 9344 bytes, Lady Bug needs 9216 (extra RAM at 0xD800-0xDFFF)
+#if defined(ENABLE_XEVIOUS)
+  #define RAMSIZE (16384)
+#elif defined(ENABLE_1942) || defined(ENABLE_LADYBUG)
   #define RAMSIZE (8192 + 1024 + 128)
 #else
   #define RAMSIZE (8192)
@@ -54,9 +61,12 @@
 // DISPLAY CONFIGURATION
 // ============================================================================
 
-// Original arcade resolution
+// Original arcade resolution (standard portrait games)
 #define ARC_GAME_W    224
 #define ARC_GAME_H    288
+
+// Maximum game width (Bomb Jack = 256 landscape)
+#define ARC_GAME_W_MAX  256
 
 // Scaling factor: 1.5x (3:2 nearest-neighbor)
 // 224 * 1.5 = 336, 288 * 1.5 = 432

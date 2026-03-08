@@ -14,20 +14,21 @@
 #define CMAP_TILES_ARR     _1942_colormap_tiles
 #define LOGO_ARR           _1942_logo
 
+// Direct pointer access - NO bounds check (matches versione funzionante)
 unsigned char _1942::opZ80(unsigned short Addr) {
-  if (current_cpu == 0)
-    return ROM_CPU1_ARR[Addr];
-  else
-    return ROM_CPU2_ARR[Addr];
+  if (current_cpu == 0) return pRom1[Addr];
+  else return pRom2[Addr];
 }
 
 unsigned char _1942::rdZ80(unsigned short Addr) {
   if(current_cpu == 0) {
-    if(Addr < 32768) return ROM_CPU1_ARR[Addr];
+    if(Addr < 32768) {
+      return pRom1[Addr];
+    }
     if((Addr & 0xc000) == 0x8000) {
-      if(_1942_bank == 0)                           return ROM_CPU1_B0_ARR[Addr - 0x8000];
-      else if((_1942_bank == 1) && (Addr < 0xb000)) return ROM_CPU1_B1_ARR[Addr - 0x8000];
-      else if(_1942_bank == 2)                       return ROM_CPU1_B2_ARR[Addr - 0x8000];
+      if(_1942_bank == 0)                           return pRomB0[Addr - 0x8000];
+      else if((_1942_bank == 1) && (Addr < 0xb000)) return pRomB1[Addr - 0x8000];
+      else if(_1942_bank == 2)                       return pRomB2[Addr - 0x8000];
     }
     if((Addr & 0xf000) == 0xe000) return memory[Addr - 0xe000];
     if((Addr & 0xff80) == 0xcc00) return memory[Addr - 0xcc00 + 0x2400];
@@ -57,7 +58,9 @@ unsigned char _1942::rdZ80(unsigned short Addr) {
     if(Addr == 0xc003) return (unsigned char)~_1942_DIP_A;
     if(Addr == 0xc004) return (unsigned char)~_1942_DIP_B;
   } else {
-    if(Addr < 16384) return ROM_CPU2_ARR[Addr];
+    if(Addr < 16384) {
+      return pRom2[Addr];
+    }
     if((Addr & 0xf800) == 0x4000) return memory[Addr - 0x4000 + 0x1800];
     if(Addr == 0x6000) return _1942_sound_latch;
   }

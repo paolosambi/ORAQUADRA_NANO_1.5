@@ -36,3 +36,9 @@
 #undef SAMPLE_JUMP_SIZE
 #undef SAMPLE_STOMP_ARR
 #undef SAMPLE_STOMP_SIZE
+#undef BGTILES_ARR
+#undef BGMAP_ARR
+#undef FGTILES_ARR
+#undef CMAP_FG_ARR
+#undef CMAP_BG_ARR
+#undef SR3_ARR

@@ -4,15 +4,17 @@
 // Requires: NimBLE-Arduino library by h2zero (install from Library Manager)
 // ============================================================================
 
+// Commenta la riga sotto per disabilitare il BLE Gamepad (se NimBLE non installato)
+//#define USE_NIMBLE
+
 #ifdef EFFECT_ARCADE
 
-// Guard: compila anche senza NimBLE installato (come 25_BLUETOOTH_AUDIO.ino)
-#if __has_include("NimBLEDevice.h")
+#ifdef USE_NIMBLE
   #define BLE_GAMEPAD_AVAILABLE
   #include <NimBLEDevice.h>
   #pragma message "NimBLE found - BLE Gamepad ENABLED"
 #else
-  #pragma message "NimBLE NOT found - BLE Gamepad DISABLED (install NimBLE-Arduino)"
+  #pragma message "NimBLE NOT defined - BLE Gamepad DISABLED"
 #endif
 
 #ifdef BLE_GAMEPAD_AVAILABLE
@@ -212,13 +214,6 @@ class BleGpClientCB : public NimBLEClientCallbacks {
   }
 };
 
-// ====== Background connection task (FreeRTOS, Core 0) ======
-static void bleGpConnectTask(void* param) {
-  bleGpTryConnect();
-  bleGpConnecting = false;
-  vTaskDelete(NULL);
-}
-
 // ====== Connect to found gamepad ======
 static void bleGpTryConnect() {
   if (!bleGpTargetAddr) return;
@@ -272,6 +267,13 @@ static void bleGpTryConnect() {
   }
 
   Serial.printf("[BLE-GP] Pronto! %d report(s) sottoscritti\n", subscribed);
+}
+
+// ====== Background connection task (FreeRTOS, Core 0) ======
+static void bleGpConnectTask(void* param) {
+  bleGpTryConnect();
+  bleGpConnecting = false;
+  vTaskDelete(NULL);
 }
 
 // ====== Background BLE init task (avoids blocking render) ======

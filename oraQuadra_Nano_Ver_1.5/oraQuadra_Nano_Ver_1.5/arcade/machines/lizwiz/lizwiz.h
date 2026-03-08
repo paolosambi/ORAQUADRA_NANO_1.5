@@ -14,7 +14,7 @@
 class lizwiz : public pacman
 {
 public:
-	lizwiz() { }
+	lizwiz() { pRom1 = lizwiz_rom; }
 	~lizwiz() { }
 
 	signed char machineType() override { return MCH_LIZWIZ; }

@@ -11,6 +11,13 @@
 
 #ifdef EFFECT_ARCADE
 
+#include "esp_task_wdt.h"
+#include <esp_system.h>
+
+// RTC memory survives soft resets - tracks if arcade was running when crash occurred
+RTC_DATA_ATTR uint8_t arcadeCrashFlag = 0;
+RTC_DATA_ATTR uint8_t arcadeCrashGame = 0xFF;
+
 extern volatile bool arcadeBubbleActive;
 
 #include "arcade/arcade_config.h"
@@ -53,6 +60,18 @@ extern volatile bool arcadeBubbleActive;
 #ifdef ENABLE_ANTEATER
 #include "arcade/machines/anteater/anteater.h"
 #endif
+#ifdef ENABLE_LADYBUG
+#include "arcade/machines/ladybug/ladybug.h"
+#endif
+#ifdef ENABLE_XEVIOUS
+#include "arcade/machines/xevious/xevious.h"
+#endif
+#ifdef ENABLE_BOMBJACK
+#include "arcade/machines/bombjack/bombjack.h"
+#endif
+#ifdef ENABLE_GYRUSS
+#include "arcade/machines/gyruss/gyruss.h"
+#endif
 
 // ============================================================================
 // Arduino IDE 1.8.x does NOT compile .c/.cpp files in subdirectories.
@@ -61,6 +80,9 @@ extern volatile bool arcadeBubbleActive;
 extern "C" {
   #include "arcade/cpus/z80/Z80.c"
   #include "arcade/cpus/i8048/i8048.c"
+  #ifdef ENABLE_GYRUSS
+  #include "arcade/cpus/m6809/m6809.c"
+  #endif
 }
 #include "arcade/arcade_bridge.cpp"
 #ifdef ENABLE_PACMAN
@@ -99,19 +121,33 @@ extern "C" {
 #ifdef ENABLE_ANTEATER
 #include "arcade/machines/anteater/anteater.cpp"
 #endif
+#ifdef ENABLE_LADYBUG
+#include "arcade/machines/ladybug/ladybug.cpp"
+#endif
+#ifdef ENABLE_XEVIOUS
+#include "arcade/machines/xevious/xevious.cpp"
+#endif
+#ifdef ENABLE_BOMBJACK
+#include "arcade/machines/bombjack/bombjack.cpp"
+#endif
+#ifdef ENABLE_GYRUSS
+#include "arcade/machines/gyruss/gyruss.cpp"
+#endif
 
 // Arcade audio synthesis (Namco WSG, AY-3-8910, DK PCM)
 #include "arcade/arcade_audio.h"
 #include "arcade/arcade_audio.cpp"
 
 // ===== Display Constants =====
-// Row buffer: one tile row = 224 pixels * 8 lines * 2 bytes = 3584 bytes
-#define ARC_ROW_PIXELS  (ARC_GAME_W * 8)
+// Row buffer: one tile row = max(224,256) pixels * 8 lines * 2 bytes
+#define ARC_ROW_PIXELS      (ARC_GAME_W * 8)       // 224*8 for standard games
+#define ARC_ROW_PIXELS_MAX  (ARC_GAME_W_MAX * 8)   // 256*8 for wide games (Bomb Jack)
 // Batched rendering: 12 tile rows per draw call = 3 draw calls instead of 36
 #define ARC_BATCH_ROWS  12
 #define ARC_BATCH_OUT_H (12 * ARC_BATCH_ROWS)  // 144 output lines per batch
-// Scale buffer: 336 pixels * 144 lines * 2 bytes = 96768 bytes (PSRAM)
-#define ARC_SCALE_PIXELS (ARC_OUT_W * ARC_BATCH_OUT_H)
+// Scale buffer: max(336,384) * 144 for wide games (Bomb Jack: 256*1.5=384)
+#define ARC_OUT_W_WIDE  384   // 256 * 1.5
+#define ARC_SCALE_PIXELS_MAX (ARC_OUT_W_WIDE * ARC_BATCH_OUT_H)
 
 // ===== Touch Zone Definitions =====
 // Side panels (action buttons): Left X 0-71, Right X 408-479
@@ -133,7 +169,7 @@ extern "C" {
 #define ARC_DPAD_TOP     48
 #define ARC_DPAD_BOTTOM 432
 
-// ===== Menu Grid Layout (4x3, all 12 games visible) =====
+// ===== Menu Grid Layout (4x3 per page, pagination for >12 games) =====
 #define AM_HEADER_H   48
 #define AM_GRID_TOP   52
 #define AM_CELL_W    113
@@ -145,9 +181,10 @@ extern "C" {
 #define AM_COL_STEP  119   // 113+6
 #define AM_ROW_STEP  134   // 128+6
 #define AM_CARD_BG   0x10A2  // grigio scuro (come mode selector)
+#define AM_PER_PAGE  (AM_COLS * AM_ROWS)  // 12 games per page
 
 // ===== Game List =====
-#define ARCADE_MAX_GAMES 12
+#define ARCADE_MAX_GAMES 16
 
 struct ArcadeGameInfo {
   const char* name;
@@ -159,6 +196,7 @@ struct ArcadeGameInfo {
 bool arcadeInitialized = false;
 int8_t arcadeSelectedGame = -1;  // -1 = menu
 bool arcadeInMenu = true;
+int8_t arcadeMenuPage = 0;       // Current menu page (0-based)
 machineBase* arcadeCurrentMachine = nullptr;
 ArcadeAudio* arcadeAudio = nullptr;
 
@@ -171,6 +209,7 @@ unsigned short* arcadeFrameBuffer = nullptr;   // 224*8 pixels for one tile row
 sprite_S* arcadeSpriteBuffer = nullptr;        // Up to 128 sprites
 unsigned char* arcadeMemory = nullptr;         // Z80 RAM
 unsigned short* arcadeScaleBuffer = nullptr;   // 336*12 pixels for scaled output
+unsigned short* arcadeFullFrame = nullptr;     // Full frame for rotated games (PSRAM)
 
 // Input
 ArcadeInput arcadeInput;
@@ -184,17 +223,54 @@ unsigned long arcadeStartTimer = 0;
 
 // Emulation task
 TaskHandle_t arcadeEmulationTaskHandle = nullptr;
+volatile int arcadeBootFrames = 0;  // Shared boot frame counter (Core0 writes, Core1 reads)
 
 // Frame timing
 unsigned long arcadeLastFrameTime = 0;
 unsigned long arcadeFrameCount = 0;
 unsigned long arcadeBootStartMs = 0;   // Tracks boot duration (reset per game)
 
+// ===== Arcade Enabled Mask (EEPROM 949-951) =====
+#define ARCADE_EEPROM_MASK_LO  949
+#define ARCADE_EEPROM_MASK_HI  950
+#define ARCADE_EEPROM_MASK_MARKER 951
+#define ARCADE_MASK_MARKER_VAL 0xAC
+
+uint16_t arcadeEnabledMask = 0xFFFF;  // default: all enabled
+
+void loadArcadeEnabledMask() {
+  if (EEPROM.read(ARCADE_EEPROM_MASK_MARKER) == ARCADE_MASK_MARKER_VAL) {
+    arcadeEnabledMask = EEPROM.read(ARCADE_EEPROM_MASK_LO) | (EEPROM.read(ARCADE_EEPROM_MASK_HI) << 8);
+  } else {
+    arcadeEnabledMask = 0xFFFF;
+  }
+}
+
+void saveArcadeEnabledMask() {
+  EEPROM.write(ARCADE_EEPROM_MASK_LO, arcadeEnabledMask & 0xFF);
+  EEPROM.write(ARCADE_EEPROM_MASK_HI, (arcadeEnabledMask >> 8) & 0xFF);
+  EEPROM.write(ARCADE_EEPROM_MASK_MARKER, ARCADE_MASK_MARKER_VAL);
+  EEPROM.commit();
+}
+
+bool isArcadeGameEnabled(int idx) {
+  if (idx < 0 || idx >= arcadeMachineCount) return false;
+  return (arcadeEnabledMask >> idx) & 1;
+}
+
+void setArcadeGameEnabled(int idx, bool en) {
+  if (idx < 0 || idx >= ARCADE_MAX_GAMES) return;
+  if (en) arcadeEnabledMask |= (1 << idx);
+  else    arcadeEnabledMask &= ~(1 << idx);
+  saveArcadeEnabledMask();
+}
+
 // ===== Forward Declarations =====
 void arcadeStartGame(int8_t index);
 void arcadeStopGame();
 void arcadeEmulationTask(void* param);
 IRAM_ATTR void arcadeUpscaleRow(unsigned short* src, unsigned short* dst, int dstOffsetY);
+IRAM_ATTR void arcadeUpscaleRowWide(unsigned short* src, unsigned short* dst, int dstOffsetY);
 void arcadeDrawMenu();
 void arcadeDrawControlOverlay();
 void arcadeBuildGameList();
@@ -202,6 +278,7 @@ uint16_t arcadeGetGameColor(uint8_t machineType);
 void arcadeDrawGameIcon(int cx, int cy, uint8_t machineType);
 void arcadeDrawGameCard(int col, int row, int gameIndex);
 void arcadeAllocateBuffers();
+void arcadeAllocateFullFrame(int natW, int natH);
 void arcadeFreeBuffers();
 void arcadeUpdateButtonStateMachines();
 void arcadeTriggerCoin();
@@ -214,7 +291,24 @@ void arcadeClearTouchInput();
 void initArcade() {
   if (arcadeInitialized) return;
 
-  Serial.println("[ARCADE] Initializing Arcade Emulator");
+  // Guard: SD card with ARCADE folder required
+  if (!arcadeRomsAvailable()) {
+    gfx->fillScreen(BLACK);
+    gfx->setFont(u8g2_font_helvB14_tr);
+    gfx->setTextColor(0xF800);  // Red
+    gfx->setCursor(80, 200);
+    gfx->print("SD CARD NON TROVATA");
+    gfx->setFont((const GFXfont *)NULL);
+    gfx->setTextSize(1);
+    gfx->setTextColor(0x7BEF);  // Gray
+    gfx->setCursor(100, 240);
+    gfx->print("Inserisci una SD con la cartella");
+    gfx->setCursor(130, 260);
+    gfx->print("/ARCADE per giocare");
+    delay(2000);
+    handleModeChange();
+    return;
+  }
 
   // ★ Show loading screen IMMEDIATELY (before any blocking ops)
   // audio.stopSong() can block 10-30s if web radio TCP connection is timing out
@@ -230,13 +324,10 @@ void initArcade() {
   gfx->print("Initializing...");
 
   // Stop music playback to free I2S for arcade audio synthesis
-  // This can block if an HTTP stream (web radio) is active and the
-  // TCP connection takes time to close (lwIP timeout up to 20-30s).
-  unsigned long t0 = millis();
-  audio.stopSong();
-  unsigned long dt = millis() - t0;
-  Serial.printf("[ARCADE] audio.stopSong() took %lu ms\n", dt);
-  delay(50);  // Let audioTask finish current loop iteration
+  // Uses audioStopWithTimeout() from 2_CHANGE_MODE.ino (max 3s instead of 30-60s)
+  #ifdef AUDIO
+  audioStopWithTimeout();
+  #endif
 
   // Arcade audio: sets I2S to 24kHz, uses Audio library's existing driver
   arcadeAudio = new ArcadeAudio();
@@ -249,18 +340,23 @@ void initArcade() {
 
   // Build available games list
   arcadeBuildGameList();
+  loadArcadeEnabledMask();
+  // Apply enabled mask to game list
+  for (int i = 0; i < arcadeMachineCount; i++) {
+    arcadeGames[i].enabled = isArcadeGameEnabled(i);
+  }
 
   // Allocate PSRAM buffers
   arcadeAllocateBuffers();
 
   if (!arcadeFrameBuffer || !arcadeSpriteBuffer || !arcadeMemory || !arcadeScaleBuffer) {
-    Serial.println("[ARCADE] ERROR: Failed to allocate PSRAM buffers!");
     arcadeFreeBuffers();
     return;
   }
 
   // Start in menu
   arcadeInMenu = true;
+  arcadeMenuPage = 0;
   arcadeSelectedGame = -1;
 
   // Clear screen and draw menu
@@ -269,27 +365,21 @@ void initArcade() {
 
   // Attiva bubble arcade: congela tutti i servizi del loop principale
   arcadeBubbleActive = true;
-  Serial.println("[ARCADE] Bubble attivata - servizi congelati");
 
-  // BLE gamepad disabilitato - input solo via touch
+  // BLE gamepad disabilitato - NimBLE init causa reboot (heap insufficiente con WiFi+arcade)
   // bleGamepadInit();
 
   arcadeInitialized = true;
-  Serial.println("[ARCADE] Initialized OK, games available: " + String(arcadeMachineCount));
 }
 
 // ===== Cleanup =====
 void cleanupArcade() {
   if (!arcadeInitialized) return;
 
-  // BLE gamepad disabilitato
   // bleGamepadCleanup();
 
   // Disattiva bubble arcade: ripristina tutti i servizi
   arcadeBubbleActive = false;
-  Serial.println("[ARCADE] Bubble disattivata - servizi ripristinati");
-
-  Serial.println("[ARCADE] Cleanup");
 
   // Stop emulation if running
   arcadeStopGame();
@@ -309,45 +399,87 @@ void cleanupArcade() {
   arcadeSelectedGame = -1;
 }
 
-// ===== Build Game List =====
+// ===== Check if Arcade ROMs are available on SD =====
+bool arcadeRomsAvailable() {
+  extern bool sdCardPresent;
+  if (!sdCardPresent) return false;
+  if (SD.cardType() == CARD_NONE) return false;
+  return SD.exists("/ARCADE");
+}
+
+// ===== Build Game List (only games with ROM files on SD) =====
 void arcadeBuildGameList() {
   arcadeMachineCount = 0;
 
+  // Check ALL required ROMs per game (multi-CPU games need rom2/rom3 too!)
+  // Without all ROMs, sub-CPUs read from 1-byte PROGMEM stub → crash
 #ifdef ENABLE_PACMAN
-  arcadeGames[arcadeMachineCount++] = {"PAC-MAN", MCH_PACMAN, true};
+  if (SD.exists("/ARCADE/PACMAN/rom1.bin"))
+    arcadeGames[arcadeMachineCount++] = {"PAC-MAN", MCH_PACMAN, true};
 #endif
 #ifdef ENABLE_GALAGA
-  arcadeGames[arcadeMachineCount++] = {"GALAGA", MCH_GALAGA, true};
+  if (SD.exists("/ARCADE/GALAGA/rom1.bin") && SD.exists("/ARCADE/GALAGA/rom2.bin") &&
+      SD.exists("/ARCADE/GALAGA/rom3.bin"))
+    arcadeGames[arcadeMachineCount++] = {"GALAGA", MCH_GALAGA, true};
 #endif
 #ifdef ENABLE_DKONG
-  arcadeGames[arcadeMachineCount++] = {"DONKEY KONG", MCH_DKONG, true};
+  if (SD.exists("/ARCADE/DKONG/rom1.bin") && SD.exists("/ARCADE/DKONG/rom2.bin"))
+    arcadeGames[arcadeMachineCount++] = {"DONKEY KONG", MCH_DKONG, true};
 #endif
 #ifdef ENABLE_FROGGER
-  arcadeGames[arcadeMachineCount++] = {"FROGGER", MCH_FROGGER, true};
+  if (SD.exists("/ARCADE/FROGGER/rom1.bin") && SD.exists("/ARCADE/FROGGER/rom2.bin"))
+    arcadeGames[arcadeMachineCount++] = {"FROGGER", MCH_FROGGER, true};
 #endif
 #ifdef ENABLE_DIGDUG
-  arcadeGames[arcadeMachineCount++] = {"DIG DUG", MCH_DIGDUG, true};
+  if (SD.exists("/ARCADE/DIGDUG/rom1.bin") && SD.exists("/ARCADE/DIGDUG/rom2.bin") &&
+      SD.exists("/ARCADE/DIGDUG/rom3.bin"))
+    arcadeGames[arcadeMachineCount++] = {"DIG DUG", MCH_DIGDUG, true};
 #endif
 #ifdef ENABLE_1942
-  arcadeGames[arcadeMachineCount++] = {"1942", MCH_1942, true};
+  if (SD.exists("/ARCADE/1942/rom1.bin") && SD.exists("/ARCADE/1942/rom2.bin") &&
+      SD.exists("/ARCADE/1942/rom1_b0.bin") && SD.exists("/ARCADE/1942/rom1_b1.bin") &&
+      SD.exists("/ARCADE/1942/rom1_b2.bin"))
+    arcadeGames[arcadeMachineCount++] = {"1942", MCH_1942, true};
 #endif
 #ifdef ENABLE_EYES
-  arcadeGames[arcadeMachineCount++] = {"EYES", MCH_EYES, true};
+  if (SD.exists("/ARCADE/EYES/rom1.bin"))
+    arcadeGames[arcadeMachineCount++] = {"EYES", MCH_EYES, true};
 #endif
 #ifdef ENABLE_MRTNT
-  arcadeGames[arcadeMachineCount++] = {"MR. TNT", MCH_MRTNT, true};
+  if (SD.exists("/ARCADE/MRTNT/rom1.bin"))
+    arcadeGames[arcadeMachineCount++] = {"MR. TNT", MCH_MRTNT, true};
 #endif
 #ifdef ENABLE_LIZWIZ
-  arcadeGames[arcadeMachineCount++] = {"LIZ WIZ", MCH_LIZWIZ, true};
+  if (SD.exists("/ARCADE/LIZWIZ/rom1.bin"))
+    arcadeGames[arcadeMachineCount++] = {"LIZ WIZ", MCH_LIZWIZ, true};
 #endif
 #ifdef ENABLE_THEGLOB
-  arcadeGames[arcadeMachineCount++] = {"THE GLOB", MCH_THEGLOB, true};
+  if (SD.exists("/ARCADE/THEGLOB/rom1.bin"))
+    arcadeGames[arcadeMachineCount++] = {"THE GLOB", MCH_THEGLOB, true};
 #endif
 #ifdef ENABLE_CRUSH
-  arcadeGames[arcadeMachineCount++] = {"CRUSH ROLLER", MCH_CRUSH, true};
+  if (SD.exists("/ARCADE/CRUSH/rom1.bin"))
+    arcadeGames[arcadeMachineCount++] = {"CRUSH ROLLER", MCH_CRUSH, true};
 #endif
 #ifdef ENABLE_ANTEATER
-  arcadeGames[arcadeMachineCount++] = {"ANTEATER", MCH_ANTEATER, true};
+  if (SD.exists("/ARCADE/ANTEATER/rom1.bin") && SD.exists("/ARCADE/ANTEATER/rom2.bin"))
+    arcadeGames[arcadeMachineCount++] = {"ANTEATER", MCH_ANTEATER, true};
+#endif
+#ifdef ENABLE_LADYBUG
+  // ROM embedded in PROGMEM - SD optional (override)
+  arcadeGames[arcadeMachineCount++] = {"LADY BUG", MCH_LADYBUG, true};
+#endif
+#ifdef ENABLE_XEVIOUS
+  if (SD.exists("/ARCADE/XEVIOUS/rom1.bin") && SD.exists("/ARCADE/XEVIOUS/rom2.bin") && SD.exists("/ARCADE/XEVIOUS/rom3.bin"))
+    arcadeGames[arcadeMachineCount++] = {"XEVIOUS", MCH_XEVIOUS, true};
+#endif
+#ifdef ENABLE_BOMBJACK
+  if (SD.exists("/ARCADE/BOMBJACK/rom1.bin"))
+    arcadeGames[arcadeMachineCount++] = {"BOMB JACK", MCH_BOMBJACK, true};
+#endif
+#ifdef ENABLE_GYRUSS
+  // ROM embedded in PROGMEM - SD optional (override)
+  arcadeGames[arcadeMachineCount++] = {"GYRUSS", MCH_GYRUSS, true};
 #endif
 }
 
@@ -355,9 +487,10 @@ void arcadeBuildGameList() {
 void arcadeAllocateBuffers() {
   // Prefer internal SRAM for hot-path buffers (3-8x faster than PSRAM on ESP32-S3)
   // Fall back to PSRAM if internal RAM is insufficient
-  size_t fbSize = ARC_ROW_PIXELS * sizeof(unsigned short);           // ~3.5KB
+  // Use max sizes to support both 224-wide and 256-wide games
+  size_t fbSize = ARC_ROW_PIXELS_MAX * sizeof(unsigned short);       // ~4KB
   size_t sprSize = 128 * sizeof(sprite_S);                           // ~1.5KB
-  size_t scaleSize = ARC_SCALE_PIXELS * sizeof(unsigned short);      // ~32KB
+  size_t scaleSize = ARC_SCALE_PIXELS_MAX * sizeof(unsigned short);  // ~110KB
 
   arcadeFrameBuffer = (unsigned short*)heap_caps_malloc(fbSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   if (!arcadeFrameBuffer) arcadeFrameBuffer = (unsigned short*)ps_malloc(fbSize);
@@ -370,12 +503,12 @@ void arcadeAllocateBuffers() {
 
   arcadeScaleBuffer = (unsigned short*)heap_caps_malloc(scaleSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   if (!arcadeScaleBuffer) arcadeScaleBuffer = (unsigned short*)ps_malloc(scaleSize);
+}
 
-  Serial.printf("[ARCADE] Buffers: FB=%d(%s), SPR=%d(%s), MEM=%d(%s), SCALE=%d(%s)\n",
-    fbSize, ((uint32_t)arcadeFrameBuffer < 0x3C000000) ? "SRAM" : "PSRAM",
-    sprSize, ((uint32_t)arcadeSpriteBuffer < 0x3C000000) ? "SRAM" : "PSRAM",
-    RAMSIZE, ((uint32_t)arcadeMemory < 0x3C000000) ? "SRAM" : "PSRAM",
-    scaleSize, ((uint32_t)arcadeScaleBuffer < 0x3C000000) ? "SRAM" : "PSRAM");
+void arcadeAllocateFullFrame(int natW, int natH) {
+  if (arcadeFullFrame) return;  // already allocated
+  size_t sz = natW * natH * sizeof(unsigned short);
+  arcadeFullFrame = (unsigned short*)ps_malloc(sz);
 }
 
 void arcadeFreeBuffers() {
@@ -383,6 +516,220 @@ void arcadeFreeBuffers() {
   if (arcadeSpriteBuffer) { free(arcadeSpriteBuffer); arcadeSpriteBuffer = nullptr; }
   if (arcadeMemory) { free(arcadeMemory); arcadeMemory = nullptr; }
   if (arcadeScaleBuffer) { free(arcadeScaleBuffer); arcadeScaleBuffer = nullptr; }
+  if (arcadeFullFrame) { free(arcadeFullFrame); arcadeFullFrame = nullptr; }
+}
+
+// ===== Load ROM from SD to PSRAM =====
+// Supports both raw binary AND galag format (8-byte header: "GALG" + uint32 size)
+// Returns allocated PSRAM buffer (caller owns), or nullptr on failure
+unsigned char* arcadeLoadRomFromSD(const char* path, uint32_t &outSize) {
+  outSize = 0;
+  File f = SD.open(path, FILE_READ);
+  if (!f || f.isDirectory()) {
+    if (f) f.close();
+    return nullptr;
+  }
+  uint32_t fileSize = f.size();
+  if (fileSize == 0 || fileSize > 512 * 1024) { // max 512KB per ROM
+    f.close();
+    return nullptr;
+  }
+
+  // Detect galag header format: first 4 bytes = "GALG" (0x47 0x41 0x4C 0x47)
+  uint32_t dataOffset = 0;
+  uint32_t dataSize = fileSize;
+  if (fileSize > 8) {
+    unsigned char header[8];
+    size_t hrd = f.read(header, 8);
+    if (hrd == 8 && header[0] == 0x47 && header[1] == 0x41 &&
+        header[2] == 0x4C && header[3] == 0x47) {
+      // GALG header detected - read data size from header (little-endian uint32)
+      dataSize = header[4] | (header[5] << 8) | (header[6] << 16) | (header[7] << 24);
+      dataOffset = 8;
+      if (dataSize == 0 || dataSize > fileSize - 8) {
+        dataOffset = 0;
+        dataSize = fileSize;
+        f.seek(0);  // Reset to start
+      }
+    } else {
+      // No GALG header - raw binary, seek back to start
+      f.seek(0);
+    }
+  }
+
+  unsigned char* buf = (unsigned char*)ps_malloc(dataSize);
+  if (!buf) {
+    f.close();
+    return nullptr;
+  }
+
+  // Read in 4KB chunks
+  uint32_t offset = 0;
+  while (offset < dataSize) {
+    uint32_t chunk = (dataSize - offset > 4096) ? 4096 : (dataSize - offset);
+    size_t rd = f.read(buf + offset, chunk);
+    if (rd == 0) break;
+    offset += rd;
+    yield();
+  }
+  f.close();
+  if (offset != dataSize) {
+    free(buf);
+    return nullptr;
+  }
+  outSize = dataSize;
+  return buf;
+}
+
+// Map machineType to SD folder name
+const char* arcadeGetRomFolder(uint8_t machineType) {
+  switch (machineType) {
+    case MCH_PACMAN:   return "PACMAN";
+    case MCH_GALAGA:   return "GALAGA";
+    case MCH_DKONG:    return "DKONG";
+    case MCH_FROGGER:  return "FROGGER";
+    case MCH_DIGDUG:   return "DIGDUG";
+    case MCH_1942:     return "1942";
+    case MCH_EYES:     return "EYES";
+    case MCH_MRTNT:    return "MRTNT";
+    case MCH_LIZWIZ:   return "LIZWIZ";
+    case MCH_THEGLOB:  return "THEGLOB";
+    case MCH_CRUSH:    return "CRUSH";
+    case MCH_ANTEATER: return "ANTEATER";
+    case MCH_LADYBUG:  return "LADYBUG";
+    case MCH_XEVIOUS:  return "XEVIOUS";
+    case MCH_BOMBJACK: return "BOMBJACK";
+    case MCH_GYRUSS:   return "GYRUSS";
+    default:           return nullptr;
+  }
+}
+
+// Map machine type to galag-style lowercase folder name (fallback path)
+const char* arcadeGetRomFolderGalag(uint8_t machineType) {
+  switch (machineType) {
+    case MCH_PACMAN:   return "pacman";
+    case MCH_GALAGA:   return "galaga";
+    case MCH_DKONG:    return "dkong";
+    case MCH_FROGGER:  return "frogger";
+    case MCH_DIGDUG:   return "digdug";
+    case MCH_1942:     return "1942";
+    case MCH_EYES:     return "eyes";
+    case MCH_MRTNT:    return "mrtnt";
+    case MCH_LIZWIZ:   return "lizwiz";
+    case MCH_THEGLOB:  return "theglob";
+    case MCH_CRUSH:    return "crush";
+    case MCH_ANTEATER: return "anteater";
+    case MCH_LADYBUG:  return "ladybug";
+    case MCH_XEVIOUS:  return "xevious";
+    case MCH_BOMBJACK: return "bombjack";
+    case MCH_GYRUSS:   return "gyruss";
+    default:           return nullptr;
+  }
+}
+
+// Try to find a ROM file, checking multiple paths:
+// 1. /ARCADE/GALAGA/rom1.bin  (oraQuadra format)
+// 2. /roms/galaga/rom1.bin    (galag original format)
+// Returns true and fills outPath if found
+bool arcadeFindRomFile(char* outPath, size_t pathLen, const char* folder, const char* galagFolder, const char* fileName) {
+  // Try oraQuadra path first
+  snprintf(outPath, pathLen, "/ARCADE/%s/%s", folder, fileName);
+  if (SD.exists(outPath)) return true;
+  // Try galag path
+  if (galagFolder) {
+    snprintf(outPath, pathLen, "/roms/%s/%s", galagFolder, fileName);
+    if (SD.exists(outPath)) return true;
+  }
+  return false;
+}
+
+// Load external ROMs from SD for a machine
+// Searches both /ARCADE/GAME/ and /roms/game/ (galag compatibility)
+// Supports raw binary and GALG header format
+// Generic: rom1.bin, rom2.bin, rom3.bin (indices 0,1,2)
+// 1942 extra: rom1_b0.bin, rom1_b1.bin, rom1_b2.bin (indices 2,3,4)
+void arcadeLoadExternalRoms(machineBase* machine, uint8_t machineType) {
+  const char* folder = arcadeGetRomFolder(machineType);
+  if (!folder) return;
+  const char* galagFolder = arcadeGetRomFolderGalag(machineType);
+
+  // Generic ROM loading (rom1..rom3 → indices 0..2)
+  int genericMax = (machineType == MCH_1942) ? 2 : EXTERNAL_ROM_MAX;
+  int loadedCount = 0;
+  for (int i = 0; i < genericMax; i++) {
+    char romName[20];
+    snprintf(romName, sizeof(romName), "rom%d.bin", i + 1);
+    char path[64];
+    bool found = arcadeFindRomFile(path, sizeof(path), folder, galagFolder, romName);
+    if (found) {
+      uint32_t sz = 0;
+      unsigned char* data = arcadeLoadRomFromSD(path, sz);
+      if (data) {
+        machine->externalRom[i] = data;
+        machine->externalRomSize[i] = sz;
+        loadedCount++;
+      }
+    }
+  }
+
+  // 1942 bank ROMs: rom1_b0.bin→idx2, rom1_b1.bin→idx3, rom1_b2.bin→idx4
+  if (machineType == MCH_1942) {
+    const char* bankNames[] = {"rom1_b0.bin", "rom1_b1.bin", "rom1_b2.bin"};
+    for (int b = 0; b < 3; b++) {
+      char path[64];
+      bool found = arcadeFindRomFile(path, sizeof(path), folder, galagFolder, bankNames[b]);
+      if (found) {
+        uint32_t sz = 0;
+        unsigned char* data = arcadeLoadRomFromSD(path, sz);
+        if (data) {
+          machine->externalRom[2 + b] = data;
+          machine->externalRomSize[2 + b] = sz;
+        }
+      }
+    }
+  }
+}
+
+// ===== Required ROM count per machine type =====
+// Returns how many rom1..romN.bin files are needed (CPU ROMs only, not 1942 banks)
+int arcadeRequiredRomCount(uint8_t machineType) {
+  switch (machineType) {
+    case MCH_GALAGA:   return 3;  // CPU1 + CPU2 + CPU3
+    case MCH_DIGDUG:   return 3;  // CPU1 + CPU2 + CPU3
+    case MCH_XEVIOUS:  return 3;  // CPU1 + CPU2 + CPU3
+    case MCH_DKONG:    return 2;  // CPU1 + CPU2 (audio)
+    case MCH_FROGGER:  return 2;  // CPU1 + CPU2
+    case MCH_ANTEATER: return 2;  // CPU1 + CPU2
+    case MCH_1942:     return 2;  // CPU1 + CPU2 (+ banks loaded separately)
+    case MCH_GYRUSS:   return 0;  // All ROMs embedded in PROGMEM (SD optional)
+    case MCH_LADYBUG:  return 0;  // All ROMs embedded in PROGMEM (SD optional)
+    default:           return 1;  // Single CPU: pacman, eyes, mrtnt, lizwiz, theglob, crush
+  }
+}
+
+// Minimum expected ROM sizes per machine type (0 = no check)
+// Returns minimum expected data size in bytes for romIndex (0-based)
+// MAME or galag files may be equal or larger; smaller = definitely wrong
+uint32_t arcadeExpectedRomSize(uint8_t machineType, int romIndex) {
+  switch (machineType) {
+    case MCH_PACMAN:   if (romIndex == 0) return 16384; break;
+    case MCH_GALAGA:   if (romIndex == 0) return 16384; if (romIndex == 1) return 4096; if (romIndex == 2) return 4096; break;
+    case MCH_DIGDUG:   if (romIndex == 0) return 16384; if (romIndex == 1) return 8192; if (romIndex == 2) return 4096; break;
+    case MCH_DKONG:    if (romIndex == 0) return 16384; if (romIndex == 1) return 4096; break;
+    case MCH_FROGGER:  if (romIndex == 0) return 12288; if (romIndex == 1) return 6144; break;
+    case MCH_ANTEATER: if (romIndex == 0) return 16384; if (romIndex == 1) return 4096; break;
+    case MCH_1942:     if (romIndex == 0) return 32768; if (romIndex == 1) return 16384; break;
+    case MCH_EYES:     if (romIndex == 0) return 16384; break;
+    case MCH_MRTNT:    if (romIndex == 0) return 16384; break;
+    case MCH_LIZWIZ:   if (romIndex == 0) return 16384; break;
+    case MCH_THEGLOB:  if (romIndex == 0) return 16384; break;
+    case MCH_CRUSH:    if (romIndex == 0) return 16384; break;
+    case MCH_LADYBUG:  if (romIndex == 0) return 24576; break;
+    case MCH_XEVIOUS:  if (romIndex == 0) return 16384; if (romIndex == 1) return 8192; if (romIndex == 2) return 4096; break;
+    case MCH_BOMBJACK: if (romIndex == 0) return 40960; break;
+    case MCH_GYRUSS:   if (romIndex == 0) return 24576; if (romIndex == 1) return 8192; if (romIndex == 2) return 16384; break;
+  }
+  return 0;
 }
 
 // ===== Create Machine Instance =====
@@ -424,6 +771,18 @@ machineBase* arcadeCreateMachine(uint8_t type) {
 #ifdef ENABLE_ANTEATER
     case MCH_ANTEATER: return new anteater();
 #endif
+#ifdef ENABLE_LADYBUG
+    case MCH_LADYBUG: return new ladybug();
+#endif
+#ifdef ENABLE_XEVIOUS
+    case MCH_XEVIOUS: return new xevious();
+#endif
+#ifdef ENABLE_BOMBJACK
+    case MCH_BOMBJACK: return new bombjack();
+#endif
+#ifdef ENABLE_GYRUSS
+    case MCH_GYRUSS: return new gyruss();
+#endif
     default: return nullptr;
   }
 }
@@ -432,42 +791,113 @@ machineBase* arcadeCreateMachine(uint8_t type) {
 void arcadeStartGame(int8_t index) {
   if (index < 0 || index >= arcadeMachineCount) return;
 
-  unsigned long tStart = millis();
-  Serial.printf("[ARCADE] Starting game: %s\n", arcadeGames[index].name);
-
-  // Show loading screen BEFORE any potentially slow operations
+  // Loading screen with game icon
   gfx->fillScreen(BLACK);
   gfx->setFont((const GFXfont *)NULL);
-  gfx->setTextColor(0xFFE0);  // Yellow
+
+  // Draw game icon at center-top (2x scale via offset)
+  uint16_t gameCol = arcadeGetGameColor(arcadeGames[index].machineType);
+  arcadeDrawGameIcon(240, 140, arcadeGames[index].machineType);
+
+  // Color bar under icon
+  gfx->fillRect(160, 190, 160, 4, gameCol);
+
+  // Loading text
+  gfx->setTextColor(0xFFE0);
   gfx->setTextSize(3);
-  gfx->setCursor(110, 200);
+  gfx->setCursor(110, 220);
   gfx->print("LOADING");
   gfx->setTextSize(2);
-  gfx->setTextColor(0x7BEF);
+  gfx->setTextColor(gameCol);
   gfx->setCursor(100, 260);
   gfx->printf("%s...", arcadeGames[index].name);
 
-  // Create machine instance
-  unsigned long t0 = millis();
+  // Debug info in lower area
+  esp_reset_reason_t rstReason = esp_reset_reason();
+  const char* rstName =
+    rstReason == ESP_RST_POWERON ? "POWER-ON" :
+    rstReason == ESP_RST_SW ? "SOFTWARE" :
+    rstReason == ESP_RST_PANIC ? "PANIC!" :
+    rstReason == ESP_RST_INT_WDT ? "INT WDT!" :
+    rstReason == ESP_RST_TASK_WDT ? "TASK WDT!" :
+    rstReason == ESP_RST_WDT ? "WDT!" :
+    rstReason == ESP_RST_BROWNOUT ? "BROWNOUT!" :
+    rstReason == ESP_RST_DEEPSLEEP ? "DEEPSLEEP" : "OTHER";
+  gfx->setTextSize(1);
+  gfx->setTextColor(rstReason <= ESP_RST_SW ? 0x5AEB : 0xF800);
+  gfx->setCursor(30, 400);
+  gfx->printf("Reset: %s (%d)", rstName, (int)rstReason);
+  gfx->setTextColor(0x4A49);
+  gfx->setCursor(30, 416);
+  gfx->printf("Crash flag: %d  Last game: %d", arcadeCrashFlag, arcadeCrashGame);
+  gfx->setCursor(30, 432);
+  gfx->printf("Heap: %d  PSRAM: %d", ESP.getFreeHeap(), ESP.getFreePsram());
+  delay(4000);  // 4 seconds to read
+
+  // Set crash tracking flag (cleared on normal game exit)
+  arcadeCrashFlag = 1;
+  arcadeCrashGame = arcadeGames[index].machineType;
+
+  // Create machine
   arcadeCurrentMachine = arcadeCreateMachine(arcadeGames[index].machineType);
   if (!arcadeCurrentMachine) {
-    Serial.println("[ARCADE] Failed to create machine!");
+    gfx->setTextColor(0xF800);
+    gfx->setCursor(100, 300);
+    gfx->print("ERRORE!");
+    delay(2000);
     return;
   }
-  Serial.printf("[ARCADE] createMachine took %lu ms\n", millis() - t0);
 
-  // Initialize machine with buffers (PROGMEM ROMs - should be instant)
-  t0 = millis();
+  // Load ROMs from SD
+  arcadeLoadExternalRoms(arcadeCurrentMachine, arcadeGames[index].machineType);
+
+  // Verify all required ROMs were loaded
+  int requiredRoms = arcadeRequiredRomCount(arcadeGames[index].machineType);
+  int loadedOk = 0;
+  for (int ri = 0; ri < requiredRoms; ri++) {
+    if (arcadeCurrentMachine->hasExtRom(ri)) loadedOk++;
+  }
+  if (loadedOk < requiredRoms) {
+    gfx->setTextSize(1);
+    gfx->setTextColor(0xF800);
+    gfx->setCursor(60, 300);
+    gfx->print("ROM mancanti! Serve /ARCADE con i .bin");
+    delete arcadeCurrentMachine;
+    arcadeCurrentMachine = nullptr;
+    arcadeInMenu = true;
+    delay(3000);
+    gfx->fillScreen(BLACK);
+    arcadeDrawMenu();
+    return;
+  }
+
+  // Apply ROM pointers, init, reset
+  arcadeCurrentMachine->applyExternalRoms();
   arcadeCurrentMachine->init(&arcadeInput, arcadeFrameBuffer, arcadeSpriteBuffer, arcadeMemory);
   arcadeCurrentMachine->reset();
-  Serial.printf("[ARCADE] init+reset took %lu ms\n", millis() - t0);
+
+  // Allocate full-frame buffer for rotated games (ROT90/ROT270)
+  if (arcadeCurrentMachine->gameRotation() != 0) {
+    arcadeAllocateFullFrame(arcadeCurrentMachine->gameWidth(), arcadeCurrentMachine->gameHeight());
+  }
 
   // Start arcade audio synthesis for this game
   if (arcadeAudio) arcadeAudio->start(arcadeCurrentMachine);
 
-  // Draw borders and control overlay
-  gfx->fillRect(0, 0, ARC_OFFSET_X, 480, 0x0000);               // Left border
-  gfx->fillRect(ARC_OFFSET_X + ARC_OUT_W, 0, 480 - ARC_OFFSET_X - ARC_OUT_W, 480, 0x0000); // Right border
+  // Draw borders and control overlay - use rotated output dimensions if applicable
+  int rot = arcadeCurrentMachine->gameRotation();
+  int dispW, dispH;
+  if (rot == 90 || rot == 270) {
+    dispW = (arcadeCurrentMachine->gameHeight() * 3) / 2;  // 224*1.5 = 336
+    dispH = (arcadeCurrentMachine->gameWidth() * 3) / 2;   // 256*1.5 = 384
+  } else {
+    int gw = arcadeCurrentMachine->gameWidth();
+    dispW = (gw > ARC_GAME_W) ? ARC_OUT_W_WIDE : ARC_OUT_W;
+    dispH = (gw > ARC_GAME_W) ? 28 * 12 : ARC_BATCH_OUT_H * 3;
+  }
+  int dispOffX = (480 - dispW) / 2;
+  gfx->fillRect(0, 0, dispOffX, 480, 0x0000);
+  gfx->fillRect(dispOffX + dispW, 0, 480 - dispOffX - dispW, 480, 0x0000);
   arcadeDrawControlOverlay();
 
   arcadeInMenu = false;
@@ -477,44 +907,46 @@ void arcadeStartGame(int8_t index) {
   arcadeCoinState = 0;
   arcadeStartState = 0;
   arcadeFrameCount = 0;
-  arcadeBootStartMs = millis();   // Start boot timer
+  arcadeBootFrames = 0;
+  arcadeBootStartMs = millis();
   arcadeLastFrameTime = millis();
 
   // Create emulation task on Core 0
   BaseType_t taskResult = xTaskCreatePinnedToCore(
     arcadeEmulationTask,
     "arcadeZ80",
-    8192,                 // 8KB stack (Z80 callbacks use several nested virtual calls)
+    32768,
     nullptr,
-    2,                    // Priority 2 (higher than idle)
+    2,
     &arcadeEmulationTaskHandle,
     ARCADE_EMULATION_CORE
   );
 
   if (taskResult != pdPASS) {
-    Serial.printf("[ARCADE] ERROR: Failed to create emulation task! (err=%d, free heap=%d)\n",
-                  taskResult, ESP.getFreeHeap());
-    // Show error on screen
-    gfx->fillRect(80, 300, 320, 30, BLACK);
-    gfx->setTextColor(0xF800);
     gfx->setTextSize(1);
-    gfx->setCursor(80, 304);
-    gfx->print("ERROR: Cannot start emulation task!");
+    gfx->setTextColor(0xF800);
+    gfx->setCursor(80, 300);
+    gfx->printf("TASK FAIL! heap=%d", ESP.getFreeHeap());
     arcadeInMenu = true;
+    delay(3000);
+    gfx->fillScreen(BLACK);
+    arcadeDrawMenu();
     return;
   }
 
-  Serial.printf("[ARCADE] Game started in %lu ms, emulation on Core 0 (heap=%d)\n",
-                millis() - tStart, ESP.getFreeHeap());
 }
 
 // ===== Stop Game =====
 void arcadeStopGame() {
+  // Clear crash tracking flag (normal exit, not a crash)
+  arcadeCrashFlag = 0;
+
   // Delete emulation task
   if (arcadeEmulationTaskHandle) {
     vTaskDelete(arcadeEmulationTaskHandle);
     arcadeEmulationTaskHandle = nullptr;
-    Serial.println("[ARCADE] Emulation task deleted");
+    // Let FreeRTOS idle task reclaim the 32KB task stack before we proceed
+    vTaskDelay(pdMS_TO_TICKS(50));
   }
 
   // Stop arcade audio before deleting machine
@@ -524,6 +956,12 @@ void arcadeStopGame() {
   if (arcadeCurrentMachine) {
     delete arcadeCurrentMachine;
     arcadeCurrentMachine = nullptr;
+  }
+
+  // Free full-frame rotation buffer (112KB PSRAM, used by Bomb Jack etc.)
+  if (arcadeFullFrame) {
+    free(arcadeFullFrame);
+    arcadeFullFrame = nullptr;
   }
 
   // Clear input
@@ -539,11 +977,15 @@ void arcadeStopGame() {
   // Redraw menu
   gfx->fillScreen(BLACK);
   arcadeDrawMenu();
+
 }
 
 // ===== Emulation Task (Core 0) =====
 void arcadeEmulationTask(void* param) {
-  Serial.println("[ARCADE-EMU] Task started on Core 0");
+  // Rimuovi questo task dal Task Watchdog Timer
+  // Il WDT di Core 0 puo' scattare durante boot lunghi (Digdug ~950+ frame)
+  esp_task_wdt_delete(NULL);
+
   unsigned long emuStart = millis();
   int bootFrames = 0;
 
@@ -551,25 +993,48 @@ void arcadeEmulationTask(void* param) {
   while (true) {
     if (arcadeCurrentMachine) {
       if (!arcadeCurrentMachine->game_started) {
-        // FAST BOOT: run 20 emulation frames per tick (~20x faster boot)
-        // Pac-Man boot does RAM test + init, takes ~180 frames normally
+        // BOOT: 20 frames per yield (come versione funzionante)
+        // Le sub-CPU (Galaga, DigDug) hanno bisogno di esecuzione continua per bootare
         for (int i = 0; i < 20; i++) {
           arcadeCurrentMachine->run_frame();
           bootFrames++;
-          if (arcadeCurrentMachine->game_started) {
-            Serial.printf("[ARCADE-EMU] Boot done in %d frames, %lu ms\n",
-                          bootFrames, millis() - emuStart);
-            break;
-          }
+          arcadeBootFrames = bootFrames;
+          if (arcadeCurrentMachine->game_started) break;  // esce dal FOR, non dal WHILE
         }
-        vTaskDelay(1);  // Feed watchdog
+
+        // Boot completato? → reset timing per vTaskDelayUntil
+        if (arcadeCurrentMachine->game_started) {
+          lastWake = xTaskGetTickCount();
+          continue;
+        }
+
+        // Boot timeout: 60s max
+        unsigned long elapsed = millis() - emuStart;
+        if (elapsed > 60000) {
+          arcadeCurrentMachine->game_started = -1;
+          while (true) { vTaskDelay(1000); }
+        }
+
+        vTaskDelay(1);  // Yield per idle task Core 0
       } else {
         // Self-timed at 60fps, decoupled from render
         arcadeCurrentMachine->run_frame();
         // Audio: transmit on same core as emulation (no soundregs race).
         // Fills DMA buffer with as many samples as available space allows.
         if (arcadeAudio) arcadeAudio->transmit();
-        vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(16));
+
+        // Frame timing with MANDATORY yield to prevent IDLE task starvation.
+        // Bomb Jack's run_frame (20K Z80 steps ~15-20ms) + transmit (~5ms)
+        // can exceed the 16ms budget. vTaskDelayUntil returns immediately
+        // when deadline is passed, starving IDLE → TWDT reset after 5s.
+        // Fix: always yield at least 1 tick so IDLE task feeds its watchdog.
+        TickType_t now = xTaskGetTickCount();
+        if ((now - lastWake) < pdMS_TO_TICKS(16)) {
+          vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(16));
+        } else {
+          lastWake = now;
+          vTaskDelay(1);  // Mandatory yield even when running behind
+        }
       }
     } else {
       vTaskDelay(10);
@@ -577,8 +1042,19 @@ void arcadeEmulationTask(void* param) {
   }
 }
 
-// ===== Upscale Row: 224x8 -> 336x12 (1.5x nearest-neighbor) =====
+// ===== Adaptive blend: smooth gradients, preserve sprite edges =====
+// Blends only when top RGB bits match (colors similar = same object).
+// Falls back to nearest-neighbor p0 at edges (sprite vs background).
+// Mask 0xE71C = top 3 bits of R(15-13), G(10-8), B(4-2).
+IRAM_ATTR inline unsigned short adaptiveBlend565(unsigned short c1, unsigned short c2) {
+  if (((c1 ^ c2) & 0xE71C) == 0)
+    return ((c1 & 0xF7DE) >> 1) + ((c2 & 0xF7DE) >> 1);
+  return c1;
+}
+
+// ===== Upscale Row: 224x8 -> 336x12 (1.5x adaptive blend) =====
 // 3:2 scaling: every 2 source pixels become 3 destination pixels
+// Middle pixel is blended only if colors are similar (preserves edges)
 // dstOffsetY = vertical offset in destination buffer (for row batching)
 IRAM_ATTR void arcadeUpscaleRow(unsigned short* src, unsigned short* dst, int dstOffsetY) {
   // Source line mapping: 0,0,1, 2,2,3, 4,4,5, 6,6,7 (3:2 pattern)
@@ -592,16 +1068,40 @@ IRAM_ATTR void arcadeUpscaleRow(unsigned short* src, unsigned short* dst, int ds
     if (outY > 0 && srcLineMap[outY] == srcLineMap[outY - 1]) {
       memcpy(dstLine, dstLine - ARC_OUT_W, ARC_OUT_W * sizeof(unsigned short));
     } else {
-      // Unique line: horizontal 3:2 scaling (224 -> 336 pixels)
+      // Unique line: horizontal 3:2 adaptive scaling (224 -> 336 pixels)
       // Colormap data is big-endian (pre-swapped for SPI displays).
-      // RGB parallel panel expects little-endian: byte-swap each pixel.
+      // RGB parallel panel expects little-endian: byte-swap BEFORE blend.
       unsigned short* srcLine = src + srcLineMap[outY] * ARC_GAME_W;
       int dstX = 0;
       for (int srcX = 0; srcX < ARC_GAME_W; srcX += 2) {
         unsigned short p0 = __builtin_bswap16(srcLine[srcX]);
         unsigned short p1 = __builtin_bswap16(srcLine[srcX + 1]);
         dstLine[dstX]     = p0;
-        dstLine[dstX + 1] = p0;
+        dstLine[dstX + 1] = adaptiveBlend565(p0, p1);
+        dstLine[dstX + 2] = p1;
+        dstX += 3;
+      }
+    }
+  }
+}
+
+// ===== Upscale Row for 256-wide games: 256x8 -> 384x12 (1.5x adaptive blend) =====
+IRAM_ATTR void arcadeUpscaleRowWide(unsigned short* src, unsigned short* dst, int dstOffsetY) {
+  static const uint8_t srcLineMap[12] = {0,0,1, 2,2,3, 4,4,5, 6,6,7};
+
+  for (int outY = 0; outY < 12; outY++) {
+    unsigned short* dstLine = dst + (dstOffsetY + outY) * ARC_OUT_W_WIDE;
+
+    if (outY > 0 && srcLineMap[outY] == srcLineMap[outY - 1]) {
+      memcpy(dstLine, dstLine - ARC_OUT_W_WIDE, ARC_OUT_W_WIDE * sizeof(unsigned short));
+    } else {
+      unsigned short* srcLine = src + srcLineMap[outY] * ARC_GAME_W_MAX;
+      int dstX = 0;
+      for (int srcX = 0; srcX < ARC_GAME_W_MAX; srcX += 2) {
+        unsigned short p0 = __builtin_bswap16(srcLine[srcX]);
+        unsigned short p1 = __builtin_bswap16(srcLine[srcX + 1]);
+        dstLine[dstX]     = p0;
+        dstLine[dstX + 1] = adaptiveBlend565(p0, p1);
         dstLine[dstX + 2] = p1;
         dstX += 3;
       }
@@ -626,55 +1126,193 @@ void updateArcade() {
   // Game is running - render frame
   if (!arcadeCurrentMachine) return;
 
+  // Merge ESP-NOW joystick in variabile locale (NON modificare arcadeButtonState
+  // perche' arcadeClearTouchInput lo resetta solo al rilascio del dito, non ogni frame,
+  // e un |= accumulerebbe bit che non vengono mai puliti)
+  extern volatile uint8_t espNowJoystickButtons;
+  uint8_t merged = arcadeButtonState | (espNowJoystickButtons & 0x9F);
+
   // ALWAYS update input (even during Z80 boot)
-  arcadeInput.setButtons(arcadeButtonState);
+  arcadeInput.setButtons(merged);
   arcadeUpdateButtonStateMachines();
 
   // FAST BOOT: skip rendering during Z80 boot, show progress on screen
-  if (!arcadeCurrentMachine->game_started) {
+  if (arcadeCurrentMachine->game_started != 1) {
+    // Boot timeout detected (game_started == -1)
+    if (arcadeCurrentMachine->game_started == -1) {
+      gfx->fillScreen(BLACK);
+      gfx->setFont(u8g2_font_helvB14_tr);
+      gfx->setTextColor(0xF800);  // Red
+      gfx->setCursor(80, 180);
+      gfx->print("BOOT TIMEOUT");
+      gfx->setFont((const GFXfont *)NULL);
+      gfx->setTextSize(1);
+      gfx->setTextColor(0x7BEF);
+      gfx->setCursor(80, 220);
+      gfx->print("Il gioco non ha completato il boot.");
+      gfx->setCursor(80, 240);
+      gfx->print("Verifica che tutti i file ROM siano");
+      gfx->setCursor(80, 260);
+      gfx->print("presenti e corretti sulla SD card.");
+
+      // Show final diagnostic state
+      gfx->setTextColor(0x5AEB);
+      gfx->setCursor(80, 290);
+      gfx->printf("Frames: %d", arcadeBootFrames);
+      gfx->setCursor(80, 306);
+      gfx->printf("PC0=0x%04X PC1=0x%04X PC2=0x%04X",
+                  arcadeCurrentMachine->getPC(0),
+                  arcadeCurrentMachine->getPC(1),
+                  arcadeCurrentMachine->getPC(2));
+
+      // Show ROM sizes for verification
+      int reqRoms = arcadeRequiredRomCount(arcadeGames[arcadeSelectedGame].machineType);
+      for (int ri = 0; ri < reqRoms; ri++) {
+        gfx->setCursor(80, 326 + ri * 14);
+        uint32_t sz = arcadeCurrentMachine->externalRomSize[ri];
+        uint32_t exp = arcadeExpectedRomSize(arcadeGames[arcadeSelectedGame].machineType, ri);
+        if (sz < exp && exp > 0) {
+          gfx->setTextColor(0xFBE0);
+          gfx->printf("ROM%d: %uB (min %u!)", ri + 1, sz, exp);
+        } else {
+          gfx->setTextColor(0x5AEB);
+          gfx->printf("ROM%d: %uB OK", ri + 1, sz);
+        }
+      }
+
+      delay(6000);
+      arcadeStopGame();
+      return;
+    }
+
     unsigned long elapsed = millis() - arcadeBootStartMs;
 
-    // Show animated boot progress so user knows system is NOT frozen
-    gfx->fillRect(100, 280, 280, 20, BLACK);
+    // Show animated boot progress with diagnostic info
+    gfx->fillRect(60, 280, 360, 50, BLACK);
     gfx->setFont((const GFXfont *)NULL);
     gfx->setTextSize(1);
     gfx->setTextColor(0x7BEF);
     gfx->setCursor(110, 284);
-    gfx->printf("Booting Z80... %lu.%lus", elapsed / 1000, (elapsed / 100) % 10);
+    gfx->printf("Booting Z80... %lu.%lus  [%d frames]",
+                elapsed / 1000, (elapsed / 100) % 10, arcadeBootFrames);
 
-    Serial.printf("[ARCADE] Boot wait: %lu ms, game_started=%d\n", elapsed, arcadeCurrentMachine->game_started);
+    // Show CPU PC values (helps diagnose stuck CPUs)
+    gfx->setTextColor(0x5AEB);  // Gray
+    gfx->setCursor(80, 300);
+    gfx->printf("PC0=0x%04X  PC1=0x%04X  PC2=0x%04X",
+                arcadeCurrentMachine->getPC(0),
+                arcadeCurrentMachine->getPC(1),
+                arcadeCurrentMachine->getPC(2));
 
-    delay(100);  // Don't busy-wait, let emulation run on Core 0
+    delay(200);  // Don't busy-wait, let emulation run on Core 0
     return;
   }
 
-  // Boot completed - log once
   if (arcadeFrameCount == 0) {
-    unsigned long bootTime = millis() - arcadeBootStartMs;
-    Serial.printf("[ARCADE] Z80 boot completed in %lu ms, rendering first frame\n", bootTime);
+    // Boot completed - first frame
   }
 
   // Prepare frame (extract sprites from Z80 RAM)
   arcadeCurrentMachine->prepare_frame();
 
-  // Render in batches of 12 tile rows per draw call (3 calls instead of 36)
-  gfx->startWrite();
-  for (int batch = 0; batch < 3; batch++) {
-    int rowStart = batch * ARC_BATCH_ROWS;
+  int gw = arcadeCurrentMachine->gameWidth();
+  int gh = arcadeCurrentMachine->gameHeight();
+  int rotation = arcadeCurrentMachine->gameRotation();
 
-    // Render and upscale 12 tile rows into the batch buffer
-    for (int r = 0; r < ARC_BATCH_ROWS; r++) {
-      int row = rowStart + r;
-      memset(arcadeFrameBuffer, 0, ARC_ROW_PIXELS * sizeof(unsigned short));
-      arcadeCurrentMachine->render_row(row);
-      arcadeUpscaleRow(arcadeFrameBuffer, arcadeScaleBuffer, r * 12);
+  if (rotation != 0 && arcadeFullFrame) {
+    // ===== ROTATED GAME PIPELINE (Bomb Jack ROT90, etc.) =====
+    // Phase 1: Render all native rows into full frame buffer
+    // Yield periodically to prevent starving system tasks (TWDT, WiFi, GDMA).
+    // BG rendering (activated during gameplay) is flash+PSRAM heavy.
+    int natRows = gh / 8;                  // native visible rows (e.g. 224/8 = 28)
+    int rowPixels = gw * 8;               // pixels per native row band
+    for (int nr = 0; nr < natRows; nr++) {
+      memset(arcadeFrameBuffer, 0, rowPixels * sizeof(unsigned short));
+      arcadeCurrentMachine->render_row(nr);
+      memcpy(&arcadeFullFrame[nr * rowPixels], arcadeFrameBuffer, rowPixels * sizeof(unsigned short));
+      if ((nr & 7) == 7) vTaskDelay(1);   // Yield every 8 rows (~3ms chunks)
     }
+    vTaskDelay(1);  // Let RTOS scheduler + GDMA settle between render phases
 
-    // Single blit for the entire batch (336 x 144 pixels)
-    gfx->draw16bitRGBBitmap(ARC_OFFSET_X, ARC_OFFSET_Y + batch * ARC_BATCH_OUT_H,
-                             arcadeScaleBuffer, ARC_OUT_W, ARC_BATCH_OUT_H);
+    // Phase 2: Extract rotated rows and display
+    // After ROT90: output = gh_wide x gw_tall (e.g. 224 x 256)
+    int outNatW = gh;   // rotated output width = native height (224)
+    int outNatH = gw;   // rotated output height = native width (256)
+    int outRows = outNatH / 8;            // output tile rows (256/8 = 32)
+    int outW = (outNatW * 3) / 2;         // upscaled width (224*1.5 = 336)
+    int outH = (outNatH * 3) / 2;         // upscaled height (256*1.5 = 384)
+    int offX = (480 - outW) / 2;
+    int offY = (480 - outH) / 2;
+
+    gfx->startWrite();
+    for (int batch = 0; batch < 3; batch++) {
+      int rowStart = batch * ARC_BATCH_ROWS;
+      int batchRows = outRows - rowStart;
+      if (batchRows <= 0) break;
+      if (batchRows > ARC_BATCH_ROWS) batchRows = ARC_BATCH_ROWS;
+
+      for (int r = 0; r < batchRows; r++) {
+        int outRow = rowStart + r;
+        // Extract ROT90 rotated strip into arcadeFrameBuffer (outNatW wide x 8 tall)
+        for (int l = 0; l < 8; l++) {
+          int natX = outRow * 8 + l;
+          for (int ox = 0; ox < outNatW; ox++) {
+            int natVisY = (gh - 1) - ox;  // ROT90: output X maps to inverted native Y
+            arcadeFrameBuffer[l * outNatW + ox] = arcadeFullFrame[natVisY * gw + natX];
+          }
+        }
+        arcadeUpscaleRow(arcadeFrameBuffer, arcadeScaleBuffer, r * 12);
+      }
+
+      gfx->draw16bitRGBBitmap(offX, offY + batch * ARC_BATCH_OUT_H,
+                               arcadeScaleBuffer, outW, batchRows * 12);
+    }
+    gfx->endWrite();
+  } else {
+    // ===== STANDARD (NON-ROTATED) PIPELINE =====
+    bool isWide = (gw > ARC_GAME_W);
+    int gameRows = isWide ? (gh / 8) : (gh / 8);  // rows from visible height
+    int outW = isWide ? ARC_OUT_W_WIDE : ARC_OUT_W;
+    int gameOutH = gameRows * 12;
+    int offX = (480 - outW) / 2;
+    int offY = (480 - gameOutH) / 2;
+    int rowPixels = gw * 8;
+    int8_t mt = arcadeCurrentMachine->machineType();
+    bool flip180 = (mt == MCH_LADYBUG || mt == MCH_GYRUSS);
+    gfx->startWrite();
+    for (int batch = 0; batch < 3; batch++) {
+      int rowStart = batch * ARC_BATCH_ROWS;
+      int batchRows = gameRows - rowStart;
+      if (batchRows <= 0) break;
+      if (batchRows > ARC_BATCH_ROWS) batchRows = ARC_BATCH_ROWS;
+
+      for (int r = 0; r < batchRows; r++) {
+        int row = rowStart + r;
+        // Ladybug: full 180° flip (MADCTL MY + mirror_x compensation)
+        int renderRow = flip180 ? (gameRows - 1 - row) : row;
+        memset(arcadeFrameBuffer, 0, rowPixels * sizeof(unsigned short));
+        arcadeCurrentMachine->render_row(renderRow);
+        if (flip180) {
+          // Flip Y only: reverse line order within 8-line strip
+          for (int line = 0; line < 4; line++) {
+            unsigned short *a = arcadeFrameBuffer + line * gw;
+            unsigned short *b = arcadeFrameBuffer + (7 - line) * gw;
+            for (int px = 0; px < gw; px++) {
+              unsigned short tmp = a[px]; a[px] = b[px]; b[px] = tmp;
+            }
+          }
+        }
+        if (isWide)
+          arcadeUpscaleRowWide(arcadeFrameBuffer, arcadeScaleBuffer, r * 12);
+        else
+          arcadeUpscaleRow(arcadeFrameBuffer, arcadeScaleBuffer, r * 12);
+      }
+
+      gfx->draw16bitRGBBitmap(offX, offY + batch * ARC_BATCH_OUT_H,
+                               arcadeScaleBuffer, outW, batchRows * 12);
+    }
+    gfx->endWrite();
   }
-  gfx->endWrite();
 
   arcadeFrameCount++;
 }
@@ -694,6 +1332,10 @@ uint16_t arcadeGetGameColor(uint8_t machineType) {
     case MCH_THEGLOB:  return 0x47E0;  // verde lime
     case MCH_CRUSH:    return 0x07FF;  // ciano
     case MCH_ANTEATER: return 0xC380;  // marrone
+    case MCH_LADYBUG:  return 0xF986;  // rosso-arancio (ladybug wings)
+    case MCH_XEVIOUS:  return 0x867F;  // argento-azzurro (cielo)
+    case MCH_BOMBJACK: return 0xFD20;  // arancione acceso (esplosione)
+    case MCH_GYRUSS:   return 0x07FF;  // ciano (spazio)
     default:           return 0xFFFF;
   }
 }
@@ -915,6 +1557,144 @@ void arcadeDrawGameIcon(int cx, int cy, uint8_t machineType) {
       break;
     }
 
+    case MCH_LADYBUG: {
+      // Lady Bug: coccinella rossa con punti neri + antennine + labirinto verde
+      // Corpo (ellisse rossa)
+      gfx->fillCircle(cx, cy, 12, 0xF800);           // corpo rosso
+      gfx->drawCircle(cx, cy, 12, 0x8000);            // contorno scuro
+      // Linea centrale (elitre)
+      gfx->drawLine(cx, cy - 12, cx, cy + 12, BLACK);
+      // Punti neri
+      gfx->fillCircle(cx - 5, cy - 4, 3, BLACK);
+      gfx->fillCircle(cx + 5, cy - 4, 3, BLACK);
+      gfx->fillCircle(cx - 4, cy + 5, 2, BLACK);
+      gfx->fillCircle(cx + 4, cy + 5, 2, BLACK);
+      // Testa
+      gfx->fillCircle(cx, cy - 14, 5, BLACK);
+      // Antenne
+      gfx->drawLine(cx - 3, cy - 18, cx - 8, cy - 22, BLACK);
+      gfx->drawLine(cx + 3, cy - 18, cx + 8, cy - 22, BLACK);
+      gfx->fillCircle(cx - 8, cy - 22, 1, BLACK);
+      gfx->fillCircle(cx + 8, cy - 22, 1, BLACK);
+      // Linee labirinto verdi sotto
+      gfx->fillRect(cx - 18, cy + 16, 36, 2, 0x07E0);
+      gfx->fillRect(cx - 14, cy + 20, 4, 4, 0x07E0);
+      gfx->fillRect(cx + 10, cy + 20, 4, 4, 0x07E0);
+      break;
+    }
+
+    case MCH_XEVIOUS: {
+      // Solvalou dettagliato (vista dall'alto, punta in su)
+      uint16_t bodyDk  = 0x6B6D;  // grigio-azzurro scuro
+      uint16_t bodyMd  = 0x8C71;  // grigio-azzurro medio
+      uint16_t bodyLt  = 0xAD75;  // grigio-azzurro chiaro
+      uint16_t wingDk  = 0x3C1F;  // azzurro ala scuro
+      uint16_t wingLt  = 0x5C7F;  // azzurro ala chiaro
+      uint16_t cockpit = 0x07FF;  // ciano vetro
+      uint16_t cockHi  = 0xAFFF;  // riflesso cockpit
+      uint16_t fireY   = 0xFFE0;  // giallo fuoco
+      uint16_t fireO   = 0xFBE0;  // arancio fuoco
+      uint16_t fireR   = 0xF800;  // rosso fuoco
+      uint16_t terrain = 0x2C60;  // verde terreno
+      uint16_t terrLt  = 0x3CA0;  // verde terreno chiaro
+
+      // Sfondo cielo sfumato (dietro nave)
+      gfx->fillRect(cx - 24, cy - 22, 48, 48, 0x194A);  // blu scuro
+      gfx->fillRect(cx - 22, cy + 16, 44, 10, 0x1129);  // fascia bassa piu' scura
+
+      // Terreno scrollante (pattern strisce verdi)
+      gfx->fillRect(cx - 22, cy + 18, 44, 2, terrain);
+      gfx->fillRect(cx - 18, cy + 22, 12, 1, terrLt);
+      gfx->fillRect(cx + 4,  cy + 21, 10, 1, terrain);
+      gfx->fillRect(cx - 10, cy + 24, 8, 1, terrLt);
+      gfx->fillRect(cx + 8,  cy + 24, 6, 1, terrain);
+
+      // Fusoliera centrale - 3 toni sfumati
+      gfx->fillRect(cx - 4, cy - 12, 8, 22, bodyMd);    // corpo medio
+      gfx->fillRect(cx - 3, cy - 10, 2, 18, bodyLt);    // highlight sinistro
+      gfx->fillRect(cx + 2, cy - 10, 2, 18, bodyDk);    // ombra destro
+      gfx->fillRect(cx - 1, cy - 12, 2, 22, bodyLt);    // spina dorsale chiara
+
+      // Punta (naso affusolato)
+      gfx->fillTriangle(cx, cy - 20, cx - 5, cy - 10, cx + 5, cy - 10, bodyMd);
+      gfx->fillTriangle(cx, cy - 20, cx - 2, cy - 12, cx + 1, cy - 12, bodyLt);
+
+      // Cockpit vetro con riflesso
+      gfx->fillRoundRect(cx - 3, cy - 14, 6, 6, 2, cockpit);
+      gfx->fillRect(cx - 2, cy - 14, 2, 3, cockHi);     // riflesso vetro
+
+      // Ala sinistra - profilo aerodinamico
+      gfx->fillTriangle(cx - 4, cy - 2, cx - 22, cy + 8, cx - 4, cy + 10, wingDk);
+      gfx->fillTriangle(cx - 4, cy - 1, cx - 18, cy + 6, cx - 4, cy + 6, wingLt);
+      gfx->drawLine(cx - 4, cy + 1, cx - 20, cy + 8, bodyDk);  // bordo attacco
+
+      // Ala destra - profilo aerodinamico
+      gfx->fillTriangle(cx + 4, cy - 2, cx + 22, cy + 8, cx + 4, cy + 10, wingDk);
+      gfx->fillTriangle(cx + 4, cy - 1, cx + 18, cy + 6, cx + 4, cy + 6, wingLt);
+      gfx->drawLine(cx + 4, cy + 1, cx + 20, cy + 8, bodyDk);  // bordo attacco
+
+      // Dettagli ali - linee interne
+      gfx->drawLine(cx - 6, cy + 2, cx - 14, cy + 7, bodyMd);
+      gfx->drawLine(cx + 6, cy + 2, cx + 14, cy + 7, bodyMd);
+
+      // Doppio scarico motore sinistro
+      gfx->fillRect(cx - 4, cy + 10, 3, 3, fireY);
+      gfx->fillRect(cx - 4, cy + 13, 3, 2, fireO);
+      gfx->fillRect(cx - 3, cy + 15, 2, 2, fireR);
+
+      // Doppio scarico motore destro
+      gfx->fillRect(cx + 1, cy + 10, 3, 3, fireY);
+      gfx->fillRect(cx + 1, cy + 13, 3, 2, fireO);
+      gfx->fillRect(cx + 2, cy + 15, 2, 2, fireR);
+      break;
+    }
+
+    case MCH_BOMBJACK: {
+      // Bomb Jack: bomba nera con miccia + personaggio che salta
+      uint16_t bomb = 0x2104;   // grigio scuro
+      uint16_t fuse = 0xFD20;   // arancione
+      uint16_t spark = 0xFFE0;  // giallo
+      uint16_t hero = 0x07FF;   // ciano (Jack)
+      // Bomba
+      gfx->fillCircle(cx - 4, cy + 4, 12, bomb);
+      // Highlight
+      gfx->fillCircle(cx - 8, cy, 3, 0x4208);
+      // Miccia
+      gfx->drawLine(cx + 6, cy - 6, cx + 10, cy - 12, fuse);
+      gfx->drawLine(cx + 10, cy - 12, cx + 8, cy - 14, fuse);
+      // Scintilla
+      gfx->fillCircle(cx + 8, cy - 15, 2, spark);
+      gfx->drawPixel(cx + 6, cy - 17, spark);
+      gfx->drawPixel(cx + 11, cy - 16, spark);
+      // Jack (piccolo, che salta)
+      gfx->fillCircle(cx + 14, cy - 6, 3, hero);     // testa
+      gfx->fillRect(cx + 13, cy - 2, 3, 6, hero);    // corpo
+      gfx->drawLine(cx + 11, cy, cx + 13, cy + 3, hero);  // braccio
+      gfx->drawLine(cx + 16, cy, cx + 18, cy - 2, hero);  // braccio
+      break;
+    }
+
+    case MCH_GYRUSS: {
+      // Gyruss: navicella al centro di cerchi concentrici (tunnel spaziale)
+      uint16_t ring1 = 0x0410;  // blu scuro
+      uint16_t ring2 = 0x04BF;  // blu medio
+      uint16_t ring3 = 0x07FF;  // ciano
+      uint16_t ship  = 0xFFFF;  // bianco
+      // Cerchi concentrici (tunnel)
+      gfx->drawCircle(cx, cy, 18, ring1);
+      gfx->drawCircle(cx, cy, 13, ring2);
+      gfx->drawCircle(cx, cy, 8, ring3);
+      // Navicella al centro (vista dall'alto)
+      gfx->fillTriangle(cx, cy - 5, cx - 4, cy + 3, cx + 4, cy + 3, ship);
+      gfx->fillRect(cx - 1, cy + 3, 3, 3, ring3);  // motore
+      // Stelline decorative
+      gfx->drawPixel(cx - 12, cy - 10, 0xFFFF);
+      gfx->drawPixel(cx + 14, cy + 6, 0xFFFF);
+      gfx->drawPixel(cx + 8, cy - 14, 0xFFFF);
+      gfx->drawPixel(cx - 16, cy + 4, 0xFFFF);
+      break;
+    }
+
     default: {
       // Fallback: punto interrogativo
       gfx->drawCircle(cx, cy, 16, 0xFFFF);
@@ -931,7 +1711,8 @@ void arcadeDrawGameIcon(int cx, int cy, uint8_t machineType) {
 void arcadeDrawGameCard(int col, int row, int gameIndex) {
   int x = AM_MARGIN + col * AM_COL_STEP;
   int y = AM_GRID_TOP + row * AM_ROW_STEP;
-  uint16_t color = arcadeGetGameColor(arcadeGames[gameIndex].machineType);
+  bool enabled = arcadeGames[gameIndex].enabled;
+  uint16_t color = enabled ? arcadeGetGameColor(arcadeGames[gameIndex].machineType) : 0x4208; // grigio se OFF
 
   // Background card
   gfx->fillRoundRect(x, y, AM_CELL_W, AM_CELL_H, 8, AM_CARD_BG);
@@ -947,9 +1728,27 @@ void arcadeDrawGameCard(int col, int row, int gameIndex) {
   int nameW = strlen(arcadeGames[gameIndex].name) * 7;
   int nameX = x + (AM_CELL_W - nameW) / 2;
   if (nameX < x + 2) nameX = x + 2;
-  gfx->setTextColor(0xC618);
+  gfx->setTextColor(enabled ? 0xC618 : 0x4208);
   gfx->setCursor(nameX, y + AM_CELL_H - 10);
   gfx->print(arcadeGames[gameIndex].name);
+
+  // Overlay scacchiera + "OFF" se disabilitato
+  if (!enabled) {
+    // Scacchiera semitrasparente (pattern 4x4)
+    for (int py = y + 4; py < y + AM_CELL_H - 4; py += 8) {
+      for (int px = x + 4; px < x + AM_CELL_W - 4; px += 8) {
+        if (((px + py) / 8) % 2 == 0)
+          gfx->fillRect(px, py, 4, 4, 0x0841); // scuro
+      }
+    }
+    // Badge "OFF"
+    gfx->fillRoundRect(x + AM_CELL_W / 2 - 20, y + 40, 40, 18, 4, 0x7800); // rosso scuro
+    gfx->setFont((const GFXfont *)NULL);
+    gfx->setTextColor(0xFBE0); // giallo
+    gfx->setTextSize(1);
+    gfx->setCursor(x + AM_CELL_W / 2 - 9, y + 44);
+    gfx->print("OFF");
+  }
 }
 
 // ===== Draw Game Selection Menu (4x3 Grid) =====
@@ -972,9 +1771,27 @@ void arcadeDrawMenu() {
   gfx->setCursor(200, 30);
   gfx->print("ARCADE");
 
-  // Draw game cards in 4x3 grid
-  for (int i = 0; i < arcadeMachineCount; i++) {
-    arcadeDrawGameCard(i % AM_COLS, i / AM_COLS, i);
+  // Draw game cards in 4x3 grid (paginated)
+  int totalPages = (arcadeMachineCount + AM_PER_PAGE - 1) / AM_PER_PAGE;
+  if (arcadeMenuPage >= totalPages) arcadeMenuPage = 0;
+  int startIdx = arcadeMenuPage * AM_PER_PAGE;
+  int endIdx = startIdx + AM_PER_PAGE;
+  if (endIdx > arcadeMachineCount) endIdx = arcadeMachineCount;
+
+  for (int i = startIdx; i < endIdx; i++) {
+    int slot = i - startIdx;
+    arcadeDrawGameCard(slot % AM_COLS, slot / AM_COLS, i);
+  }
+
+  // Page indicator + arrows (only if multiple pages)
+  if (totalPages > 1) {
+    gfx->setFont((const GFXfont *)NULL);
+    gfx->setTextColor(0xFFFF);
+    gfx->setTextSize(1);
+    // Right arrow ">" at top-right
+    gfx->fillRoundRect(430, 5, 45, 30, 4, 0x4208);
+    gfx->setCursor(445, 14);
+    gfx->printf("%d/%d", arcadeMenuPage + 1, totalPages);
   }
 
   // Instructions at bottom
@@ -1161,16 +1978,32 @@ void handleArcadeMenuTouch(int x, int y) {
     return;
   }
 
+  // Page indicator tap: top-right corner -> next page
+  int totalPages = (arcadeMachineCount + AM_PER_PAGE - 1) / AM_PER_PAGE;
+  if (totalPages > 1 && x > 420 && y < 40) {
+    arcadeMenuPage = (arcadeMenuPage + 1) % totalPages;
+    arcadeDrawMenu();
+    return;
+  }
+
   // Grid hit test: seleziona gioco
   if (y >= AM_GRID_TOP && y < AM_GRID_TOP + AM_ROWS * AM_ROW_STEP) {
     int col = (x - AM_MARGIN) / AM_COL_STEP;
     int row = (y - AM_GRID_TOP) / AM_ROW_STEP;
     if (col >= 0 && col < AM_COLS && row >= 0 && row < AM_ROWS) {
-      int idx = row * AM_COLS + col;
+      int idx = arcadeMenuPage * AM_PER_PAGE + row * AM_COLS + col;
       if (idx < arcadeMachineCount) {
-        // Visual feedback: highlight card
         int cx = AM_MARGIN + col * AM_COL_STEP;
         int cy = AM_GRID_TOP + row * AM_ROW_STEP;
+        if (!arcadeGames[idx].enabled) {
+          // Flash rosso per gioco disabilitato
+          gfx->drawRoundRect(cx, cy, AM_CELL_W, AM_CELL_H, 8, 0xF800);
+          gfx->drawRoundRect(cx + 1, cy + 1, AM_CELL_W - 2, AM_CELL_H - 2, 7, 0xF800);
+          delay(300);
+          arcadeDrawGameCard(col, row, idx); // ridisegna card
+          return;
+        }
+        // Visual feedback: highlight card
         uint16_t color = arcadeGetGameColor(arcadeGames[idx].machineType);
         gfx->drawRoundRect(cx, cy, AM_CELL_W, AM_CELL_H, 8, color);
         gfx->drawRoundRect(cx + 1, cy + 1, AM_CELL_W - 2, AM_CELL_H - 2, 7, color);

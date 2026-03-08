@@ -16,13 +16,17 @@ void anteater::reset() {
 }
 
 unsigned char anteater::opZ80(unsigned short Addr) {
-  if (current_cpu == 0) return ROM_CPU1_ARR[Addr];
-  else return ROM_CPU2_ARR[Addr];
+  if (current_cpu == 0)
+    return (Addr < 16384) ? pRom1[Addr] : 0xFF;
+  else
+    return (Addr < 4096) ? pRom2[Addr] : 0xFF;
 }
 
 unsigned char anteater::rdZ80(unsigned short Addr) {
   if(current_cpu == 0) {
-    if(Addr <= 0x3fff) return ROM_CPU1_ARR[Addr];
+    if(Addr <= 0x3fff) {
+      return pRom1[Addr];
+    }
     if((Addr & 0xf800) == 0x8000) return memory[Addr - 0x8000];
     if((Addr >= 0x8800) & (Addr <= 0x8bff)) return memory[Addr - 0x8800 + 0x800];
     if((Addr >= 0x9800) && (Addr <= 0x9803)) {
@@ -50,7 +54,9 @@ unsigned char anteater::rdZ80(unsigned short Addr) {
     if((Addr >= 0xa000) & (Addr <= 0xa003)) return 0x00;
     if(Addr == 0xb000) return 0x00;
   } else {
-    if(Addr < 4096) return ROM_CPU2_ARR[Addr];
+    if(Addr < 4096) {
+      return pRom2[Addr];
+    }
     if((Addr & 0xf000) == 0x8000) return memory[Addr - 0x8000 + 0x0d00];
   }
   return 0xff;

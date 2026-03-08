@@ -9,13 +9,20 @@
 #define LOGO_ARR     lizwiz_logo
 
 unsigned char lizwiz::opZ80(unsigned short Addr) {
-  if(Addr < 16384) return ROM_ARR[Addr];
-  else return ROM_ARR[Addr - 0x4000];
+  if(Addr < 16384)
+    return pRom1[Addr];
+  else {
+    unsigned short mapped = Addr - 0x4000;
+    return (mapped < 16384) ? pRom1[mapped] : 0xFF;
+  }
 }
 
 unsigned char lizwiz::rdZ80(unsigned short Addr) {
-  if(Addr < 16384) return ROM_ARR[Addr];
-  else if (Addr >= 0x8000 && Addr <= 0xbfff) return ROM_ARR[Addr - 0x4000];
+  if(Addr < 16384) {
+    return pRom1[Addr];
+  } else if (Addr >= 0x8000 && Addr <= 0xbfff) {
+    return pRom1[Addr - 0x4000];
+  }
   if((Addr & 0xf000) == 0x4000) return memory[Addr - 0x4000];
   if((Addr & 0xf000) == 0x5000) {
     unsigned char keymask = input->buttons_get();

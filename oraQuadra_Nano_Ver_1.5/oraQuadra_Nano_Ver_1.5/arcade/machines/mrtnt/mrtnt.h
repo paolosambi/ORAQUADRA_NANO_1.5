@@ -14,7 +14,7 @@
 class mrtnt : public pacman
 {
 public:
-	mrtnt() { }
+	mrtnt() { pRom1 = mrtnt_rom; }
 	~mrtnt() { }
 
 	signed char machineType() override { return MCH_MRTNT; }

@@ -20,8 +20,14 @@
 class pacman : public machineBase
 {
 public:
-  pacman() { }
+  pacman() {
+    pRom1 = pacman_rom;
+  }
   ~pacman() { }
+
+  void applyExternalRoms() override {
+    if (externalRom[0]) pRom1 = externalRom[0];
+  }
 
   signed char machineType() override { return MCH_PACMAN; }
   unsigned char rdZ80(unsigned short Addr) override;
@@ -37,6 +43,7 @@ public:
   bool hasNamcoAudio() override { return true; }
 
 protected:
+  const unsigned char *pRom1;
   void blit_tile(short row, char col) override;
   void blit_sprite(short row, unsigned char s) override;
   virtual const unsigned short *tileRom(unsigned short addr);

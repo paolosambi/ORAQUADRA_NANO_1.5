@@ -8,11 +8,15 @@
 #define WAVE_ARR     mrtnt_wavetable
 #define LOGO_ARR     mrtnt_logo
 
-unsigned char mrtnt::opZ80(unsigned short Addr) { return ROM_ARR[Addr]; }
+unsigned char mrtnt::opZ80(unsigned short Addr) {
+  return (Addr < 16384) ? pRom1[Addr] : 0xFF;
+}
 
 unsigned char mrtnt::rdZ80(unsigned short Addr) {
   Addr &= 0x7fff;
-  if(Addr < 16384) return ROM_ARR[Addr];
+  if(Addr < 16384) {
+    return pRom1[Addr];
+  }
   if((Addr & 0xf000) == 0x4000) return memory[Addr - 0x4000];
   if((Addr & 0xf000) == 0x5000) {
     unsigned char keymask = input->buttons_get();

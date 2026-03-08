@@ -1,4 +1,3 @@
-
 // ORAQUADRA nano V1.0, By Paolo Sambinello, Alessandro Spagnoletti, Davide Gatti (www.survivalhacking.it)
 // Video Tutorial completo: https://youtu.be/fNRnZvtF9N0 
 // Versione ridotta e semplificato del progetto ORAQUADRA 2: https://youtu.be/DiFU6ITK8QQ / https://github.com/SurvivalHacking/Oraquadra2 
@@ -11,7 +10,7 @@
 //   ATTENZIONE !!!!!   Per una corretta compilazione dovrete selezionare nel gestore schede il core ESP32 in versione 2.0.17  /////
 //                      e nel gestore librerie, la libreria  GFX Library for Arduino  in versione 1.6.0                        /////
 //                      Nelle opzioni come Partition Scheme: HUGE APP e PSRAM: OPI PSRAM
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////11///////////////////////////////////////////////////////////////////////////
 //
 // V1.1  21/10/2025 by Paolo Sambinello
 // - Sistemata la funzionalità di utilizzo con Alexa, il dispositivo viene riconosciuto come lampadina alexa col nome ORAQUADRANANO
@@ -24,7 +23,7 @@
 // - Migliorata la modalità Snake
 //
 // V1.2  24/10/2025 by Paolo Sambinello
-// - Aggiunte nuove modalità Mario e Tron
+// - Aggiunte nuove modalità Mario e Tron1
 //
 // V1.3  05/11/2025 by Paolo Sambinello
 // - Aggiunta nuove modalità Galaga
@@ -848,6 +847,9 @@ void setup_arcade_webserver(AsyncWebServer* server);
 extern bool arcadeInitialized;
 extern int8_t arcadeSelectedGame;
 extern bool arcadeInMenu;
+extern uint16_t arcadeEnabledMask;
+void arcadeDrawMenu();
+bool arcadeRomsAvailable();
 // BLE Gamepad (53_BLE_GAMEPAD.ino)
 void bleGamepadInit();
 void bleGamepadCleanup();

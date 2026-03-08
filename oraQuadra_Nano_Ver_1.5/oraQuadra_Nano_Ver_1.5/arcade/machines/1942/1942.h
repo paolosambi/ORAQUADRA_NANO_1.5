@@ -20,8 +20,22 @@
 class _1942 : public machineBase
 {
 public:
-	_1942() { }
+	_1942() {
+		pRom1 = _1942_rom_cpu1;
+		pRom2 = _1942_rom_cpu2;
+		pRomB0 = _1942_rom_cpu1_b0;
+		pRomB1 = _1942_rom_cpu1_b1;
+		pRomB2 = _1942_rom_cpu1_b2;
+	}
 	~_1942() { }
+
+	void applyExternalRoms() override {
+		if (externalRom[0]) pRom1 = externalRom[0];
+		if (externalRom[1]) pRom2 = externalRom[1];
+		if (externalRom[2]) pRomB0 = externalRom[2];
+		if (externalRom[3]) pRomB1 = externalRom[3];
+		if (externalRom[4]) pRomB2 = externalRom[4];
+	}
 
 	signed char machineType() override { return MCH_1942; }
 	unsigned char rdZ80(unsigned short Addr) override;
@@ -39,6 +53,11 @@ protected:
 	void blit_sprite(short row, unsigned char s) override;
 
 private:
+	const unsigned char *pRom1;
+	const unsigned char *pRom2;
+	const unsigned char *pRomB0;
+	const unsigned char *pRomB1;
+	const unsigned char *pRomB2;
 	void blit_bgtile_row(short row);
 	void lsl64(unsigned long *mask, int pix);
 	void lsr64(unsigned long *mask, int pix);

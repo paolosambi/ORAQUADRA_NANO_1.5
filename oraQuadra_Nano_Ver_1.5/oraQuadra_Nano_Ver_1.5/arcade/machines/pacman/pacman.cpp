@@ -18,14 +18,15 @@
 #define LOGO_ARR     pacman_logo
 
 unsigned char pacman::opZ80(unsigned short Addr) {
-  return ROM_ARR[Addr];
+  return (Addr < 16384) ? pRom1[Addr] : 0xFF;
 }
 
 unsigned char pacman::rdZ80(unsigned short Addr) {
   Addr &= 0x7fff;   // a15 is unused
 
-  if(Addr < 16384)
-    return ROM_ARR[Addr];
+  if(Addr < 16384) {
+    return pRom1[Addr];
+  }
 
   if((Addr & 0xf000) == 0x4000) {
     // this includes spriteram 1

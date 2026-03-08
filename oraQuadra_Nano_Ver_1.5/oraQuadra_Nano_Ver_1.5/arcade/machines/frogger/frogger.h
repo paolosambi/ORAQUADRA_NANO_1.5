@@ -14,8 +14,16 @@
 class frogger : public machineBase
 {
 public:
-	frogger() { }
+	frogger() {
+		pRom1 = frogger_rom_cpu1;
+		pRom2 = frogger_rom_cpu2;
+	}
 	~frogger() { }
+
+	void applyExternalRoms() override {
+		if (externalRom[0]) pRom1 = externalRom[0];
+		if (externalRom[1]) pRom2 = externalRom[1];
+	}
 
 	signed char machineType() override { return MCH_FROGGER; }
 	unsigned char rdZ80(unsigned short Addr) override;
@@ -36,6 +44,9 @@ protected:
 	virtual const unsigned short *tileRom(unsigned short addr);
 	virtual const unsigned short *colorRom(unsigned short addr);
 	virtual const unsigned long *spriteRom(unsigned char flags, unsigned char code);
+
+	const unsigned char *pRom1;
+	const unsigned char *pRom2;
 
 	unsigned char snd_irq_state = 0;
 	unsigned char snd_command;

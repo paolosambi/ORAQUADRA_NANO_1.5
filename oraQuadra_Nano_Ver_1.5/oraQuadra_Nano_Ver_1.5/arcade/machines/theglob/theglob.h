@@ -14,7 +14,7 @@
 class theglob : public pacman
 {
 public:
-	theglob() { }
+	theglob() { pRom1 = theglob_rom; }
 	~theglob() { }
 
 	void init(ArcadeInput *input, unsigned short *framebuffer, sprite_S *spritebuffer, unsigned char *memorybuffer) override;

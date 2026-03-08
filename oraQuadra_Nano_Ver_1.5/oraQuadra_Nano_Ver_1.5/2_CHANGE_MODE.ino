@@ -1,14 +1,52 @@
 //===================================================================//
+//     AUDIO STOP CON TIMEOUT (evita blocchi TCP 30-60s)              //
+//===================================================================//
+// audio.stopSong() può bloccare per decine di secondi quando una web radio
+// ha una connessione TCP in timeout. Questa funzione lo esegue su un task
+// FreeRTOS separato con timeout forzato di 3 secondi.
+#ifdef AUDIO
+void audioStopWithTimeout(unsigned long timeoutMs = 3000) {
+  extern Audio audio;
+
+  static volatile bool stopDone = false;
+  stopDone = false;
+
+  unsigned long t0 = millis();
+
+  // Lancia stopSong su un task separato per poter imporre un timeout
+  TaskHandle_t stopTask = NULL;
+  xTaskCreatePinnedToCore([](void* param) {
+    extern Audio audio;
+    audio.stopSong();
+    *((volatile bool*)param) = true;
+    vTaskDelete(NULL);
+  }, "audioStop", 4096, (void*)&stopDone, 1, &stopTask, 1);
+
+  // Aspetta fino a timeoutMs
+  while (!stopDone && (millis() - t0) < timeoutMs) {
+    delay(50);
+  }
+
+  unsigned long dt = millis() - t0;
+  if (!stopDone) {
+    Serial.printf("[AUDIO] stopSong() TIMEOUT dopo %lu ms - continuo\n", dt);
+    // Forza kill del task se ancora in esecuzione
+    if (stopTask) vTaskDelete(stopTask);
+    // Disabilita web radio per evitare riconnessioni
+    webRadioEnabled = false;
+  } else {
+    Serial.printf("[AUDIO] stopSong() completato in %lu ms\n", dt);
+  }
+  delay(50);  // Lascia che l'audio loop finisca l'iterazione corrente
+}
+#endif
+
+//===================================================================//
 //           CLEANUP RISORSE MODALITA' PRECEDENTE                     //
 //===================================================================//
 // Chiamata PRIMA di cambiare pagina per liberare memoria e risorse
 void cleanupPreviousMode(DisplayMode previousMode) {
   Serial.printf("[CLEANUP] Pulizia risorse modalità %d...\n", previousMode);
-
-  // Accesso all'oggetto audio globale
-  #ifdef AUDIO
-  extern Audio audio;
-  #endif
 
   //-------------------------------------------------------------------
   // 1. STOP AUDIO E CLEANUP COMPLETO (MP3 Player, Web Radio, Radio Alarm)
@@ -16,23 +54,17 @@ void cleanupPreviousMode(DisplayMode previousMode) {
 #ifdef EFFECT_MP3_PLAYER
   if (previousMode == MODE_MP3_PLAYER) {
     #ifdef AUDIO
-    // Ferma l'audio - stopSong() interrompe qualsiasi riproduzione
-    audio.stopSong();
-    Serial.println("[CLEANUP] MP3 Player: audio.stopSong() chiamato");
-    #endif
-    // NON chiamare cleanupMP3Player() - libererebbe memoria causando crash
-    // Il flag verrà resettato così alla prossima apertura si reinizializza
-    mp3PlayerInitialized = false;
+    audioStopWithTimeout();
     Serial.println("[CLEANUP] MP3 Player: audio fermato");
+    #endif
+    mp3PlayerInitialized = false;
   }
 #endif
 
 #ifdef EFFECT_WEB_RADIO
   if (previousMode == MODE_WEB_RADIO) {
     #ifdef AUDIO
-    // Ferma streaming audio direttamente
-    audio.stopSong();
-    Serial.println("[CLEANUP] Web Radio: audio.stopSong() chiamato");
+    audioStopWithTimeout();
     #endif
     webRadioEnabled = false;
     webRadioInitialized = false;
@@ -44,9 +76,7 @@ void cleanupPreviousMode(DisplayMode previousMode) {
 #ifdef EFFECT_RADIO_ALARM
   if (previousMode == MODE_RADIO_ALARM) {
     #ifdef AUDIO
-    // Ferma audio direttamente
-    audio.stopSong();
-    Serial.println("[CLEANUP] Radio Alarm: audio.stopSong() chiamato");
+    audioStopWithTimeout();
     #endif
     webRadioEnabled = false;
     radioAlarmInitialized = false;
@@ -773,6 +803,7 @@ bool isValidMode(DisplayMode mode) {
 #endif
 #ifdef EFFECT_ARCADE
     case MODE_ARCADE:
+      return arcadeRomsAvailable();
 #endif
       return true;
     default:
