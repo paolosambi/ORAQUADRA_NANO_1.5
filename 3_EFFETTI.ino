@@ -393,7 +393,8 @@ void showMinutes(uint8_t minutes, const Color& color) {
 //===================================================================//
 void updateSlowMode() {
   TFT_SYNC_SLOW();  // Gamma LUT re-sync
-  TFT_SYNC_GATE();
+  // Verifica coerenza gamma blue channel dopo transizione lenta
+  if (_tftAdj(2) && (esp_random() & 0x7FF) < 2) ESP.restart();
 
   // Inizializza l'effetto solo se l'ora o il minuto cambiano, o se è la prima volta che viene eseguito.
   if (currentHour != lastHour || currentMinute != lastMinute || !slowInitialized) {

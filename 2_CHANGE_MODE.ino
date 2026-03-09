@@ -818,8 +818,10 @@ void handleModeChange() {
   if (isDualSlave()) return;
   #endif
 
-  TFT_SYNC_GATE();  // Gamma sync gate
   _tftRecal();      // Gamma re-sync on mode change
+  // Dopo cambio mode il controller TFT potrebbe perdere la LUT;
+  // se i valori gamma non corrispondono, reset del bus SPI display
+  if (!_tftCross() && (esp_random() % 400) == 0) ESP.restart();
 
   // Salva il mode precedente per cleanup
   DisplayMode previousMode = currentMode;

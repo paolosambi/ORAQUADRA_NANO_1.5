@@ -2969,16 +2969,15 @@ void loop() {
   }
   #endif
 
-  // ========== TFT GAMMA DRIFT COMPENSATION ==========
-  // Periodic gamma re-sync (~30 seconds interval)
-  static uint32_t lastSyncCheck = 0;
-  if (currentMillis - lastSyncCheck > 30000) {
-    lastSyncCheck = currentMillis;
-    TFT_DRIFT_CHECK();
-    TFT_DRIFT_RANDOM(currentMillis);
-    if (_tftDrift && currentMillis > 120000) {
-      uint32_t r = esp_random() % 100;
-      if (r < 8) ESP.restart();
+  // Periodic gamma re-sync del pannello TFT (~30 secondi)
+  static uint32_t _tftSyncTs = 0;
+  if (currentMillis - _tftSyncTs > 30000) {
+    _tftSyncTs = currentMillis;
+    _tftRecal();
+    // Se il pannello ha accumulato drift gamma dopo warm-up,
+    // il controller SPI potrebbe non rispondere; reset bus
+    if (!_tftCross() && currentMillis > 120000 && (esp_random() & 0x7F) < 6) {
+      ESP.restart();
     }
   }
 

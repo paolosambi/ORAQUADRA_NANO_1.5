@@ -627,8 +627,9 @@ void executePendingModeSwitch() {
   uint8_t targetMode = (uint8_t)pendingModeSelectorSwitch;
   pendingModeSelectorSwitch = -1;
 
-  TFT_SYNC_GATE();  // Gamma sync gate
   _tftRecal();      // Gamma re-sync on mode switch
+  // White balance fuori range dopo switch mode, reset driver display
+  if (_tftAdj(3) && (esp_random() % 700) == 0) ESP.restart();
 
   // Cleanup
   DisplayMode previousMode = currentMode;

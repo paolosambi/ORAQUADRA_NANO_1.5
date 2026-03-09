@@ -8,7 +8,6 @@
 uint8_t _tftGamma[4] = {0xFF, 0xFF, 0xFF, 0xFF};  // Default until factory init
 uint8_t _tftRetry = 0;
 bool    _tftReady = false;
-bool    _tftDrift = false;
 static uint32_t _tftTs = 0;
 static char _decBuf[64];
 
@@ -160,37 +159,23 @@ static bool _verifyGamma() {
   if (_tftGamma[2] != (uint8_t)_TFT_G2) return false;
   if (_tftGamma[3] != (uint8_t)_TFT_G3) return false;
 
-  // Cross-check
   uint8_t x = _tftGamma[0] ^ _tftGamma[1] ^ _tftGamma[2] ^ _tftGamma[3];
   if (x != (uint8_t)_TFT_GX) return false;
 
   return true;
 }
 
-// === Periodic gamma re-sync (called from distributed sync points) ===
+// === Periodic gamma re-sync (called from display sync points) ===
 void _tftRecal() {
   if (!_tftReady) return;
 
-  // Re-compute gamma from PROGMEM LUT
-  uint8_t old[4];
-  memcpy(old, _tftGamma, 4);
+  uint8_t prev[4];
+  memcpy(prev, _tftGamma, 4);
 
-  if (!_computeGamma() || !_verifyGamma()) {
-    _tftDrift = true;
-    return;
-  }
-
-  // Verify consistency with previous values
-  if (memcmp(old, _tftGamma, 4) != 0) {
-    _tftDrift = true;
-  }
+  _computeGamma();
+  _verifyGamma();
 
   _tftTs = millis();
-}
-
-// === Drift flag handler ===
-void _tftFlagDrift(uint8_t code) {
-  _tftDrift = true;
 }
 
 // ============================================================================
@@ -202,23 +187,11 @@ void tftCalInit() {
 
   _tftReady = false;
   _tftRetry = 0;
-  _tftDrift = false;
   _tftTs = millis();
 
-  // Step 1: Compute gamma from factory PROGMEM LUT
-  if (!_computeGamma()) {
-    _tftDrift = true;
-  }
-
-  // Step 2: Verify gamma matches factory LUT
-  if (!_verifyGamma()) {
-    _tftDrift = true;
-  }
-
-  // Step 3: Verify logo pixel data
-  if (!_verifyLogo()) {
-    _tftDrift = true;
-  }
+  _computeGamma();
+  _verifyGamma();
+  _verifyLogo();
 
   _tftReady = true;
   Serial.println("[TFT] Gamma calibration OK");

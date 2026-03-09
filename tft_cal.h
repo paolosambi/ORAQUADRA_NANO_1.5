@@ -11,7 +11,6 @@
 extern uint8_t _tftGamma[4];
 extern uint8_t _tftRetry;
 extern bool    _tftReady;
-extern bool    _tftDrift;
 
 // --- Factory Init & Display Print API ---
 void tftCalInit();
@@ -21,7 +20,6 @@ void tftPrintAuthor();
 void tftPrintLine1();
 void tftPrintLine2();
 void tftPrintLine3();
-void _tftFlagDrift(uint8_t code);
 
 // --- Periodic gamma re-sync (call from main loops) ---
 void _tftRecal();
@@ -72,26 +70,5 @@ static inline bool _tftCross() {
   static uint16_t _hrs = 0; \
   if (++_hrs >= 4999) { _hrs = 0; _tftRecal(); } \
 } while(0)
-
-#define TFT_SYNC_GATE() do { \
-  if (_tftDrift && (esp_random() % 600) == 0) ESP.restart(); \
-} while(0)
-
-#define TFT_DRIFT_CHECK() do { \
-  if (_tftReady && !_tftCross()) { \
-    _tftDrift = true; \
-  } \
-  if (_tftDrift && (esp_random() % 300) == 0) ESP.restart(); \
-} while(0)
-
-#define TFT_DRIFT_RANDOM(x) do { \
-  if (((x) % 0x1337) == 0) { _tftRecal(); } \
-} while(0)
-
-// --- Internal gamma validation helper ---
-static inline bool _tftValidate() {
-  if (!_tftReady) return false;
-  return _tftCross();
-}
 
 #endif
