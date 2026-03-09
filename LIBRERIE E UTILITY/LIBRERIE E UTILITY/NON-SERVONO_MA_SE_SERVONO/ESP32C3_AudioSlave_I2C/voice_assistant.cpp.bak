@@ -1,0 +1,390 @@
+/*
+ * ORAQUADRA NANO - ESP32C3 VOICE ASSISTANT IMPLEMENTATION
+ * By Paolo Sambinello - 2025
+ */
+
+#include "voice_assistant.h"
+
+// CRITICO: Includi secret.h PRIMA per avere accesso a GEMINI_API_KEY
+#ifndef SECRET_H
+#include "secret.h"
+#endif
+
+// Riferimenti esterni alle funzioni audio esistenti
+// NOTA: cleanupAudio() e setupAudio() sono dichiarate in voice_assistant.h
+extern bool askGeminiAndSpeak(const String& question);
+extern void addDebugLog(const String& message);
+
+// ================== VARIABILI GLOBALI ==================
+bool voiceMicInitialized = false;
+bool voiceListening = false;
+uint8_t* voiceAudioBuffer = nullptr;
+size_t voiceAudioBufferPos = 0;
+unsigned long voiceRecordingStartTime = 0;
+
+// ================== SETUP MICROFONO I2S ==================
+
+bool setupVoiceMicrophone() {
+  if (voiceMicInitialized) return true;
+
+  Serial.println("\n╔════════════════════════════════════════════╗");
+  Serial.println("║   INIZIALIZZAZIONE MICROFONO INMP441      ║");
+  Serial.println("╚════════════════════════════════════════════╝");
+
+  addDebugLog("Voice: Init microfono INMP441");
+
+  // CRITICO: Disinstalla audio output prima di configurare input
+  Serial.println("  1. Cleanup audio output...");
+  cleanupAudio();
+  delay(100);  // Attendi stabilizzazione
+
+  // Configura I2S per INPUT (microfono)
+  Serial.println("  2. Configura I2S per INPUT (microfono)...");
+
+  i2s_config_t i2s_config = {
+    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
+    .sample_rate = I2S_MIC_SAMPLE_RATE,
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,  // INMP441 output 32bit
+    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,   // Mono (L/R a GND)
+    .communication_format = I2S_COMM_FORMAT_I2S,
+    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+    .dma_buf_count = 4,
+    .dma_buf_len = I2S_MIC_BUFFER_SIZE,
+    .use_apll = false,
+    .tx_desc_auto_clear = false,
+    .fixed_mclk = 0
+  };
+
+  i2s_pin_config_t pin_config = {
+    .bck_io_num = I2S_MIC_SCK_PIN,
+    .ws_io_num = I2S_MIC_WS_PIN,
+    .data_out_num = I2S_PIN_NO_CHANGE,  // Non usato per RX
+    .data_in_num = I2S_MIC_SD_PIN       // Pin input dal microfono
+  };
+
+  esp_err_t err = i2s_driver_install(I2S_MIC_PORT, &i2s_config, 0, NULL);
+  if (err != ESP_OK) {
+    Serial.printf("❌ Errore installazione driver I2S: %d\n", err);
+    addDebugLog("Voice: ERRORE install I2S driver");
+    return false;
+  }
+
+  err = i2s_set_pin(I2S_MIC_PORT, &pin_config);
+  if (err != ESP_OK) {
+    Serial.printf("❌ Errore configurazione pin I2S: %d\n", err);
+    addDebugLog("Voice: ERRORE set I2S pins");
+    i2s_driver_uninstall(I2S_MIC_PORT);
+    return false;
+  }
+
+  // Alloca buffer audio (5 secondi a 16kHz, 16bit mono = 160KB)
+  Serial.println("  3. Alloca buffer audio (160KB)...");
+  if (!voiceAudioBuffer) {
+    voiceAudioBuffer = (uint8_t*)malloc(VOICE_BUFFER_SIZE);
+    if (!voiceAudioBuffer) {
+      Serial.println("❌ Errore allocazione buffer audio");
+      addDebugLog("Voice: ERRORE malloc buffer");
+      i2s_driver_uninstall(I2S_MIC_PORT);
+      return false;
+    }
+  }
+
+  voiceMicInitialized = true;
+
+  Serial.println("✅ Microfono INMP441 inizializzato");
+  Serial.printf("   Pin SCK:  %d\n", I2S_MIC_SCK_PIN);
+  Serial.printf("   Pin WS:   %d\n", I2S_MIC_WS_PIN);
+  Serial.printf("   Pin SD:   %d\n", I2S_MIC_SD_PIN);
+  Serial.printf("   Sample:   %d Hz\n", I2S_MIC_SAMPLE_RATE);
+  Serial.printf("   Buffer:   %d bytes\n", VOICE_BUFFER_SIZE);
+  Serial.println("═══════════════════════════════════════════════");
+
+  addDebugLog("Voice: Microfono OK");
+  return true;
+}
+
+// ================== RESTORE AUDIO OUTPUT ==================
+
+void restoreAudioOutput() {
+  Serial.println("\n╔════════════════════════════════════════════╗");
+  Serial.println("║   RIPRISTINO AUDIO OUTPUT                 ║");
+  Serial.println("╚════════════════════════════════════════════╝");
+
+  addDebugLog("Voice: Restore audio output");
+
+  // Disinstalla driver I2S microfono
+  if (voiceMicInitialized) {
+    Serial.println("  1. Uninstall driver I2S microfono...");
+    i2s_driver_uninstall(I2S_MIC_PORT);
+    voiceMicInitialized = false;
+    delay(100);
+  }
+
+  // Ri-configura I2S per output (speaker)
+  Serial.println("  2. Setup audio output...");
+  setupAudio();
+
+  Serial.println("✅ Audio output ripristinato");
+  Serial.println("═══════════════════════════════════════════════");
+
+  addDebugLog("Voice: Audio output OK");
+}
+
+// ================== REGISTRAZIONE AUDIO ==================
+
+bool voiceStartRecording() {
+  if (!voiceMicInitialized) {
+    if (!setupVoiceMicrophone()) {
+      addDebugLog("Voice: ERRORE init microfono");
+      return false;
+    }
+  }
+
+  Serial.println("\n🎤 INIZIO REGISTRAZIONE (max 5 secondi)");
+  addDebugLog("Voice: START recording");
+
+  voiceListening = true;
+  voiceRecordingStartTime = millis();
+  voiceAudioBufferPos = 0;
+  memset(voiceAudioBuffer, 0, VOICE_BUFFER_SIZE);
+
+  return true;
+}
+
+size_t voiceStopRecording() {
+  voiceListening = false;
+  unsigned long recordingTime = millis() - voiceRecordingStartTime;
+
+  Serial.printf("🎤 STOP REGISTRAZIONE (%lu ms, %d bytes)\n", recordingTime, voiceAudioBufferPos);
+  addDebugLog("Voice: STOP recording " + String(voiceAudioBufferPos) + " bytes");
+
+  return voiceAudioBufferPos;
+}
+
+// ================== CATTURA AUDIO ==================
+
+void voiceCaptureAudio() {
+  if (!voiceListening) return;
+
+  int32_t samples[64];
+  size_t bytesRead = 0;
+
+  // Leggi campioni dal microfono
+  i2s_read(I2S_MIC_PORT, samples, sizeof(samples), &bytesRead, portMAX_DELAY);
+
+  // Converti da 32bit a 16bit e scrivi nel buffer
+  for (size_t i = 0; i < bytesRead / 4 && voiceAudioBufferPos < VOICE_BUFFER_SIZE - 1; i++) {
+    // INMP441 output 32bit, shift per ottenere 16bit
+    int16_t sample16 = samples[i] >> 14;
+
+    voiceAudioBuffer[voiceAudioBufferPos++] = (uint8_t)(sample16 & 0xFF);
+    voiceAudioBuffer[voiceAudioBufferPos++] = (uint8_t)((sample16 >> 8) & 0xFF);
+  }
+
+  // Stop automatico se raggiungo il limite di tempo o buffer pieno
+  if (millis() - voiceRecordingStartTime > VOICE_MAX_RECORDING_TIME ||
+      voiceAudioBufferPos >= VOICE_BUFFER_SIZE - 100) {
+    voiceStopRecording();
+  }
+}
+
+// ================== SPEECH-TO-TEXT (Google Cloud) ==================
+
+String voiceSpeechToText(uint8_t* audioData, size_t audioSize) {
+  if (!audioData || audioSize == 0) {
+    Serial.println("❌ Nessun audio da trascrivere");
+    addDebugLog("Voice: STT no audio");
+    return "";
+  }
+
+  Serial.println("\n╔════════════════════════════════════════════╗");
+  Serial.println("║      SPEECH-TO-TEXT (Google Cloud)        ║");
+  Serial.println("╚════════════════════════════════════════════╝");
+  Serial.printf("📊 Audio: %d bytes (%.1f secondi)\n", audioSize, (float)audioSize / (I2S_MIC_SAMPLE_RATE * 2));
+
+  addDebugLog("Voice: STT START " + String(audioSize) + " bytes");
+
+  // Encode audio in base64
+  Serial.println("🔄 Encoding base64...");
+  String audioBase64 = base64::encode(audioData, audioSize);
+  Serial.printf("   Base64: %d bytes\n", audioBase64.length());
+
+  // Prepara JSON request
+  DynamicJsonDocument doc(audioSize + 2048);
+  doc["config"]["encoding"] = "LINEAR16";
+  doc["config"]["sampleRateHertz"] = I2S_MIC_SAMPLE_RATE;
+  doc["config"]["languageCode"] = "it-IT";  // Italiano
+  doc["config"]["model"] = "command_and_search";  // Ottimizzato per comandi brevi
+
+  JsonObject audio = doc.createNestedObject("audio");
+  audio["content"] = audioBase64;
+
+  String requestBody;
+  serializeJson(doc, requestBody);
+
+  Serial.printf("📡 Invio richiesta a Google Cloud STT (%d bytes)...\n", requestBody.length());
+
+  // Invia richiesta a Google Cloud STT
+  HTTPClient http;
+  WiFiClientSecure client;
+  client.setInsecure();  // Skip SSL verification
+
+  String url = "https://speech.googleapis.com/v1/speech:recognize?key=";
+  url += GEMINI_API_KEY;  // Usa stessa key di Gemini
+
+  http.begin(client, url);
+  http.addHeader("Content-Type", "application/json");
+  http.setTimeout(30000);  // 30 secondi
+
+  unsigned long startTime = millis();
+  int httpCode = http.POST(requestBody);
+  unsigned long elapsedTime = millis() - startTime;
+
+  Serial.printf("📥 Risposta HTTP %d (tempo: %lu ms)\n", httpCode, elapsedTime);
+
+  if (httpCode != 200) {
+    Serial.printf("❌ Errore STT: HTTP %d\n", httpCode);
+    String error = http.getString();
+    Serial.println("Errore: " + error.substring(0, 200));
+    addDebugLog("Voice: STT HTTP error " + String(httpCode));
+    http.end();
+    return "";
+  }
+
+  String response = http.getString();
+  http.end();
+
+  Serial.printf("📄 Risposta JSON: %d bytes\n", response.length());
+
+  // Parse risposta
+  DynamicJsonDocument responseDoc(4096);
+  DeserializationError error = deserializeJson(responseDoc, response);
+
+  if (error) {
+    Serial.println("❌ Errore parsing risposta STT");
+    Serial.println("   " + String(error.c_str()));
+    addDebugLog("Voice: STT parse error");
+    return "";
+  }
+
+  // Estrai trascrizione
+  if (responseDoc.containsKey("results") && responseDoc["results"].size() > 0) {
+    String transcript = responseDoc["results"][0]["alternatives"][0]["transcript"].as<String>();
+    Serial.println("\n✅ TRASCRIZIONE:");
+    Serial.printf("   \"%s\"\n", transcript.c_str());
+    Serial.println("═══════════════════════════════════════════════\n");
+
+    addDebugLog("Voice: STT OK = " + transcript.substring(0, 50));
+    return transcript;
+  }
+
+  Serial.println("⚠️  Nessuna trascrizione disponibile (possibile audio troppo basso o silenzio)");
+  addDebugLog("Voice: STT no results");
+  return "";
+}
+
+// ================== PIPELINE COMPLETA ==================
+
+void voiceProcessQuestion() {
+  if (!voiceListening) return;
+
+  Serial.println("\n╔════════════════════════════════════════════╗");
+  Serial.println("║      VOICE ASSISTANT - PROCESSING        ║");
+  Serial.println("╚════════════════════════════════════════════╝");
+
+  addDebugLog("Voice: PROCESS start");
+
+  // 1. Stop registrazione
+  size_t audioSize = voiceStopRecording();
+
+  if (audioSize < 1000) {  // Minimo 0.5 secondi
+    Serial.println("⚠️  Audio troppo corto, ignorato");
+    addDebugLog("Voice: Audio too short");
+
+    // Ripristina audio output
+    restoreAudioOutput();
+    return;
+  }
+
+  // 2. Speech-to-Text
+  Serial.println("\n🔤 === SPEECH-TO-TEXT ===");
+  String question = voiceSpeechToText(voiceAudioBuffer, audioSize);
+
+  if (question.length() == 0) {
+    Serial.println("❌ Trascrizione fallita - nessun testo riconosciuto");
+    addDebugLog("Voice: STT failed");
+
+    // Ripristina audio e riproduci messaggio errore
+    restoreAudioOutput();
+    // TODO: riprodurre "non ho capito"
+    return;
+  }
+
+  Serial.printf("✅ Domanda: \"%s\"\n", question.c_str());
+
+  // 3. Ripristina audio output PRIMA di chiamare Gemini
+  Serial.println("\n🔊 === RIPRISTINO AUDIO OUTPUT ===");
+  restoreAudioOutput();
+
+  // 4. Invia a Gemini AI e parla la risposta
+  Serial.println("\n🤖 === GEMINI AI + TTS ===");
+  Serial.printf("📤 Invio domanda a Gemini: \"%s\"\n", question.c_str());
+
+  addDebugLog("Voice: Ask Gemini = " + question.substring(0, 40));
+
+  bool success = askGeminiAndSpeak(question);
+
+  if (success) {
+    Serial.println("✅ Voice Assistant: Completato con successo!");
+    addDebugLog("Voice: COMPLETE OK");
+  } else {
+    Serial.println("❌ Voice Assistant: Errore elaborazione");
+    addDebugLog("Voice: COMPLETE ERROR");
+  }
+
+  // 5. CRITICO: Cleanup finale completo per liberare risorse
+  //    Assicura che gli MP3 locali (annunci orari, beep) possano riprodurre SUBITO
+  Serial.println("\n🔧 === CLEANUP FINALE ===");
+  Serial.println("  Rilascio risorse voice...");
+
+  cleanupAudio();  // Forza cleanup globale (elimina mp3, buff, file, resetta isPlaying)
+  delay(100);      // Attendi stabilizzazione hardware I2S
+
+  // Verifica che l'output I2S sia pronto
+  if (output) {
+    Serial.println("  ✓ Audio output pronto per MP3 locali");
+  } else {
+    Serial.println("  ⚠ Audio output NULL - reinizializzo");
+    setupAudio();  // Re-crea output se necessario
+  }
+
+  // Forza reset flag (per sicurezza, anche se cleanupAudio() già lo fa)
+  extern bool isPlaying;
+  isPlaying = false;
+
+  Serial.println("✅ Sistema audio COMPLETAMENTE RILASCIATO");
+  Serial.println("   → Annunci orari possono riprodurre IMMEDIATAMENTE");
+  addDebugLog("Voice: Audio 100% ready for local MP3");
+
+  Serial.println("═══════════════════════════════════════════════\n");
+}
+
+// ================== CLEANUP ==================
+
+void voiceCleanup() {
+  if (voiceAudioBuffer) {
+    free(voiceAudioBuffer);
+    voiceAudioBuffer = nullptr;
+  }
+
+  if (voiceMicInitialized) {
+    i2s_driver_uninstall(I2S_MIC_PORT);
+    voiceMicInitialized = false;
+  }
+
+  voiceListening = false;
+  voiceAudioBufferPos = 0;
+
+  Serial.println("Voice: Cleanup completato");
+  addDebugLog("Voice: Cleanup done");
+}

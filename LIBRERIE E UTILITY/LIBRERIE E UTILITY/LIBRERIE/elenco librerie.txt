@@ -1,0 +1,16 @@
+Using library ezTime at version 0.8.3 in folder: C:\Arduino\libraries\ezTime 
+Using library Espalexa at version 2.7.0 in folder: C:\Arduino\libraries\Espalexa 
+Using library U8g2 at version 2.36.15 in folder: C:\Arduino\libraries\U8g2_Arduino 
+Using library GFX Library for Arduino at version 1.6.0 in folder: C:\Arduino\libraries\GFX_Library_for_Arduino 
+Using library TAMC_GT911 at version 1.0.2 in folder: C:\Arduino\libraries\gt911-arduino 
+Using library WiFiManager at version 2.0.17 in folder: C:\Arduino\libraries\WiFiManager 
+Using library JPEGDEC at version 1.8.4 in folder: C:\Arduino\libraries\JPEGDEC 
+Using library ESP Async WebServer at version 3.8.1 in folder: C:\Arduino\libraries\ESP_Async_WebServer 
+Using library Async TCP at version 3.4.9 in folder: C:\Arduino\libraries\Async_TCP 
+Using library MyLD2410 at version 1.2.7 in folder: C:\Arduino\libraries\MyLD2410 
+Using library Adafruit BME280 Library at version 2.3.0 in folder: C:\Arduino\libraries\Adafruit_BME280_Library 
+Using library Adafruit BusIO at version 1.17.4 in folder: C:\Arduino\libraries\Adafruit_BusIO 
+Using library Adafruit Unified Sensor at version 1.1.15 in folder: C:\Arduino\libraries\Adafruit_Unified_Sensor 
+Using library ESP8266Audio at version 1.9.7 in folder: C:\Arduino\libraries\ESP8266Audio 
+Using library ArduinoJson at version 6.19.4 in folder: C:\Arduino\libraries\ArduinoJson 
+Using library Adafruit QMC5883P Library at version 1.0.1 in folder: C:\Arduino\libraries\Adafruit_QMC5883P_Library 
